@@ -247,7 +247,7 @@
                     .then(function(data) {
                         let statusSet = false;
                         if (data.success) {
-                            updateStatus.textContent = 'Update complete! Please reboot the system.';
+                            updateStatus.textContent = 'Update complete!';
                             statusSet = true;
                             // After successful update, call /system-restart-services (fire and forget)
                             fetch('/system-restart-services', { method: 'POST' });
