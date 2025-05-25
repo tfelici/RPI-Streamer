@@ -19,24 +19,22 @@ sudo apt-get install gunicorn python3-gevent -y
 printf "Setting up Flask app directory..."
 mkdir -p ~/flask_app
 cd ~/flask_app
-# Download the Flask app files
-printf "Downloading Flask app files...\n"
-wget https://gyropilots.org/updateservices.php?command=getEncoderUpdatesPayload -O flask_app.tgz
-# Check if the download was successful
-if [ $? -ne 0 ]; then
-    echo "Error: Failed to download Flask app files."
-    exit 1
+# dowload the latest files from git
+printf "Downloading latest Flask app files...\n"
+if [ -d .git ]; then
+    echo "Repository already exists, pulling latest changes..."
+    git pull
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to pull the latest changes from the RPI-Encoder repository."
+        exit 1
+    fi
+else
+    git clone https://github.com/tfelici/RPI-Encoder.git .
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to clone the RPI-Encoder repository."
+        exit 1
+    fi
 fi
-# Unzip the downloaded file
-printf "Unzipping Flask app files...\n"
-tar -xzf flask_app.tgz --strip-components=1
-# Check if the unzip was successful
-if [ $? -ne 0 ]; then
-    echo "Error: Failed to unzip Flask app files."
-    exit 1
-fi
-# Remove the downloaded tar file
-rm flask_app.tgz
 # Check if the app.py file exists
 if [ ! -f app.py ]; then
     echo "Error: app.py file not found in the Flask app directory."
