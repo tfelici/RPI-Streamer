@@ -272,7 +272,16 @@ def parse_recording_filename(value):
 
 @app.route('/system-settings')
 def system_settings():
-    return render_template('system_settings.html', active_tab='system_settings')
+    # Pass the current auth and wifi settings to the template
+    auth = {}
+    wifi = {}
+    if os.path.exists('auth.json'):
+        with open('auth.json') as f:
+            auth = json.load(f)
+    if os.path.exists('wifi.json'):
+        with open('wifi.json') as f:
+            wifi = json.load(f)
+    return render_template('system_settings.html', active_tab='system_settings', auth=auth, wifi=wifi)
 
 @app.route('/system-settings-data')
 def system_settings_data():
@@ -383,13 +392,22 @@ def system_do_update():
         try:
             subprocess.run(['sudo', 'systemctl', 'restart', 'flask_app'], check=True)
         except Exception as e:
-            deleted.append(f"Failed to restart flask_app service: {e}")
+            flask_app_restart_error = f"Failed to restart flask_app service: {e}"
+        else:
+            flask_app_restart_error = None
         #restart the mediamtx systemd service if it exists
         try:
             subprocess.run(['sudo', 'systemctl', 'restart', 'mediamtx'], check=True)
         except Exception as e:
-            deleted.append(f"Failed to restart mediamtx service: {e}")
-        return jsonify({'success': True, 'result': pull_result.stdout.strip()})
+            mediamtx_restart_error = f"Failed to restart mediamtx service: {e}"
+        else:
+            mediamtx_restart_error = None
+        result = {'success': True, 'result': pull_result.stdout.strip()}
+        if flask_app_restart_error:
+            result['flask_app_restart_error'] = flask_app_restart_error
+        if mediamtx_restart_error:
+            result['mediamtx_restart_error'] = mediamtx_restart_error
+        return jsonify(result)
     except Exception as e:
         return jsonify({'success': False, 'error': f'Git pull failed: {e}'})
 
