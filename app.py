@@ -413,6 +413,11 @@ def system_do_update():
             result['results'].append(flask_app_restart_error)
         if mediamtx_restart_error:
             result['results'].append(mediamtx_restart_error)
+        # Change ownership of all files to admin:admin
+        try:
+            subprocess.run(['sudo', 'chown', '-R', 'admin:admin', '.'], check=True)
+        except Exception as e:
+            result['results'].append(f"Failed to chown files: {e}")
         return jsonify(result)
     except Exception as e:
         return jsonify({'success': False, 'error': f'Update failed: {e}'})
