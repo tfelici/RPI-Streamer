@@ -246,25 +246,21 @@
                     .then(function(r) { return r.json(); })
                     .then(function(data) {
                         let statusSet = false;
-                        // Prefer explicit success
                         if (data.success) {
                             updateStatus.textContent = 'Update complete! Please reboot the system.';
                             statusSet = true;
-                        }
-                        // If not success, but results contain a clear success message
-                        else if (data.results && data.results.length > 0) {
-                            // Try to find a result line that looks like a success
+                            // After successful update, call /system-restart-services (fire and forget)
+                            fetch('/system-restart-services', { method: 'POST' });
+                        } else if (data.results && data.results.length > 0) {
                             let found = data.results.find(x => /update (complete|successful|succeeded)/i.test(x));
                             if (found) {
                                 updateStatus.textContent = found;
                                 statusSet = true;
                             }
                         }
-                        // Otherwise, show error or fallback
                         if (!statusSet) {
                             updateStatus.textContent = data.error || 'Update failed.';
                         }
-                        // Show results array if present
                         if (data.results && data.results.length > 0) {
                             let html = '<div style="margin-top:10px;"><b>Update Results:</b><ul>';
                             data.results.forEach(function(res) {
@@ -275,15 +271,15 @@
                         } else {
                             updateDetails.innerHTML = '';
                         }
-                        // Show traceback if present (error case)
                         if (data.traceback) {
                             updateDetails.innerHTML += `<pre style=\"color:red;white-space:pre-wrap;word-break:break-all;\"><b>Traceback:</b>\n${data.traceback}</pre>`;
                         }
                         doUpdateBtn.disabled = false;
                     })
                     .catch(function(e) {
-                        updateStatus.textContent = 'Update failed.';
-                        updateDetails.innerHTML = '';
+                        let msg = (e && e.message) ? e.message : (typeof e === 'string' ? e : (e && e.toString ? e.toString() : 'Network or server error.'));
+                        updateStatus.textContent = 'Update failed: ' + msg;
+                        updateDetails.innerHTML = '<pre style="color:red;white-space:pre-wrap;word-break:break-all;">' + msg + '</pre>';
                         doUpdateBtn.disabled = false;
                     });
             };

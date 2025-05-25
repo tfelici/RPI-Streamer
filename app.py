@@ -423,23 +423,32 @@ def system_do_update():
         # Change ownership of all files to admin:admin
         chown = subprocess.run(['sudo', 'chown', '-R', 'admin:admin', '.'], capture_output=True, text=True)
         results.append('chown: ' + chown.stdout.strip() + chown.stderr.strip())
-        # Restart flask_app service
-        try:
-            subprocess.run(['sudo', 'systemctl', 'restart', 'flask_app'], check=True)
-            results.append('flask_app service restarted.')
-        except Exception as e:
-            results.append(f"Failed to restart flask_app: {e}")
-        # Restart mediamtx service
-        try:
-            subprocess.run(['sudo', 'systemctl', 'restart', 'mediamtx'], check=True)
-            results.append('mediamtx service restarted.')
-        except Exception as e:
-            results.append(f"Failed to restart mediamtx: {e}")
         return jsonify({'success': True, 'results': results})
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
         return jsonify({'success': False, 'error': str(e), 'traceback': tb, 'results': results})
 
+@app.route('/system-restart-services', methods=['POST'])
+def restart_services():
+    """
+    Restart flask_app and mediamtx services, returning a results array with status messages.
+    """
+    import subprocess
+    results = []
+    # Restart flask_app service
+    try:
+        subprocess.run(['sudo', 'systemctl', 'restart', 'flask_app'], check=True)
+        results.append('flask_app service restarted.')
+    except Exception as e:
+        results.append(f"Failed to restart flask_app: {e}")
+    # Restart mediamtx service
+    try:
+        subprocess.run(['sudo', 'systemctl', 'restart', 'mediamtx'], check=True)
+        results.append('mediamtx service restarted.')
+    except Exception as e:
+        results.append(f"Failed to restart mediamtx: {e}")
+    return jsonify({'success': True, 'results': results})
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=80, debug=True, threaded=True)
+    app.run(host='0.0.0.0', port=80, debug=False, threaded=True)
