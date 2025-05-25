@@ -347,126 +347,38 @@ def system_settings_reboot():
 @app.route('/system-check-update', methods=['POST'])
 def system_check_update():
     """
-    Check for updates by comparing local files to remote timestamps from gyropilots.org.
-    Returns a string summary of files that need updating, or a message if up to date.
+    Check for updates by comparing the current HEAD with the remote GitHub repository.
+    Returns a summary if updates are available or if the code is up to date.
     """
     try:
-        try:
-            import requests
-        except ImportError:
-            return jsonify({'success': False, 'error': 'Python requests module is not installed. Please install it with "pip install requests".'})
-        url = 'https://gyropilots.org/updateservices.php?command=checkforEncoderUpdates'
-        try:
-            resp = requests.get(url, timeout=10)
-            resp.raise_for_status()
-            remote_files = resp.json()  # Should be {filename: timestamp}
-        except Exception as e:
-            return jsonify({'success': False, 'error': f'Could not fetch update info: {e}'})
-        if not isinstance(remote_files, dict):
-            return jsonify({'success': False, 'error': 'Invalid update info format from server.'})
-        update_info = []
-        # Only consider .py, .html, .png files from remote
-        filtered_remote_files = {fname: ts for fname, ts in remote_files.items() if fname.endswith(('.py', '.html', '.png'))}
-        # Check for new or updated files in filtered_remote_files
-        for fname, remote_ts in filtered_remote_files.items():
-            local_path = os.path.join(os.getcwd(), fname.replace('/', os.sep))
-            if not os.path.isfile(local_path):
-                update_info.append({
-                    'filename': fname,
-                    'action': 'new',
-                    'detail': f"new file available (remote {remote_ts})"
-                })
-            else:
-                try:
-                    local_ts = int(os.path.getmtime(local_path))
-                except Exception:
-                    local_ts = 0
-                if int(remote_ts) > local_ts:
-                    update_info.append({
-                        'filename': fname,
-                        'action': 'update',
-                        'detail': f"outdated (local {local_ts}, remote {remote_ts})"
-                    })
-        # Check for local .py, .html, .png files not in filtered_remote_files (will be deleted)
-        for root, dirs, files in os.walk(os.getcwd()):
-            for file in files:
-                if file.endswith('.py') or file.endswith('.html') or file.endswith('.png'):
-                    rel_path = os.path.relpath(os.path.join(root, file), os.getcwd()).replace('\\', '/')
-                    if rel_path not in filtered_remote_files and not any(u['filename'] == rel_path for u in update_info):
-                        update_info.append({
-                            'filename': rel_path,
-                            'action': 'delete',
-                            'detail': 'file will be deleted'
-                        })
-        if update_info:
-            summary = "Updates are available."
+        # Fetch latest info from remote
+        fetch_result = subprocess.run(['git', 'fetch', 'origin'], capture_output=True, text=True)
+        if fetch_result.returncode != 0:
+            return jsonify({'success': False, 'error': fetch_result.stderr.strip()})
+        # Check if local HEAD is behind remote
+        status_result = subprocess.run(['git', 'status', '-uno'], capture_output=True, text=True)
+        if status_result.returncode != 0:
+            return jsonify({'success': False, 'error': status_result.stderr.strip()})
+        status_output = status_result.stdout
+        if 'Your branch is behind' in status_output:
+            summary = 'Updates are available from the GitHub repository.'
+            return jsonify({'success': True, 'summary': summary, 'updates': True})
         else:
-            summary = "All files are up to date."
-        return jsonify({'success': True, 'summary': summary, 'updates': update_info})
+            summary = 'Your code is up to date with the GitHub repository.'
+            return jsonify({'success': True, 'summary': summary, 'updates': False})
     except Exception as e:
         return jsonify({'success': False, 'error': f'Update check failed: {e}'})
 
 @app.route('/system-do-update', methods=['POST'])
 def system_do_update():
     """
-    Download a .tgz archive of all update files from the remote server and extract it, then delete any local .py, .html, .png files not present in the archive.
+    Pull the latest code from the remote GitHub repository and report the result.
     """
-    import requests
-    import shutil
-    import tarfile
-    import tempfile
     try:
-        # Download the .tgz archive from the remote server
-        tgz_url = 'https://gyropilots.org/updateservices.php?command=getEncoderUpdatesPayload'
-        with requests.get(tgz_url, timeout=60, stream=True) as r:
-            r.raise_for_status()
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.tgz') as tmpf:
-                shutil.copyfileobj(r.raw, tmpf)
-                tgz_path = tmpf.name
-        # List files in the archive (normalize paths)
-        with tarfile.open(tgz_path, 'r:gz') as tar:
-            archive_files = []
-            for m in tar.getmembers():
-                if m.isfile() and m.name.endswith(('.py', '.html', '.png')):
-                    norm_name = m.name.lstrip('./').replace('\\', '/').replace('\\', '/')
-                    archive_files.append(norm_name)
-            # Extract all files to the current working directory, preserving structure
-            tar.extractall(path=os.getcwd())
-        # Delete any local .py, .html, .png files not present in the archive
-        deleted = []
-        for root, dirs, files in os.walk(os.getcwd()):
-            for file in files:
-                if file.endswith('.py') or file.endswith('.html') or file.endswith('.png'):
-                    rel_path = os.path.relpath(os.path.join(root, file), os.getcwd()).replace('\\', '/').lstrip('./')
-                    if rel_path not in archive_files:
-                        try:
-                            os.remove(os.path.join(root, file))
-                            deleted.append(f"Deleted: {rel_path}")
-                        except Exception as e:
-                            deleted.append(f"Failed to delete {rel_path}: {e}")
-        # Change ownership of all extracted files and folders to user and group 'admin'
-        import pwd, grp
-        try:
-            uid = pwd.getpwnam('admin').pw_uid
-            gid = grp.getgrnam('admin').gr_gid
-            for f in archive_files:
-                abs_path = os.path.join(os.getcwd(), f)
-                if os.path.exists(abs_path):
-                    try:
-                        os.chown(abs_path, uid, gid)
-                    except Exception as e:
-                        deleted.append(f"Failed to chown file {f}: {e}")
-            # Also chown all parent directories of extracted files
-            extracted_dirs = set(os.path.dirname(os.path.join(os.getcwd(), f)) for f in archive_files)
-            for d in extracted_dirs:
-                if os.path.exists(d):
-                    try:
-                        os.chown(d, uid, gid)
-                    except Exception as e:
-                        deleted.append(f"Failed to chown dir {d}: {e}")
-        except Exception as e:
-            deleted.append(f"Failed to set ownership to admin: {e}")
-        os.remove(tgz_path)
+        # Pull the latest changes from the remote repository
+        pull_result = subprocess.run(['git', 'pull', 'origin', 'main'], capture_output=True, text=True)
+        if pull_result.returncode != 0:
+            return jsonify({'success': False, 'error': pull_result.stderr.strip()})
         #restart the flask_app systemd service if it exists
         try:
             subprocess.run(['sudo', 'systemctl', 'restart', 'flask_app'], check=True)
@@ -477,9 +389,9 @@ def system_do_update():
             subprocess.run(['sudo', 'systemctl', 'restart', 'mediamtx'], check=True)
         except Exception as e:
             deleted.append(f"Failed to restart mediamtx service: {e}")
-        return jsonify({'success': True, 'results': [f"Extracted: {f}" for f in archive_files] + deleted})
+        return jsonify({'success': True, 'result': pull_result.stdout.strip()})
     except Exception as e:
-        return jsonify({'success': False, 'error': f'Update failed: {e}'})
+        return jsonify({'success': False, 'error': f'Git pull failed: {e}'})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80, debug=True, threaded=True)
