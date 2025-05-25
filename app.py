@@ -381,35 +381,41 @@ def system_check_update():
 @app.route('/system-do-update', methods=['POST'])
 def system_do_update():
     """
-    Pull the latest code from the remote GitHub repository and report the result.
+    Force update the codebase to match the remote GitHub repository (overwriting local changes), then restart services.
     """
     try:
-        # Pull the latest changes from the remote repository
-        pull_result = subprocess.run(['git', 'pull', 'origin', 'main'], capture_output=True, text=True)
-        if pull_result.returncode != 0:
-            return jsonify({'success': False, 'error': pull_result.stderr.strip()})
-        #restart the flask_app systemd service if it exists
+        # Fetch latest changes and hard reset to remote/main
+        fetch_result = subprocess.run(['git', 'fetch', 'origin'], capture_output=True, text=True)
+        if fetch_result.returncode != 0:
+            return jsonify({'success': False, 'error': fetch_result.stderr.strip()})
+        reset_result = subprocess.run(['git', 'reset', '--hard', 'origin/main'], capture_output=True, text=True)
+        if reset_result.returncode != 0:
+            return jsonify({'success': False, 'error': reset_result.stderr.strip()})
+        # Restart the flask_app systemd service if it exists
         try:
             subprocess.run(['sudo', 'systemctl', 'restart', 'flask_app'], check=True)
         except Exception as e:
             flask_app_restart_error = f"Failed to restart flask_app service: {e}"
         else:
             flask_app_restart_error = None
-        #restart the mediamtx systemd service if it exists
+        # Restart the mediamtx systemd service if it exists
         try:
             subprocess.run(['sudo', 'systemctl', 'restart', 'mediamtx'], check=True)
         except Exception as e:
             mediamtx_restart_error = f"Failed to restart mediamtx service: {e}"
         else:
             mediamtx_restart_error = None
-        result = {'success': True, 'result': pull_result.stdout.strip()}
+        result = {
+            'success': True,
+            'results': [(fetch_result.stdout.strip() + '\n' + reset_result.stdout.strip()).strip()]
+        }
         if flask_app_restart_error:
-            result['flask_app_restart_error'] = flask_app_restart_error
+            result['results'].append(flask_app_restart_error)
         if mediamtx_restart_error:
-            result['mediamtx_restart_error'] = mediamtx_restart_error
+            result['results'].append(mediamtx_restart_error)
         return jsonify(result)
     except Exception as e:
-        return jsonify({'success': False, 'error': f'Git pull failed: {e}'})
+        return jsonify({'success': False, 'error': f'Update failed: {e}'})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80, debug=True, threaded=True)

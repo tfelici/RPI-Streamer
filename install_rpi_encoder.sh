@@ -35,6 +35,9 @@ else
         exit 1
     fi
 fi
+#this command is needed to allow the flask app to run in the /home/admin/flask_app directory
+#note: it must run as sudo as the flask app is run as root
+sudo git config --global --add safe.directory ~/flask_app
 # Check if the app.py file exists
 if [ ! -f app.py ]; then
     echo "Error: app.py file not found in the Flask app directory."

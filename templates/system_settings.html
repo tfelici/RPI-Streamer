@@ -212,15 +212,10 @@
                     .then(data => {
                         if (data.success) {
                             updateStatus.textContent = data.summary;
-                            if (data.updates && data.updates.length > 0) {
-                                let html = '<table class="table table-sm table-bordered" style="margin-top:10px;">';
-                                html += '<thead><tr><th>File</th><th>Action</th><th>Detail</th></tr></thead><tbody>';
-                                data.updates.forEach(u => {
-                                    html += `<tr><td>${u.filename}</td><td>${u.action}</td><td>${u.detail}</td></tr>`;
-                                });
-                                html += '</tbody></table>';
-                                updateDetails.innerHTML = html;
+                            // Show update button if updates is true (for new backend)
+                            if (data.updates === true) {
                                 doUpdateBtn.style.display = 'inline-block';
+                                updateDetails.innerHTML = '';
                             } else {
                                 updateDetails.innerHTML = '';
                                 doUpdateBtn.style.display = 'none';
