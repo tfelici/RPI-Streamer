@@ -394,7 +394,7 @@ def system_check_update():
             summary = 'Updates are available from the GitHub repository.'
             return jsonify({'success': True, 'summary': summary, 'updates': True, 'details': details})
         else:
-            summary = 'Your code is up to date with the GitHub repository.'
+            summary = 'Your code is up to date.'
             return jsonify({'success': True, 'summary': summary, 'updates': False})
     except Exception as e:
         return jsonify({'success': False, 'error': f'Update check failed: {e}'})
