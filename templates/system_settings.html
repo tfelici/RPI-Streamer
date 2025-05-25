@@ -212,10 +212,14 @@
                     .then(data => {
                         if (data.success) {
                             updateStatus.textContent = data.summary;
-                            // Show update button if updates is true (for new backend)
                             if (data.updates === true) {
                                 doUpdateBtn.style.display = 'inline-block';
-                                updateDetails.innerHTML = '';
+                                // Show update details if present
+                                if (data.details && data.details.length > 0) {
+                                    updateDetails.innerHTML = '<pre style="white-space:pre-wrap;word-break:break-all;">' + data.details + '</pre>';
+                                } else {
+                                    updateDetails.innerHTML = '';
+                                }
                             } else {
                                 updateDetails.innerHTML = '';
                                 doUpdateBtn.style.display = 'none';
@@ -243,19 +247,23 @@
                     .then(function(data) {
                         if (data.success) {
                             updateStatus.textContent = 'Update complete! Please reboot the system.';
-                            if (data.results && data.results.length > 0) {
-                                let html = '<div style="margin-top:10px;"><b>Update Results:</b><ul>';
-                                data.results.forEach(function(res) {
-                                    html += `<li>${res}</li>`;
-                                });
-                                html += '</ul></div>';
-                                updateDetails.innerHTML = html;
-                            } else {
-                                updateDetails.innerHTML = '';
-                            }
                         } else {
                             updateStatus.textContent = data.error || 'Update failed.';
+                        }
+                        // Show results array if present
+                        if (data.results && data.results.length > 0) {
+                            let html = '<div style="margin-top:10px;"><b>Update Results:</b><ul>';
+                            data.results.forEach(function(res) {
+                                html += `<li>${res}</li>`;
+                            });
+                            html += '</ul></div>';
+                            updateDetails.innerHTML = html;
+                        } else {
                             updateDetails.innerHTML = '';
+                        }
+                        // Show traceback if present (error case)
+                        if (data.traceback) {
+                            updateDetails.innerHTML += `<pre style=\"color:red;white-space:pre-wrap;word-break:break-all;\"><b>Traceback:</b>\n${data.traceback}</pre>`;
                         }
                         doUpdateBtn.disabled = false;
                     })

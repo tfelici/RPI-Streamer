@@ -356,22 +356,43 @@ def system_settings_reboot():
 @app.route('/system-check-update', methods=['POST'])
 def system_check_update():
     """
-    Check for updates by comparing the current HEAD with the remote GitHub repository.
-    Returns a summary if updates are available or if the code is up to date.
+    Check for any differences between local and remote tracked files, ignoring timestamps.
+    Returns updates=True if any file content differs, is missing, or is extra locally.
     """
+    import subprocess, os
     try:
         # Fetch latest info from remote
         fetch_result = subprocess.run(['git', 'fetch', 'origin'], capture_output=True, text=True)
         if fetch_result.returncode != 0:
             return jsonify({'success': False, 'error': fetch_result.stderr.strip()})
-        # Check if local HEAD is behind remote
-        status_result = subprocess.run(['git', 'status', '-uno'], capture_output=True, text=True)
-        if status_result.returncode != 0:
-            return jsonify({'success': False, 'error': status_result.stderr.strip()})
-        status_output = status_result.stdout
-        if 'Your branch is behind' in status_output:
+        # Compare local and remote tracked files (ignoring timestamps)
+        diff_result = subprocess.run(['git', 'diff', '--name-status', 'origin/main'], capture_output=True, text=True)
+        if diff_result.returncode != 0:
+            return jsonify({'success': False, 'error': diff_result.stderr.strip()})
+        diff_output = diff_result.stdout.strip()
+        # Also check for missing files (tracked in remote but missing locally)
+        ls_remote = subprocess.run(['git', 'ls-tree', '-r', '--name-only', 'origin/main'], capture_output=True, text=True)
+        if ls_remote.returncode != 0:
+            return jsonify({'success': False, 'error': ls_remote.stderr.strip()})
+        missing_files = []
+        for filename in ls_remote.stdout.strip().split('\n'):
+            if filename and not os.path.exists(filename):
+                missing_files.append(filename)
+        # Also check for extra local files tracked by git but not in remote (deleted from remote)
+        ls_local = subprocess.run(['git', 'ls-files'], capture_output=True, text=True)
+        if ls_local.returncode != 0:
+            return jsonify({'success': False, 'error': ls_local.stderr.strip()})
+        local_tracked = set(ls_local.stdout.strip().split('\n'))
+        remote_tracked = set(ls_remote.stdout.strip().split('\n'))
+        extra_local = [f for f in local_tracked if f not in remote_tracked]
+        details = diff_output
+        if missing_files:
+            details += ('\n' if details else '') + 'Missing files: ' + ', '.join(missing_files)
+        if extra_local:
+            details += ('\n' if details else '') + 'Extra local files: ' + ', '.join(extra_local)
+        if diff_output or missing_files or extra_local:
             summary = 'Updates are available from the GitHub repository.'
-            return jsonify({'success': True, 'summary': summary, 'updates': True})
+            return jsonify({'success': True, 'summary': summary, 'updates': True, 'details': details})
         else:
             summary = 'Your code is up to date with the GitHub repository.'
             return jsonify({'success': True, 'summary': summary, 'updates': False})
@@ -381,46 +402,44 @@ def system_check_update():
 @app.route('/system-do-update', methods=['POST'])
 def system_do_update():
     """
-    Force update the codebase to match the remote GitHub repository (overwriting local changes), then restart services.
+    Force update the codebase to match the remote GitHub repository (overwriting local changes, restoring missing files, removing extra tracked files), fix permissions, and restart services.
     """
+    import subprocess, os
+    results = []
     try:
-        # Fetch latest changes and hard reset to remote/main
-        fetch_result = subprocess.run(['git', 'fetch', 'origin'], capture_output=True, text=True)
-        if fetch_result.returncode != 0:
-            return jsonify({'success': False, 'error': fetch_result.stderr.strip()})
-        reset_result = subprocess.run(['git', 'reset', '--hard', 'origin/main'], capture_output=True, text=True)
-        if reset_result.returncode != 0:
-            return jsonify({'success': False, 'error': reset_result.stderr.strip()})
-        # Restart the flask_app systemd service if it exists
+        # Fetch latest changes
+        fetch = subprocess.run(['git', 'fetch', 'origin'], capture_output=True, text=True)
+        results.append('git fetch: ' + fetch.stdout.strip() + fetch.stderr.strip())
+        if fetch.returncode != 0:
+            return jsonify({'success': False, 'error': fetch.stderr.strip(), 'results': results})
+        # Hard reset to remote/main (restores missing/tracked files, removes local changes, removes extra tracked files)
+        reset = subprocess.run(['git', 'reset', '--hard', 'origin/main'], capture_output=True, text=True)
+        results.append('git reset: ' + reset.stdout.strip() + reset.stderr.strip())
+        if reset.returncode != 0:
+            return jsonify({'success': False, 'error': reset.stderr.strip(), 'results': results})
+        # Remove extra local files tracked by git but not in remote (deleted from remote)
+        clean = subprocess.run(['git', 'clean', '-fd'], capture_output=True, text=True)
+        results.append('git clean: ' + clean.stdout.strip() + clean.stderr.strip())
+        # Change ownership of all files to admin:admin
+        chown = subprocess.run(['sudo', 'chown', '-R', 'admin:admin', '.'], capture_output=True, text=True)
+        results.append('chown: ' + chown.stdout.strip() + chown.stderr.strip())
+        # Restart flask_app service
         try:
             subprocess.run(['sudo', 'systemctl', 'restart', 'flask_app'], check=True)
+            results.append('flask_app service restarted.')
         except Exception as e:
-            flask_app_restart_error = f"Failed to restart flask_app service: {e}"
-        else:
-            flask_app_restart_error = None
-        # Restart the mediamtx systemd service if it exists
+            results.append(f"Failed to restart flask_app: {e}")
+        # Restart mediamtx service
         try:
             subprocess.run(['sudo', 'systemctl', 'restart', 'mediamtx'], check=True)
+            results.append('mediamtx service restarted.')
         except Exception as e:
-            mediamtx_restart_error = f"Failed to restart mediamtx service: {e}"
-        else:
-            mediamtx_restart_error = None
-        result = {
-            'success': True,
-            'results': [(fetch_result.stdout.strip() + '\n' + reset_result.stdout.strip()).strip()]
-        }
-        if flask_app_restart_error:
-            result['results'].append(flask_app_restart_error)
-        if mediamtx_restart_error:
-            result['results'].append(mediamtx_restart_error)
-        # Change ownership of all files to admin:admin
-        try:
-            subprocess.run(['sudo', 'chown', '-R', 'admin:admin', '.'], check=True)
-        except Exception as e:
-            result['results'].append(f"Failed to chown files: {e}")
-        return jsonify(result)
+            results.append(f"Failed to restart mediamtx: {e}")
+        return jsonify({'success': True, 'results': results})
     except Exception as e:
-        return jsonify({'success': False, 'error': f'Update failed: {e}'})
+        import traceback
+        tb = traceback.format_exc()
+        return jsonify({'success': False, 'error': str(e), 'traceback': tb, 'results': results})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80, debug=True, threaded=True)

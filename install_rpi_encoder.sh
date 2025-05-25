@@ -84,6 +84,13 @@ if [[ "$(basename "$latest_url")" != *.tar.gz ]]; then
 fi
 tar xvf $(basename "$latest_url")
 chmod +x mediamtx
+#delete the downloaded file
+rm $(basename "$latest_url")
+# Check if the mediamtx binary exists
+if [ ! -f mediamtx ]; then
+    echo "Error: MediaMTX binary not found after extraction."
+    exit 1
+fi
 #mv mediamtx.yml flask_app
 
 # Create systemd service for flask app - this must run after the install_rpi_encoder.service
