@@ -245,9 +245,23 @@
                 fetch('/system-do-update', { method: 'POST' })
                     .then(function(r) { return r.json(); })
                     .then(function(data) {
+                        let statusSet = false;
+                        // Prefer explicit success
                         if (data.success) {
                             updateStatus.textContent = 'Update complete! Please reboot the system.';
-                        } else {
+                            statusSet = true;
+                        }
+                        // If not success, but results contain a clear success message
+                        else if (data.results && data.results.length > 0) {
+                            // Try to find a result line that looks like a success
+                            let found = data.results.find(x => /update (complete|successful|succeeded)/i.test(x));
+                            if (found) {
+                                updateStatus.textContent = found;
+                                statusSet = true;
+                            }
+                        }
+                        // Otherwise, show error or fallback
+                        if (!statusSet) {
                             updateStatus.textContent = data.error || 'Update failed.';
                         }
                         // Show results array if present
