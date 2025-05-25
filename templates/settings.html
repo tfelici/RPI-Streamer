@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Settings</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f4; }
+        .frame {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 2em;
+            margin: 2em auto;
+            max-width: 400px;
+            text-align: center;
+        }
+        h1 { color: #333; }
+        label { display: block; margin: 1em 0 0.5em; color: #555; }
+        input[type="text"], input[type="number"], select {
+            width: 90%;
+            padding: 0.5em;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin-bottom: 1em;
+        }
+        button {
+            padding: 0.7em 2em;
+            background: #0078d7;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:disabled { background: #aaa; }
+        .msg { color: green; margin-top: 1em; }
+        nav {
+            background: #222;
+            color: #fff;
+            padding: 0.5em 1em;
+            display: flex;
+            align-items: center;
+        }
+        nav div {
+            font-weight: bold;
+            font-size: 1.2em;
+            margin-right: 2em;
+        }
+        nav a {
+            color: #fff;
+            text-decoration: none;
+            margin-right: 1.5em;
+            padding: 0.5em 1em;
+            border-radius: 4px;
+        }
+        nav a:hover {
+            background: #444;
+        }
+        nav a.active {
+            background: #444;
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div>RPI Encoder</div>
+        <a href="/" class="{% if active_tab == 'home' %}active{% endif %}">Home</a>
+        <a href="/camera-viewer" class="{% if active_tab == 'camera' %}active{% endif %}">Camera Viewer</a>
+        <a href="/settings-page" class="{% if active_tab == 'settings' %}active{% endif %}">Settings</a>
+        <a href="/system-settings" class="{% if active_tab == 'system_settings' %}active{% endif %}">System Settings</a>
+    </nav>
+    <div class="frame">
+        <h1>Settings</h1>
+        <form id="settings-form">
+        <label for="stream_url">Remote Streaming URL</label>
+        <input type="text" id="stream_url" name="stream_url" value="{{ settings.stream_url }}" style="width:100%;padding:0.5em;" placeholder="e.g. rtsp://..., rtmp://..., srt://..., udp://..., http://..., https://..., hls://...">
+
+        <label for="upload_url">Upload Recording Server URL</label>
+        <input type="text" id="upload_url" name="upload_url" value="{{ settings.upload_url }}" style="width:100%;padding:0.5em;" placeholder="e.g. https://gyropilots.org/ajaxservices.php?command=replacerecordings">
+
+        <label for="framerate">Frame Rate (fps)</label>
+        <input type="number" id="framerate" name="framerate" min="1" max="60" required>
+
+        <label for="crf">CRF (Quality, lower is better)</label>
+        <input type="number" id="crf" name="crf" min="10" max="51" required>
+
+        <label for="resolution">Resolution</label>
+        <select id="resolution" name="resolution">
+            <option value="1280x720">HD (1280x720)</option>
+            <option value="640x360">Half HD (640x360)</option>
+            <option value="320x180">Quarter HD (320x180)</option>
+        </select>
+
+        <label for="vbitrate">Video Bitrate (kbps)</label>
+        <input type="number" id="vbitrate" name="vbitrate" min="50" max="5000" required>
+
+        <label for="abitrate">Audio Bitrate</label>
+        <select id="abitrate" name="abitrate" required>
+            <option value="6k">6 kbps</option>
+            <option value="8k">8 kbps</option>
+            <option value="12k">12 kbps</option>
+            <option value="16k">16 kbps</option>
+            <option value="24k">24 kbps</option>
+            <option value="32k">32 kbps</option>
+            <option value="48k">48 kbps</option>
+            <option value="64k">64 kbps</option>
+            <option value="96k">96 kbps</option>
+            <option value="128k">128 kbps</option>
+            <option value="192k">192 kbps</option>
+        </select>
+
+        <label for="ar">Audio Sample Rate (Hz)</label>
+        <select id="ar" name="ar" required>
+            <option value="8000">8000</option>
+            <option value="12000">12000</option>
+            <option value="16000">16000</option>
+            <option value="24000">24000</option>
+            <option value="48000">48000</option>
+        </select>
+
+        <button type="submit">Save</button>
+        <div class="msg" id="msg"></div>
+        </form>
+    </div>
+    <script>
+        // Fetch current settings
+        fetch('/settings')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('stream_url').value = data.stream_url || '';
+                document.getElementById('framerate').value = data.framerate || 5;
+                document.getElementById('crf').value = data.crf || 30;
+                document.getElementById('resolution').value = data.resolution || '1280x720';
+                document.getElementById('vbitrate').value = data.vbitrate || 1000;
+                document.getElementById('abitrate').value = data.abitrate || '128k';
+                document.getElementById('ar').value = data.ar || 8000;
+                document.getElementById('upload_url').value = data.upload_url || '';
+            });
+        document.getElementById('settings-form').onsubmit = async function(e) {
+            e.preventDefault();
+            const stream_url = document.getElementById('stream_url').value.trim();
+            const framerate = document.getElementById('framerate').value;
+            const crf = document.getElementById('crf').value;
+            const resolution = document.getElementById('resolution').value;
+            const vbitrate = document.getElementById('vbitrate').value;
+            const abitrate = document.getElementById('abitrate').value;
+            const ar = document.getElementById('ar').value;
+            const upload_url = document.getElementById('upload_url').value.trim();
+            // Only validate if not empty
+            if (stream_url) {
+                const validProtocols = [
+                    'rtsp://', 'rtsps://', 'rtmp://', 'rtmps://', 'srt://'
+                ];
+                const isValid = validProtocols.some(proto => stream_url.startsWith(proto));
+                if (!isValid) {
+                    document.getElementById('msg').textContent = 'Remote Streaming URL must start with a supported protocol: ' + validProtocols.join(', ');
+                    document.getElementById('msg').style.color = 'red';
+                    return;
+                } else {
+                    document.getElementById('msg').style.color = 'green';
+                }
+            }
+            const resp = await fetch('/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ stream_url, framerate, crf, resolution, vbitrate, abitrate, ar, upload_url })
+            });
+            if (resp.ok) {
+                document.getElementById('msg').textContent = 'Settings saved!';
+            } else {
+                document.getElementById('msg').textContent = 'Failed to save settings.';
+                document.getElementById('msg').style.color = 'red';
+            }
+        };
+    </script>
+</body>
+</html>
