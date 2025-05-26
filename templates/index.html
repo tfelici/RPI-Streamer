@@ -2,12 +2,28 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>{% block title %}System Stats{% endblock %}</title>
-    {% block head %}{% endblock %}
+    <title>System Stats</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f4; }
+        .frame {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 2em;
+            margin: 2em auto;
+            max-width: 400px;
+            text-align: center;
+        }
+        h1 { color: #333; }
+        .stat { font-size: 1.5em; margin: 1em 0; }
+        .label { color: #888; font-size: 0.9em; }
+        .content {
+            padding: 2em;
+        }
+    </style>
 </head>
 <body>
     {% include 'navbar.html' %}
-    {% block content %}
     <div class="frame">
         <h1>System Stats</h1>
         <div class="stat">
@@ -59,6 +75,7 @@
     </div>
     {% endif %}
     <script>
+    // Ensure streaming variable is available before any script uses it
     // eslint-disable-next-line no-unused-vars, no-undef
     var streaming = {{ streaming | tojson | safe }};
     </script>
@@ -543,6 +560,5 @@
                 }
             });
             </script>
-    {% endblock %}
 </body>
 </html>
