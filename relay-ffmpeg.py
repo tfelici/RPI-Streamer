@@ -3,16 +3,7 @@ import json
 import subprocess
 import sys
 import os
-
-SETTINGS_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), '../encoderData/settings.json'))
-
-def get_setting(key, default=None):
-    try:
-        with open(SETTINGS_FILE, 'r') as f:
-            s = json.load(f)
-        return s.get(key, default)
-    except Exception:
-        return default
+from utils import get_setting
 
 def main():
     if len(sys.argv) < 3:

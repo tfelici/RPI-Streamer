@@ -8,8 +8,16 @@ import subprocess
 import re
 from datetime import datetime
 from functools import wraps
+from utils import list_audio_inputs, list_video_inputs
 
 app = Flask(__name__)
+
+@app.after_request
+def add_no_cache_headers(response):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 ENCODER_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../encoderData'))
 STREAM_PIDFILE = "/tmp/webcam-ffmpeg.pid"
@@ -138,17 +146,6 @@ def stats():
             time.sleep(1)
     return Response(event_stream(), mimetype='text/event-stream')
 
-def list_audio_inputs():
-    try:
-        result = subprocess.run(['arecord', '-l'], capture_output=True, text=True)
-        devices = []
-        for line in result.stdout.splitlines():
-            if 'card' in line and 'device' in line:
-                devices.append(line.strip())
-        return devices
-    except Exception:
-        return []
-
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():
     if request.method == 'POST':
@@ -175,6 +172,8 @@ def settings():
             settings['upload_url'] = data['upload_url']
         if 'audio_input' in data:
             settings['audio_input'] = data['audio_input']
+        if 'video_input' in data:
+            settings['video_input'] = data['video_input']
         save_settings(settings)
         return '', 204
     else:
@@ -183,17 +182,23 @@ def settings():
 @app.route('/settings-page')
 def settings_page():
     audio_inputs = list_audio_inputs()
+    video_inputs = list_video_inputs()
     return render_template(
         'settings.html',
         active_tab='settings',
         settings=load_settings(),
         app_version=get_app_version(),
-        audio_inputs=audio_inputs
+        audio_inputs=audio_inputs,
+        video_inputs=video_inputs
     )
 
 @app.route('/audio-inputs') 
 def audio_inputs():
     return jsonify(list_audio_inputs())
+
+@app.route('/video-inputs')
+def video_inputs():
+    return jsonify(list_video_inputs())
 
 @app.route('/stream-control', methods=['POST'])
 def stream_control():
