@@ -455,5 +455,17 @@ def restart_services():
         results.append(f"Failed to restart mediamtx: {e}")
     return jsonify({'success': True, 'results': results})
 
+@app.route('/delete-recording', methods=['POST'])
+def delete_recording():
+    data = request.get_json()
+    file_path = data.get('file_path')
+    if not file_path or not os.path.isfile(file_path):
+        return jsonify({'error': 'Recording file not found.'}), 400
+    try:
+        os.remove(file_path)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': f'Failed to delete: {e}'}), 500
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80, debug=True, threaded=True)
