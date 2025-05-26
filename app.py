@@ -68,10 +68,22 @@ def is_streaming():
     return False
 
 def get_app_version():
-    app_py = os.path.abspath(os.path.join(os.path.dirname(__file__), 'app.py'))
-    if os.path.exists(app_py):
-        mtime = datetime.fromtimestamp(os.path.getmtime(app_py))
-        return mtime.strftime('%Y-%m-%d %H:%M')
+    # Find the latest mtime among all .py, .html, .png files in the project
+    exts = {'.py', '.html', '.png'}
+    latest_mtime = 0
+    latest_file = ''
+    for root, dirs, files in os.walk(os.path.dirname(__file__)):
+        for f in files:
+            ext = os.path.splitext(f)[1].lower()
+            if ext in exts:
+                path = os.path.join(root, f)
+                mtime = os.path.getmtime(path)
+                if mtime > latest_mtime:
+                    latest_mtime = mtime
+                    latest_file = path
+    if latest_mtime:
+        mtime_dt = datetime.fromtimestamp(latest_mtime)
+        return mtime_dt.strftime('%Y-%m-%d %H:%M')
     return ''
 
 @app.route('/')
