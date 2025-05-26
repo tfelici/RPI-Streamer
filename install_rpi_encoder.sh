@@ -5,7 +5,24 @@
 # This script installs the RPI Encoder Flask app and MediaMTX on a Raspberry Pi running Raspberry Pi OS Lite.
 # It also sets up a systemd service for the Flask app and MediaMTX, and installs Tailscale for remote access.
 ################################################
+
 set -e
+
+# Wait for internet connectivity (max 20 seconds)
+for i in {1..20}; do
+    if ping -c 1 github.com &>/dev/null; then
+        echo "Internet is up."
+        break
+    fi
+    echo "Waiting for internet connection..."
+    sleep 1
+done
+
+# If still no connection, exit with error
+if ! ping -c 1 github.com &>/dev/null; then
+    echo "No internet connection after 20 seconds, aborting install."
+    exit 1
+fi
 
 # Update and install dependencies
 sudo apt update && sudo apt upgrade -y
@@ -25,7 +42,7 @@ cd /home/admin/flask_app
 #     Force update the codebase to match the remote GitHub repository (overwriting local changes, restoring missing files, removing extra tracked files), fix permissions, and restart services.
 #     This is useful if the codebase has been modified locally and you want to reset it to the latest version from the remote repository.
 #     If the repository is not already cloned, it will clone it.
-printf "Updating RPI Encoder codebase..."
+echo "Updating RPI Encoder codebase..."
 
 # Check if git is installed
 if ! command -v git &> /dev/null; then
@@ -35,7 +52,6 @@ fi
 
 # If repository exists, force update it
 # If not, clone it fresh
-echo "Current directory: $(pwd)"
 #this command is needed to allow the flask app to run in the /home/admin/flask_app directory
 #note: it must run as sudo as the flask app is run as root
 git config --global --add safe.directory /home/admin/flask_app
@@ -141,7 +157,8 @@ printf "Creating systemd service for this script...\n"
 sudo tee /etc/systemd/system/install_rpi_encoder.service >/dev/null << EOF
 [Unit]
 Description=RPI Encoder Installation Script
-After=network.target
+After=network-online.target
+Wants=network-online.target
 [Service]
 User=admin
 Type=oneshot
