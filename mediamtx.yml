@@ -467,7 +467,7 @@ pathDefaults:
   # Extension is added automatically.
   # Available variables are %path (path name), %Y %m %d (year, month, day),
   # %H %M %S (hours, minutes, seconds), %f (microseconds), %s (unix epoch).
-  recordPath: ./recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordPath: ../encoderData/recordings/%path/%Y-%m-%d_%H-%M-%S-%f
   # Format of recorded segments.
   # Available formats are "fmp4" (fragmented MP4) and "mpegts" (MPEG-TS).
   recordFormat: fmp4
@@ -732,11 +732,11 @@ paths:
     runOnReady: python ./relay-ffmpeg.py $RTSP_PORT $MTX_PATH
     runOnReadyRestart: yes
     record: yes
-    recordPath: ./recordings/%path/%s
+    recordPath: ../encoderData/recordings/%path/%s
     recordDeleteAfter: 0s
     runOnRecordSegmentComplete: > 
       bash -c "
-      /usr/bin/ffmpeg -i $MTX_SEGMENT_PATH -movflags faststart -c copy ./recordings/broadcast/`/usr/bin/echo '$MTX_SEGMENT_PATH' | /usr/bin/grep -oP '\d+(?=\.mp4)'`d$MTX_SEGMENT_DURATION.mp4;
+      /usr/bin/ffmpeg -i $MTX_SEGMENT_PATH -movflags faststart -c copy ../encoderData/recordings/broadcast/`/usr/bin/echo '$MTX_SEGMENT_PATH' | /usr/bin/grep -oP '\d+(?=\.mp4)'`d$MTX_SEGMENT_DURATION.mp4;
       /usr/bin/rm -f $MTX_SEGMENT_PATH;
       "
     

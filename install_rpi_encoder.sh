@@ -18,6 +18,7 @@ sudo apt-get install gunicorn python3-gevent -y
 # Setup flask app directory
 printf "Setting up Flask app directory..."
 mkdir -p ~/flask_app
+mkdir -p ~/encoderData
 cd ~/flask_app
 
 #     Force update the codebase to match the remote GitHub repository (overwriting local changes, restoring missing files, removing extra tracked files), fix permissions, and restart services.

@@ -11,8 +11,9 @@ from functools import wraps
 
 app = Flask(__name__)
 
+ENCODER_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../encoderData'))
 STREAM_PIDFILE = "/tmp/webcam-ffmpeg.pid"
-SETTINGS_FILE = 'settings.json'
+SETTINGS_FILE = os.path.join(ENCODER_DATA_DIR, 'settings.json')
 
 def load_settings():
     settings = {
@@ -72,7 +73,7 @@ def home():
 
     # Gather recording files info
     recording_files = []
-    recording_path = os.path.join('recordings', 'broadcast')
+    recording_path = os.path.join(ENCODER_DATA_DIR, 'recordings', 'broadcast')
     if os.path.isdir(recording_path):
         files = [f for f in os.listdir(recording_path) if os.path.isfile(os.path.join(recording_path, f))]
         files.sort(key=lambda f: os.path.getmtime(os.path.join(recording_path, f)), reverse=True)
@@ -211,7 +212,7 @@ def camera_viewer():
 import json
 
 def get_auth_creds():
-    auth_file = 'auth.json'
+    auth_file = os.path.join(ENCODER_DATA_DIR, 'auth.json')
     if os.path.exists(auth_file):
         with open(auth_file) as f:
             auth = json.load(f)
@@ -280,11 +281,13 @@ def parse_recording_filename(value):
 def get_auth_and_wifi():
     auth = {}
     wifi = {}
-    if os.path.exists('auth.json'):
-        with open('auth.json') as f:
+    auth_path = os.path.join(ENCODER_DATA_DIR, 'auth.json')
+    wifi_path = os.path.join(ENCODER_DATA_DIR, 'wifi.json')
+    if os.path.exists(auth_path):
+        with open(auth_path) as f:
             auth = json.load(f)
-    if os.path.exists('wifi.json'):
-        with open('wifi.json') as f:
+    if os.path.exists(wifi_path):
+        with open(wifi_path) as f:
             wifi = json.load(f)
     return auth, wifi
 
@@ -306,7 +309,8 @@ def system_settings_auth():
     password = data.get('password', '').strip()
     if not username or not password:
         return jsonify({'success': False, 'error': 'Username and password required.'})
-    with open('auth.json', 'w') as f:
+    auth_path = os.path.join(ENCODER_DATA_DIR, 'auth.json')
+    with open(auth_path, 'w') as f:
         json.dump({'username': username, 'password': password}, f)
     return jsonify({'success': True})
 
@@ -317,8 +321,9 @@ def system_settings_wifi():
     password = data.get('password', '').strip()
     if not ssid or not password:
         return jsonify({'success': False, 'error': 'SSID and password required.'})
+    wifi_path = os.path.join(ENCODER_DATA_DIR, 'wifi.json')
     # Save to wifi.json for web UI
-    with open('wifi.json', 'w') as f:
+    with open(wifi_path, 'w') as f:
         json.dump({'ssid': ssid, 'password': password}, f)
     # Write to wpa_supplicant.conf
     wpa_conf = f'''
