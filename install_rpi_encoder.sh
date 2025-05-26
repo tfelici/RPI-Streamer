@@ -8,6 +8,12 @@
 
 set -e
 
+# Check if the script is run as the user "admin"
+if [ "$(whoami)" != "admin" ]; then
+    echo "This script must be run as the user 'admin'."
+    echo "Please switch to the admin user and run the script again."
+    exit 1
+fi
 # Wait for internet connectivity (max 20 seconds)
 for i in {1..20}; do
     if ping -c 1 github.com &>/dev/null; then
@@ -34,9 +40,9 @@ sudo apt-get install gunicorn python3-gevent -y
 
 # Setup flask app directory
 echo "Setting up Flask app directory..."
-mkdir -p /home/admin/flask_app
-mkdir -p /home/admin/encoderData
-cd /home/admin/flask_app
+mkdir -p "$HOME/flask_app"
+mkdir -p "$HOME/encoderData"
+cd "$HOME/flask_app"
 
 
 #     Force update the codebase to match the remote GitHub repository (overwriting local changes, restoring missing files, removing extra tracked files), fix permissions, and restart services.
@@ -52,9 +58,9 @@ fi
 
 # If repository exists, force update it
 # If not, clone it fresh
-#this command is needed to allow the flask app to run in the /home/admin/flask_app directory
+#this command is needed to allow the flask app to run in the flask_app directory
 #note: it must run as sudo as the flask app is run as root
-git config --global --add safe.directory /home/admin/flask_app
+git config --global --add safe.directory "$HOME/flask_app"
 if [ -d .git ]; then
     git fetch --all
     git reset --hard origin/main
@@ -72,9 +78,9 @@ if [ ! -f app.py ]; then
     exit 1
 fi
 #change ownership of the flask_app directory to the admin user
-sudo chown -R admin:admin /home/admin/flask_app
+sudo chown -R admin:admin "$HOME/flask_app"
 # Check if the flask_app directory is writable
-if [ ! -w /home/admin/flask_app ]; then
+if [ ! -w "$HOME/flask_app" ]; then
     echo "Error: Flask app directory is not writable."
     exit 1
 fi
@@ -92,7 +98,7 @@ if [ -z "$latest_url" ]; then
     echo "Error: Could not find the latest MediaMTX release URL."
     exit 1
 fi
-cd /home/admin
+cd "$HOME"
 wget "$latest_url"
 exit_code=$?
 if [ $exit_code -ne 0 ]; then
@@ -129,7 +135,7 @@ Description=RPI Encoder
 After=network.target
 [Service]
 User=root
-WorkingDirectory=/home/admin/flask_app
+WorkingDirectory=$HOME/flask_app
 ExecStart=/usr/bin/python3 app.py
 #ExecStart=/usr/bin/gunicorn -w 1 -k gevent --threads 4 -b 0.0.0.0:80 app:app
 Restart=always
@@ -145,8 +151,8 @@ Description=MediaMTX Streaming Server
 After=network.target
 [Service]
 User=root
-WorkingDirectory=/home/admin/flask_app
-ExecStart=/home/admin/mediamtx /home/admin/flask_app/mediamtx.yml
+WorkingDirectory=$HOME/flask_app
+ExecStart=$HOME/mediamtx $HOME/flask_app/mediamtx.yml
 Restart=always
 [Install]
 WantedBy=multi-user.target
@@ -162,7 +168,7 @@ Wants=network-online.target
 [Service]
 User=admin
 Type=oneshot
-ExecStart=/bin/bash /home/admin/flask_app/install_rpi_encoder.sh
+ExecStart=/bin/bash $HOME/flask_app/install_rpi_encoder.sh
 RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
@@ -177,6 +183,5 @@ sudo systemctl restart mediamtx
 
 
 # Install tailscale
-printf "Installing Tailscale...\n"
-curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up
+#curl -fsSL https://tailscale.com/install.sh | sh
+#sudo tailscale up

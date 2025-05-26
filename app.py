@@ -138,6 +138,17 @@ def stats():
             time.sleep(1)
     return Response(event_stream(), mimetype='text/event-stream')
 
+def list_audio_inputs():
+    try:
+        result = subprocess.run(['arecord', '-l'], capture_output=True, text=True)
+        devices = []
+        for line in result.stdout.splitlines():
+            if 'card' in line and 'device' in line:
+                devices.append(line.strip())
+        return devices
+    except Exception:
+        return []
+
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():
     if request.method == 'POST':
@@ -162,6 +173,8 @@ def settings():
             settings['ar'] = int(data['ar'])
         if 'upload_url' in data:
             settings['upload_url'] = data['upload_url']
+        if 'audio_input' in data:
+            settings['audio_input'] = data['audio_input']
         save_settings(settings)
         return '', 204
     else:
@@ -169,7 +182,18 @@ def settings():
 
 @app.route('/settings-page')
 def settings_page():
-    return render_template('settings.html', active_tab='settings', settings=load_settings(), app_version=get_app_version())
+    audio_inputs = list_audio_inputs()
+    return render_template(
+        'settings.html',
+        active_tab='settings',
+        settings=load_settings(),
+        app_version=get_app_version(),
+        audio_inputs=audio_inputs
+    )
+
+@app.route('/audio-inputs') 
+def audio_inputs():
+    return jsonify(list_audio_inputs())
 
 @app.route('/stream-control', methods=['POST'])
 def stream_control():

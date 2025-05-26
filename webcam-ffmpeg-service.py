@@ -32,9 +32,11 @@ def start(stream_name):
 
     def find_usb_audio_device():
         """
-        Detect and return the first available USB/Headset/Microphone audio capture device and its supported channel count.
+        Detect and return the audio input device as specified in settings (audio_input),
+        or auto-detect the first available USB/Headset/Microphone audio capture device and its supported channel count.
         Returns (device_str, channels) or (None, 2) if not found.
         """
+        audio_input = get_setting('audio_input', None)
         def parse_device_line(line):
             parts = line.split()
             if 'card' in parts and 'device' in parts:
@@ -48,18 +50,16 @@ def start(stream_name):
 
         def get_channels(device_str):
             try:
-                # Try to get output even if arecord fails (e.g., due to device busy, etc.)
                 try:
                     params = subprocess.check_output(
                         ['arecord', '-D', device_str, '--dump-hw-params'],
                         stderr=subprocess.STDOUT, text=True, timeout=2
                     )
                 except subprocess.CalledProcessError as e:
-                    params = e.output  # Still parse output for CHANNELS
+                    params = e.output
                 except Exception as e:
                     print(f"Error running arecord for {device_str}: {e}")
-                    return 2  # fallback to stereo
-                # Only parse lines that are valid text and contain 'CHANNELS:'
+                    return 2
                 for line in params.splitlines():
                     try:
                         line = line.strip()
@@ -67,24 +67,26 @@ def start(stream_name):
                             val = line[len('CHANNELS:'):].replace('[', '').replace(']', '').strip()
                             nums = [int(x) for x in val.split() if x.isdigit()]
                             if nums:
-                                return min(nums)  # Prefer mono if available
+                                return min(nums)
                     except Exception:
-                        continue  # skip lines that can't be parsed as text
-                # Fallback: if 'CHANNELS:' not found, default to 2
+                        continue
                 return 2
             except Exception as e:
                 print(f"Error in get_channels for {device_str}: {e}")
-                return 2  # fallback to stereo
+                return 2
+
+        # If user has selected an audio input, use it
+        if audio_input:
+            # Try to get channels for the selected device string
+            return audio_input, get_channels(audio_input)
 
         try:
             output = subprocess.check_output(['arecord', '-l'], stderr=subprocess.STDOUT, text=True)
-            # Prefer USB/Headset/Microphone devices
             for line in output.splitlines():
                 if 'USB' in line or 'Headset' in line or 'Microphone' in line:
                     device_str = parse_device_line(line)
                     if device_str:
                         return device_str, get_channels(device_str)
-            # Fallback: use the first available capture device
             for line in output.splitlines():
                 if 'card' in line and 'device' in line:
                     device_str = parse_device_line(line)
