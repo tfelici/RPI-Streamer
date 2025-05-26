@@ -39,7 +39,7 @@ pip install requests
 sudo apt-get install gunicorn python3-gevent -y
 
 # Setup flask app directory
-echo "Setting up Flask app directory..."
+echo "Setting up Flask app directory... $HOME/flask_app"
 mkdir -p "$HOME/flask_app"
 mkdir -p "$HOME/encoderData"
 cd "$HOME/flask_app"
