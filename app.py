@@ -67,6 +67,13 @@ def is_streaming():
             pass
     return False
 
+def get_app_version():
+    app_py = os.path.abspath(os.path.join(os.path.dirname(__file__), 'app.py'))
+    if os.path.exists(app_py):
+        mtime = datetime.fromtimestamp(os.path.getmtime(app_py))
+        return mtime.strftime('%Y-%m-%d %H:%M')
+    return ''
+
 @app.route('/')
 def home():
     streaming = is_streaming()
@@ -105,7 +112,7 @@ def home():
         ]
         return jsonify({'files': active_files})
 
-    return render_template('index.html', active_tab='home', streaming=streaming, recording_files=recording_files)
+    return render_template('index.html', active_tab='home', streaming=streaming, recording_files=recording_files, app_version=get_app_version())
 
 @app.route('/stats')
 def stats():
@@ -150,7 +157,7 @@ def settings():
 
 @app.route('/settings-page')
 def settings_page():
-    return render_template('settings.html', active_tab='settings', settings=load_settings())
+    return render_template('settings.html', active_tab='settings', settings=load_settings(), app_version=get_app_version())
 
 @app.route('/stream-control', methods=['POST'])
 def stream_control():
@@ -206,7 +213,7 @@ def upload_recording():
 @app.route('/camera-viewer')
 def camera_viewer():
     streaming = is_streaming()
-    return render_template('camera_viewer.html', active_tab='camera', streaming=streaming)
+    return render_template('camera_viewer.html', active_tab='camera', streaming=streaming, app_version=get_app_version())
 
 # --- Basic HTTP Auth ---
 import json
@@ -295,7 +302,7 @@ def get_auth_and_wifi():
 def system_settings():
     # Pass the current auth and wifi settings to the template
     auth, wifi = get_auth_and_wifi()
-    return render_template('system_settings.html', active_tab='system_settings', auth=auth, wifi=wifi)
+    return render_template('system_settings.html', active_tab='system_settings', auth=auth, wifi=wifi, app_version=get_app_version())
 
 @app.route('/system-settings-data')
 def system_settings_data():

@@ -18,7 +18,7 @@ import fcntl
 import time
 
 PIDFILE = "/tmp/webcam-ffmpeg.pid"
-SETTINGS_FILE = "settings.json"
+SETTINGS_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), '../encoderData/settings.json'))
 
 
 def is_pid_running(pid):

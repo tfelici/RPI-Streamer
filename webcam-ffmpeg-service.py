@@ -7,7 +7,7 @@ import fcntl
 import time
 import threading
 
-SETTINGS_FILE = "settings.json"
+SETTINGS_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), '../encoderData/settings.json'))
 
 def get_setting(key, default=None):
     try:
