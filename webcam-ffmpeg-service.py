@@ -24,8 +24,9 @@ def start(stream_name):
     framerate = get_setting('framerate', 5)
     resolution = get_setting('resolution', '1280x720')
     crf = get_setting('crf', 30)
+    gop = get_setting('gop', 5)  # Keyframe interval in seconds
     vbitrate = get_setting('vbitrate', 1000)  # in kbps
-    ar = get_setting('ar', 44100)  # Audio sample rate in Hz
+    ar = get_setting('ar', 8000)  # Audio sample rate in Hz
     abitrate = get_setting('abitrate', '128k')  # Audio bitrate, default to 128k
     static_img = os.path.join(os.path.dirname(__file__), 'no_camera.png')
 
@@ -145,7 +146,7 @@ def start(stream_name):
             '-crf', str(crf),
             '-b:v', f'{vbitrate}k',
             '-tune', 'zerolatency',
-            '-g', '5',  # Force keyframe every 5 frames for fast startup
+            '-g', str(gop),
             '-keyint_min', '1',
             '-acodec', 'libopus',
             '-ar', str(ar),

@@ -83,8 +83,12 @@
         <label for="crf">CRF (Quality, lower is better)</label>
         <input type="number" id="crf" name="crf" min="10" max="51" required>
 
+        <label for="gop">GOP (keyframe interval, lower gives higher Quality & larger file size)</label>
+        <input type="number" id="gop" name="gop" min="1" max="600" required>
+
         <label for="resolution">Resolution</label>
         <select id="resolution" name="resolution">
+            <option value="1920x1080">Full HD (1920x1080)</option>
             <option value="1280x720">HD (1280x720)</option>
             <option value="640x360">Half HD (640x360)</option>
             <option value="320x180">Quarter HD (320x180)</option>
@@ -129,6 +133,7 @@
                 document.getElementById('stream_url').value = data.stream_url || '';
                 document.getElementById('framerate').value = data.framerate || 5;
                 document.getElementById('crf').value = data.crf || 30;
+                document.getElementById('gop').value = data.gop || 5;
                 document.getElementById('resolution').value = data.resolution || '1280x720';
                 document.getElementById('vbitrate').value = data.vbitrate || 1000;
                 document.getElementById('abitrate').value = data.abitrate || '128k';
@@ -140,6 +145,7 @@
             const stream_url = document.getElementById('stream_url').value.trim();
             const framerate = document.getElementById('framerate').value;
             const crf = document.getElementById('crf').value;
+            const gop = document.getElementById('gop').value;
             const resolution = document.getElementById('resolution').value;
             const vbitrate = document.getElementById('vbitrate').value;
             const abitrate = document.getElementById('abitrate').value;
@@ -162,7 +168,7 @@
             const resp = await fetch('/settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ stream_url, framerate, crf, resolution, vbitrate, abitrate, ar, upload_url })
+                body: JSON.stringify({ stream_url, framerate, crf, gop, resolution, vbitrate, abitrate, ar, upload_url })
             });
             if (resp.ok) {
                 document.getElementById('msg').textContent = 'Settings saved!';

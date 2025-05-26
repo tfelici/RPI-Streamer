@@ -435,62 +435,62 @@
         });
     });
 
-        // Streaming control
-        const streamBtn = document.getElementById('stream-btn');
-        const streamStatus = document.getElementById('stream-status');
-        streamBtn.addEventListener('click', function() {
-            // Remove upload box if present when starting streaming
-            if (!streaming) {
-                const uploadFrame = document.getElementById('upload-frame');
-                if (uploadFrame) uploadFrame.remove();
+    // Streaming control
+    const streamBtn = document.getElementById('stream-btn');
+    const streamStatus = document.getElementById('stream-status');
+    streamBtn.addEventListener('click', function() {
+        // Remove upload box if present when starting streaming
+        if (!streaming) {
+            const uploadFrame = document.getElementById('upload-frame');
+            if (uploadFrame) uploadFrame.remove();
+        }
+        streamBtn.disabled = true;
+        streamStatus.textContent = streaming ? 'Stopping...' : 'Starting...';
+        fetch('/stream-control', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: streaming ? 'stop' : 'start' })
+        })
+        .then(r => r.json().then(data => ({status: r.status, data})))
+        .then(result => {
+            if (result.status !== 200 && result.data && result.data.error) {
+                streamStatus.textContent = result.data.error;
+                streamBtn.disabled = false;
+                return;
             }
-            streamBtn.disabled = true;
-            streamStatus.textContent = streaming ? 'Stopping...' : 'Starting...';
-            fetch('/stream-control', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: streaming ? 'stop' : 'start' })
-            })
-            .then(r => r.json().then(data => ({status: r.status, data})))
-            .then(result => {
-                if (result.status !== 200 && result.data && result.data.error) {
-                    streamStatus.textContent = result.data.error;
-                    streamBtn.disabled = false;
-                    return;
-                }
-                streaming = !streaming;
-                streamBtn.textContent = streaming ? 'Stop Streaming' : 'Start Streaming';
-                streamStatus.textContent = streaming ? 'Streaming is running.' : 'Streaming is stopped.';
-                streamBtn.disabled = false;
-                if (streaming) {
-                    // Ensure the active recordings panel is visible again
-                    const activeFrame = document.getElementById('active-recordings-frame');
-                    if (activeFrame) activeFrame.style.display = '';
-                    startActiveRecordingsRefresh();
+            streaming = !streaming;
+            streamBtn.textContent = streaming ? 'Stop Streaming' : 'Start Streaming';
+            streamStatus.textContent = streaming ? 'Streaming is running.' : 'Streaming is stopped.';
+            streamBtn.disabled = false;
+            if (streaming) {
+                // Ensure the active recordings panel is visible again
+                const activeFrame = document.getElementById('active-recordings-frame');
+                if (activeFrame) activeFrame.style.display = '';
+                startActiveRecordingsRefresh();
+            } else {
+                // After streaming stops, keep refreshing until all active recordings are gone
+                if (lastActiveRecordings.length === 0) {
+                    stopActiveRecordingsRefresh();
+                    const frame = document.getElementById('active-recordings-frame');
+                    if (frame) frame.style.display = 'none'; // Hide instead of remove
+                    // Instead of reloading, update the upload recordings list dynamically
+                    updateUploadRecordingsList();
                 } else {
-                    // After streaming stops, keep refreshing until all active recordings are gone
-                    if (lastActiveRecordings.length === 0) {
-                        stopActiveRecordingsRefresh();
-                        const frame = document.getElementById('active-recordings-frame');
-                        if (frame) frame.style.display = 'none'; // Hide instead of remove
-                        // Instead of reloading, update the upload recordings list dynamically
-                        updateUploadRecordingsList();
-                    } else {
-                        // If there are still active recordings, poll until they are gone, then update
-                        const waitForNoActive = setInterval(() => {
-                            if (lastActiveRecordings.length === 0) {
-                                clearInterval(waitForNoActive);
-                                updateUploadRecordingsList();
-                            }
-                        }, 1000);
-                    }
+                    // If there are still active recordings, poll until they are gone, then update
+                    const waitForNoActive = setInterval(() => {
+                        if (lastActiveRecordings.length === 0) {
+                            clearInterval(waitForNoActive);
+                            updateUploadRecordingsList();
+                        }
+                    }, 1000);
                 }
-            })
-            .catch(() => {
-                streamStatus.textContent = 'Error.';
-                streamBtn.disabled = false;
-            });
+            }
+        })
+        .catch(() => {
+            streamStatus.textContent = 'Error.';
+            streamBtn.disabled = false;
         });
+    });
 
     // Add this function after the streaming control logic
     function updateUploadRecordingsList() {

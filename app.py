@@ -15,11 +15,7 @@ STREAM_PIDFILE = "/tmp/webcam-ffmpeg.pid"
 SETTINGS_FILE = 'settings.json'
 
 def load_settings():
-    if os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE, 'r') as f:
-            return json.load(f)
-    # Default settings
-    return {
+    settings = {
         "stream_url": "",
         "framerate": 5,
         "crf": 30,
@@ -27,8 +23,14 @@ def load_settings():
         "vbitrate": 1000,
         "abitrate": "128k",
         "ar": 44100,
-        "upload_url": ""
+        "upload_url": "",
+        "gop": 30
     }
+    if os.path.exists(SETTINGS_FILE):
+        with open(SETTINGS_FILE, 'r') as f:
+            settings.update(json.load(f))
+    settings['streaming'] = is_streaming()
+    return settings
 
 def save_settings(settings):
     with open(SETTINGS_FILE, 'w') as f:
@@ -121,14 +123,25 @@ def settings():
     if request.method == 'POST':
         data = request.get_json()
         settings = load_settings()
-        settings['stream_url'] = data.get('stream_url', '')
-        settings['framerate'] = int(data.get('framerate', 5))
-        settings['crf'] = int(data.get('crf', 30))
-        settings['resolution'] = data.get('resolution', '1280x720')
-        settings['vbitrate'] = int(data.get('vbitrate', 1000))
-        settings['abitrate'] = data.get('abitrate', '128k')
-        settings['ar'] = int(data.get('ar', 44100))
-        settings['upload_url'] = data.get('upload_url', '')
+        # Only update if present in request
+        if 'stream_url' in data:
+            settings['stream_url'] = data['stream_url']
+        if 'framerate' in data:
+            settings['framerate'] = int(data['framerate'])
+        if 'crf' in data:
+            settings['crf'] = int(data['crf'])
+        if 'gop' in data:
+            settings['gop'] = int(data['gop'])
+        if 'resolution' in data:
+            settings['resolution'] = data['resolution']
+        if 'vbitrate' in data:
+            settings['vbitrate'] = int(data['vbitrate'])
+        if 'abitrate' in data:
+            settings['abitrate'] = data['abitrate']
+        if 'ar' in data:
+            settings['ar'] = int(data['ar'])
+        if 'upload_url' in data:
+            settings['upload_url'] = data['upload_url']
         save_settings(settings)
         return '', 204
     else:
@@ -193,10 +206,6 @@ def upload_recording():
 def camera_viewer():
     streaming = is_streaming()
     return render_template('camera_viewer.html', active_tab='camera', streaming=streaming)
-
-@app.route('/istreaming')
-def istreaming():
-    return jsonify({'streaming': is_streaming()})
 
 # --- Basic HTTP Auth ---
 import json
@@ -270,9 +279,7 @@ def parse_recording_filename(value):
         return {'timestamp': int(m.group(1)), 'duration': float(m.group(2))}
     return None
 
-@app.route('/system-settings')
-def system_settings():
-    # Pass the current auth and wifi settings to the template
+def get_auth_and_wifi():
     auth = {}
     wifi = {}
     if os.path.exists('auth.json'):
@@ -281,19 +288,17 @@ def system_settings():
     if os.path.exists('wifi.json'):
         with open('wifi.json') as f:
             wifi = json.load(f)
+    return auth, wifi
+
+@app.route('/system-settings')
+def system_settings():
+    # Pass the current auth and wifi settings to the template
+    auth, wifi = get_auth_and_wifi()
     return render_template('system_settings.html', active_tab='system_settings', auth=auth, wifi=wifi)
 
 @app.route('/system-settings-data')
 def system_settings_data():
-    # Load auth.json and wifi.json if present
-    auth = {}
-    wifi = {}
-    if os.path.exists('auth.json'):
-        with open('auth.json') as f:
-            auth = json.load(f)
-    if os.path.exists('wifi.json'):
-        with open('wifi.json') as f:
-            wifi = json.load(f)
+    auth, wifi = get_auth_and_wifi()
     return jsonify({'auth': auth, 'wifi': wifi})
 
 @app.route('/system-settings-auth', methods=['POST'])

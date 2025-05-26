@@ -19,19 +19,22 @@ sudo apt-get install gunicorn python3-gevent -y
 printf "Setting up Flask app directory..."
 mkdir -p ~/flask_app
 cd ~/flask_app
-
-#     Force update the codebase to match the remote GitHub repository (overwriting local changes, restoring missing files, removing extra tracked files), fix permissions, and restart services.
-#     This is useful if the codebase has been modified locally and you want to reset it to the latest version from the remote repository.
-#     If the repository is not already cloned, it will clone it.
-if [ ! -d .git ]; then
-    git clone https://github.com/tfelici/RPI-Encoder.git .
+# dowload the latest files from git
+printf "Downloading latest Flask app files...\n"
+if [ -d .git ]; then
+    echo "Repository already exists, pulling latest changes..."
+    git pull
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to pull the latest changes from the RPI-Encoder repository."
+        exit 1
+    fi
 else
-    git fetch --all
-    git reset --hard origin/main
+    git clone https://github.com/tfelici/RPI-Encoder.git .
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to clone the RPI-Encoder repository."
+        exit 1
+    fi
 fi
-        # Remove extra local files tracked by git but not in remote (deleted from remote)
-git clean -f -d
-
 #this command is needed to allow the flask app to run in the /home/admin/flask_app directory
 #note: it must run as sudo as the flask app is run as root
 sudo git config --global --add safe.directory ~/flask_app
