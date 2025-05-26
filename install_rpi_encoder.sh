@@ -36,8 +36,10 @@ fi
 # If repository exists, force update it
 # If not, clone it fresh
 echo "Current directory: $(pwd)"
+#this command is needed to allow the flask app to run in the /home/admin/flask_app directory
+#note: it must run as sudo as the flask app is run as root
+git config --global --add safe.directory /home/admin/flask_app
 if [ -d .git ]; then
-    echo "Repository exists, performing force update..."
     git fetch --all
     git reset --hard origin/main
     git clean -f -d
@@ -48,9 +50,6 @@ fi
 
 echo "Repository update complete"
 
-#this command is needed to allow the flask app to run in the /home/admin/flask_app directory
-#note: it must run as sudo as the flask app is run as root
-sudo git config --global --add safe.directory /home/admin/flask_app
 # Check if the app.py file exists
 if [ ! -f app.py ]; then
     echo "Error: app.py file not found in the Flask app directory."
@@ -144,6 +143,7 @@ sudo tee /etc/systemd/system/install_rpi_encoder.service >/dev/null << EOF
 Description=RPI Encoder Installation Script
 After=network.target
 [Service]
+User=admin
 Type=oneshot
 ExecStart=/bin/bash /home/admin/flask_app/install_rpi_encoder.sh
 RemainAfterExit=yes
