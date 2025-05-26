@@ -2,30 +2,20 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Camera Viewer</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #f4f4f4; }
-        .frame {
-            background: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            padding: 2em;
-            margin: 2em auto;
-            max-width: 400px;
-            text-align: center;
-        }
-        h1 { color: #333; }
-        .stat { font-size: 1.5em; margin: 1em 0; }
-        .label { color: #888; font-size: 0.9em; }
-        .content {
-            padding: 2em;
-        }
-    </style>
+    <title>{% block title %}Camera Viewer{% endblock %}</title>
+    {% block head %}{% endblock %}
 </head>
 <body>
+    {% include 'navbar.html' %}
+    {% block content %}
+    <script>
+    // eslint-disable-next-line no-unused-vars, no-undef
+    var streaming = {{ streaming | tojson | safe }};
+    </script>
     <div class="frame">
         <h1>Camera Viewer</h1>
         <iframe id="webcam-iframe" src="{{ ('http://' + request.host + ':8889/broadcast?muted=1&controls=1') if streaming else ('http://' + request.host + ':8889/webcam?muted=1&controls=1') }}" style="width:100%;height:360px;border:none;"></iframe>
     </div>
+    {% endblock %}
 </body>
 </html>

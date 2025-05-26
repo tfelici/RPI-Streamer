@@ -2,40 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Settings</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #f4f4f4; }
-        .frame {
-            background: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            padding: 2em;
-            margin: 2em auto;
-            max-width: 400px;
-            text-align: center;
-        }
-        h1 { color: #333; }
-        label { display: block; margin: 1em 0 0.5em; color: #555; }
-        input[type="text"], input[type="number"], select {
-            width: 90%;
-            padding: 0.5em;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            margin-bottom: 1em;
-        }
-        button {
-            padding: 0.7em 2em;
-            background: #0078d7;
-            color: #fff;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        button:disabled { background: #aaa; }
-        .msg { color: green; margin-top: 1em; }
-    </style>
+    <title>{% block title %}Settings{% endblock %}</title>
+    {% block head %}{% endblock %}
 </head>
 <body>
+    {% include 'navbar.html' %}
     <div class="frame">
         <h1>Settings</h1>
         <form id="settings-form">
@@ -146,5 +117,6 @@
             }
         };
     </script>
+    {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -16,35 +16,50 @@ pip install requests
 sudo apt-get install gunicorn python3-gevent -y
 
 # Setup flask app directory
-printf "Setting up Flask app directory..."
-mkdir -p ~/flask_app
-mkdir -p ~/encoderData
-cd ~/flask_app
+echo "Setting up Flask app directory..."
+mkdir -p /home/admin/flask_app
+mkdir -p /home/admin/encoderData
+cd /home/admin/flask_app
+
 
 #     Force update the codebase to match the remote GitHub repository (overwriting local changes, restoring missing files, removing extra tracked files), fix permissions, and restart services.
 #     This is useful if the codebase has been modified locally and you want to reset it to the latest version from the remote repository.
 #     If the repository is not already cloned, it will clone it.
-if [ ! -d .git ]; then
-    git clone https://github.com/tfelici/RPI-Encoder.git .
-else
+printf "Updating RPI Encoder codebase..."
+
+# Check if git is installed
+if ! command -v git &> /dev/null; then
+    echo "Git not found, installing..."
+    sudo apt-get install git -y
+fi
+
+# If repository exists, force update it
+# If not, clone it fresh
+echo "Current directory: $(pwd)"
+if [ -d .git ]; then
+    echo "Repository exists, performing force update..."
     git fetch --all
     git reset --hard origin/main
+    git clean -f -d
+else
+    echo "Repository not found, cloning fresh copy..."
+    git clone https://github.com/tfelici/RPI-Encoder.git .
 fi
-        # Remove extra local files tracked by git but not in remote (deleted from remote)
-git clean -f -d
+
+echo "Repository update complete"
 
 #this command is needed to allow the flask app to run in the /home/admin/flask_app directory
 #note: it must run as sudo as the flask app is run as root
-sudo git config --global --add safe.directory ~/flask_app
+sudo git config --global --add safe.directory /home/admin/flask_app
 # Check if the app.py file exists
 if [ ! -f app.py ]; then
     echo "Error: app.py file not found in the Flask app directory."
     exit 1
 fi
 #change ownership of the flask_app directory to the admin user
-sudo chown -R admin:admin ~/flask_app
+sudo chown -R admin:admin /home/admin/flask_app
 # Check if the flask_app directory is writable
-if [ ! -w ~/flask_app ]; then
+if [ ! -w /home/admin/flask_app ]; then
     echo "Error: Flask app directory is not writable."
     exit 1
 fi
@@ -62,7 +77,7 @@ if [ -z "$latest_url" ]; then
     echo "Error: Could not find the latest MediaMTX release URL."
     exit 1
 fi
-cd ~
+cd /home/admin
 wget "$latest_url"
 exit_code=$?
 if [ $exit_code -ne 0 ]; then
