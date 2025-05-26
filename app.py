@@ -232,20 +232,18 @@ def authenticate():
 def requires_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        # Allow static files without auth
-        if hasattr(request, 'path') and request.path.startswith('/static/'):
-            return f(*args, **kwargs)
-        auth = request.authorization
-        if not auth or not check_auth(auth.username, auth.password):
-            return authenticate()
+        # This decorator is no longer used globally
         return f(*args, **kwargs)
     return decorated
 
-# Apply the requires_auth decorator to all routes except static
-for rule in list(app.url_map.iter_rules()):
-    if rule.endpoint != 'static':
-        view_func = app.view_functions[rule.endpoint]
-        app.view_functions[rule.endpoint] = requires_auth(view_func)
+@app.before_request
+def global_auth():
+    # Allow static files and favicon.ico without auth
+    if request.path.startswith('/static/') or request.path == '/favicon.ico':
+        return
+    auth = request.authorization
+    if not auth or not check_auth(auth.username, auth.password):
+        return authenticate()
 
 # Jinja2 filter to format UNIX timestamp as human-readable date/time
 @app.template_filter('datetimeformat')
