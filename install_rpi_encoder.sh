@@ -34,8 +34,8 @@ fi
 sudo apt update && sudo apt upgrade -y
 sudo apt install python3 python3-pip -y
 sudo apt-get install ffmpeg -y
-pip install flask
-pip install requests
+sudo apt install python3-flask
+sudo apt install python3-requests
 sudo apt-get install gunicorn python3-gevent -y
 
 # Setup flask app directory
