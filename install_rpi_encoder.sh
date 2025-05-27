@@ -31,11 +31,14 @@ if ! ping -c 1 github.com &>/dev/null; then
 fi
 
 # Update and install dependencies
-sudo apt update && sudo apt upgrade -y
-sudo apt install python3 python3-pip -y
+sudo apt-get update -y
+sudo apt upgrade -y
 sudo apt-get install ffmpeg -y
-sudo apt install python3-flask
-sudo apt install python3-requests
+sudo apt-get install python3 python3-pip -y
+sudo apt-get install python3-flask -y
+sudo apt-get install python3-psutil -y
+sudo apt-get install python3-requests -y
+sudo apt-get install python3-werkzeug -y
 sudo apt-get install gunicorn python3-gevent -y
 
 # Setup flask app directory
