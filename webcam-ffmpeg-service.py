@@ -25,36 +25,9 @@ def start(stream_name):
         Return (device_str, channels) if audio_input is set, else (None, 2).
         """
         audio_input = get_setting('audio_input', None)
-        def get_channels(device_str):
-            try:
-                try:
-                    params = subprocess.check_output(
-                        ['arecord', '-D', device_str, '--dump-hw-params'],
-                        stderr=subprocess.STDOUT, text=True, timeout=2
-                    )
-                except subprocess.CalledProcessError as e:
-                    params = e.output
-                except Exception as e:
-                    print(f"Error running arecord for {device_str}: {e}")
-                    return 2
-                for line in params.splitlines():
-                    try:
-                        line = line.strip()
-                        if line.startswith('CHANNELS:'):
-                            val = line[len('CHANNELS:'):].replace('[', '').replace(']', '').strip()
-                            nums = [int(x) for x in val.split() if x.isdigit()]
-                            if nums:
-                                return min(nums)
-                    except Exception:
-                        continue
-                return 2
-            except Exception as e:
-                print(f"Error in get_channels for {device_str}: {e}")
-                return 2
         if audio_input:
-            device_str = audio_input
-            return device_str, get_channels(device_str)
-        return None, 2
+            return audio_input
+        return None  # Default to no audio input
 
     def find_video_device():
         """
@@ -65,7 +38,7 @@ def start(stream_name):
             return video_input
         return None
 
-    def build_ffmpeg_cmd(video_device, audio_device_tuple):
+    def build_ffmpeg_cmd(video_device, audio_device):
         video_opts = []
         audio_opts = []
         vcodec = 'h264_v4l2m2m'
@@ -89,12 +62,11 @@ def start(stream_name):
                 '-i', static_img
             ]
             vcodec = 'libx264'
-        if audio_device_tuple and audio_device_tuple[0]:
-            audio_device, audio_channels = audio_device_tuple
+        if audio_device:
+            #we now prepend 'plug' to the audio device string to ensure compatibility with ALSA
             audio_opts = [
                 '-f', 'alsa',
-                '-ac', str(audio_channels),
-                '-i', audio_device
+                '-i', f'plug{audio_device}'
             ]
         else:
             audio_opts = ['-an']
