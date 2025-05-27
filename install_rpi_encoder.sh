@@ -32,7 +32,7 @@ fi
 
 # Update and install dependencies
 sudo apt-get update -y
-sudo apt upgrade -y
+sudo apt-get upgrade -y
 sudo apt-get install ffmpeg -y
 sudo apt-get install python3 python3-pip -y
 sudo apt-get install python3-flask -y
