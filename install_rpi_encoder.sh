@@ -61,9 +61,6 @@ fi
 
 # If repository exists, force update it
 # If not, clone it fresh
-#this command is needed to allow the flask app to run in the flask_app directory
-#note: it must run as sudo as the flask app is run as root
-git config --global --add safe.directory "$HOME/flask_app"
 if [ -d .git ]; then
     git fetch --all
     git reset --hard origin/main
@@ -72,7 +69,8 @@ else
     echo "Repository not found, cloning fresh copy..."
     git clone https://github.com/tfelici/RPI-Encoder.git .
 fi
-
+#this command is needed to allow any users to run git in the flask_app directory
+sudo git config --global --add safe.directory "$HOME/flask_app"
 echo "Repository update complete"
 
 # Check if the app.py file exists
