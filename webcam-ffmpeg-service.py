@@ -101,6 +101,7 @@ def start(stream_name):
         output_opts = [
             '-vcodec', vcodec,
             '-preset', 'ultrafast',
+            '-pix_fmt', 'yuv420p',
             '-crf', str(crf),
             '-b:v', f'{vbitrate}k',
             '-tune', 'zerolatency',
@@ -110,6 +111,7 @@ def start(stream_name):
             '-ar', str(ar),
             '-b:a', str(abitrate),
             '-f', 'rtsp',
+            '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
             f'rtsp://localhost:8554/{stream_name}'
         ]
         return ['ffmpeg'] + video_opts + audio_opts + output_opts
