@@ -1,6 +1,6 @@
 #!/bin/bash
 # RPI Encoder installation script
-# Usage: bash install_rpi_encoder.sh [--install]
+# Usage: bash install_rpi_encoder.sh [--tailscale]
 
 # This script installs the RPI Encoder Flask app and MediaMTX on a Raspberry Pi running Raspberry Pi OS Lite.
 # It also sets up a systemd service for the Flask app and MediaMTX, and installs Tailscale for remote access.
@@ -183,7 +183,7 @@ sudo systemctl enable mediamtx
 sudo systemctl restart mediamtx
 
 # Install tailscale if the specified in the command line arguments
-if [[ "$@" == *"--install"* ]]; then
+if [[ "$@" == *"--tailscale"* ]]; then
     echo "Installing Tailscale..."
     curl -fsSL https://tailscale.com/install.sh | sh
     sudo tailscale up
