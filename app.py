@@ -267,6 +267,11 @@ def get_auth_creds():
         return auth.get('username', 'admin'), auth.get('password', '12345')
     return 'admin', '12345'
 
+def is_auth_enabled():
+    """Check if authentication is enabled (password is not empty)"""
+    _, password = get_auth_creds()
+    return password and password.strip() != ''
+
 def check_auth(username, password):
     expected_user, expected_pass = get_auth_creds()
     return username == expected_user and password == expected_pass
@@ -290,6 +295,11 @@ def global_auth():
     # Allow static files and favicon.ico without auth
     if request.path.startswith('/static/') or request.path == '/favicon.ico':
         return
+    
+    # Skip authentication if password is empty/blank
+    if not is_auth_enabled():
+        return
+    
     auth = request.authorization
     if not auth or not check_auth(auth.username, auth.password):
         return authenticate()
@@ -355,12 +365,19 @@ def system_settings_auth():
     data = request.get_json()
     username = data.get('username', '').strip()
     password = data.get('password', '').strip()
-    if not username or not password:
-        return jsonify({'success': False, 'error': 'Username and password required.'})
+    
+    # Username is required, but password can be empty (disables auth)
+    if not username:
+        return jsonify({'success': False, 'error': 'Username is required.'})
+    
     auth_path = os.path.join(ENCODER_DATA_DIR, 'auth.json')
     with open(auth_path, 'w') as f:
         json.dump({'username': username, 'password': password}, f)
-    return jsonify({'success': True})
+    
+    if password == '':
+        return jsonify({'success': True, 'message': 'Authentication disabled (empty password).'})
+    else:
+        return jsonify({'success': True, 'message': 'Authentication settings updated.'})
 
 @app.route('/system-settings-wifi', methods=['POST'])
 def system_settings_wifi():
