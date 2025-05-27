@@ -1,37 +1,50 @@
-<style>
-nav {
-    display: flex;
-    align-items: center;
-    background: #222;
-    color: #fff;
-    padding: 0.5em 1.5em;
-    font-size: 1.2em;
-    margin-bottom: 1.5em;
-    border-radius: 0 0 8px 8px;
-    gap: 2em;
-}
-nav a {
-    color: #fff;
-    text-decoration: none;
-    margin-left: 1.5em;
-    font-size: 0.95em;
-    font-weight: bold;
-    transition: color 0.2s;
-}
-nav a.active, nav a:hover {
-    color: #4ec9b0;
-}
-nav div {
-    margin-right: 2em;
-}
-</style>
-<nav>
-    <div style="display:flex; flex-direction:column; align-items:flex-start;">
-        <span>RPI Encoder</span>
-        <span style="font-size:0.65em; color:#bbb; font-weight:normal; margin-top:0.1em;">{{ app_version }}</span>
+<link rel="stylesheet" href="{{ url_for('static', filename='responsive.css') }}">
+<nav class="navbar">
+    <div class="nav-container">
+        <div class="nav-brand">
+            <h1>RPI Encoder</h1>
+            <span class="version">{{ app_version }}</span>
+        </div>
+        <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">
+            <span>&#9776;</span>
+        </button>
+        <ul class="nav-menu" id="nav-menu">
+            <li><a href="/" class="{% if active_tab == 'home' %}active{% endif %}">Home</a></li>
+            <li><a href="/camera-viewer" class="{% if active_tab == 'camera' %}active{% endif %}">Camera Viewer</a></li>
+            <li><a href="/settings-page" class="{% if active_tab == 'settings' %}active{% endif %}">Settings</a></li>
+            <li><a href="/system-settings" class="{% if active_tab == 'system_settings' %}active{% endif %}">System Settings</a></li>
+        </ul>
     </div>
-    <a href="/" class="{% if active_tab == 'home' %}active{% endif %}">Home</a>
-    <a href="/camera-viewer" class="{% if active_tab == 'camera' %}active{% endif %}">Camera Viewer</a>
-    <a href="/settings-page" class="{% if active_tab == 'settings' %}active{% endif %}">Settings</a>
-    <a href="/system-settings" class="{% if active_tab == 'system_settings' %}active{% endif %}">System Settings</a>
 </nav>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const navToggle = document.getElementById('nav-toggle');
+    const navMenu = document.getElementById('nav-menu');
+    
+    navToggle.addEventListener('click', function() {
+        navMenu.classList.toggle('show');
+    });
+    
+    // Close menu when clicking on a link (mobile)
+    const navLinks = navMenu.querySelectorAll('a');
+    navLinks.forEach(link => {
+        link.addEventListener('click', () => {
+            navMenu.classList.remove('show');
+        });
+    });
+    
+    // Close menu when clicking outside (mobile)
+    document.addEventListener('click', function(event) {
+        if (!navToggle.contains(event.target) && !navMenu.contains(event.target)) {
+            navMenu.classList.remove('show');
+        }
+    });
+    
+    // Handle window resize
+    window.addEventListener('resize', function() {
+        if (window.innerWidth > 768) {
+            navMenu.classList.remove('show');
+        }
+    });
+});
+</script>

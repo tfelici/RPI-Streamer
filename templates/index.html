@@ -2,78 +2,80 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>System Stats</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #f4f4f4; }
-        .frame {
-            background: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            padding: 2em;
-            margin: 2em auto;
-            max-width: 400px;
-            text-align: center;
-        }
-        h1 { color: #333; }
-        .stat { font-size: 1.5em; margin: 1em 0; }
-        .label { color: #888; font-size: 0.9em; }
-        .content {
-            padding: 2em;
-        }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Stats - RPI Encoder</title>
 </head>
 <body>
     {% include 'navbar.html' %}
-    <div class="frame">
-        <h1>System Stats</h1>
-        <div class="stat">
-            <span class="label">CPU Usage:</span> <span id="cpu">--</span>%
-        </div>
-        <div class="stat">
-            <span class="label">Memory Usage:</span> <span id="mem">--</span>%
-        </div>
-        <div class="stat">
-            <span class="label">Temperature:</span> <span id="temp">--</span>
-        </div>
-    </div>
-    <div class="frame" id="stream-panel">
-        <button id="stream-btn" style="margin-top:1.5em;padding:0.5em 1.5em;font-size:1em;background:#0078d7;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:bold;">
-            {{ 'Stop Streaming' if streaming else 'Start Streaming' }}
-        </button>
-        <span id="stream-status" style="margin-left:1em;color:#0078d7;font-weight:bold;"></span>
-        <div id="active-recordings-frame" style="margin-top:2em;display:none;">
-            <h2>Active Recordings</h2>
-            <div style="max-height:200px;overflow-y:auto;text-align:left;margin-bottom:1em;" id="active-recordings-list"></div>
-        </div>
-    </div>
-    {% if recording_files and not streaming %}
-    <div class="frame" id="upload-frame">
-        <h2>Upload Recordings</h2>
-        <form id="upload-form">
-            <div style="max-height:200px;overflow-y:auto;text-align:left;margin-bottom:1em;">
-                {% for file in recording_files if not file.active %}
-                <div style="margin-bottom:0.5em;">
-                    <input type="checkbox" class="upload-checkbox" id="recfile{{ loop.index }}" name="recording_files" value="{{ file.path }}" checked>
-                    <label for="recfile{{ loop.index }}" style="word-break:break-all;" data-info='{{ file.path|parse_recording_filename|tojson|safe }}'>
-                        {% set info = file.path|parse_recording_filename %}
-                        {% if info %}
-                            Timestamp: {{ info.timestamp | datetimeformat }}<br>
-                            Duration: {{ info.duration | durationformat }}<br>
-                            Size: {{ file.size | filesizeformat }}
-                        {% else %}
-                            {{ file.path }}<br>
-                            Size: {{ file.size | filesizeformat }}
-                        {% endif %}
-                    </label>
+    
+    <div class="container">
+        <!-- System Stats -->
+        <div class="frame">
+            <h1>System Statistics</h1>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <span class="stat-value" id="cpu">--</span>
+                    <div class="stat-label">CPU Usage (%)</div>
                 </div>
-                {% endfor %}
+                <div class="stat-item">
+                    <span class="stat-value" id="mem">--</span>
+                    <div class="stat-label">Memory Usage (%)</div>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value" id="temp">--</span>
+                    <div class="stat-label">Temperature</div>
+                </div>
             </div>
-            <button type="submit" id="upload-btn" style="padding:0.5em 1.5em;font-size:1em;background:#28a745;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:bold;">Upload to Server</button>
-            <button type="button" id="delete-btn" style="padding:0.5em 1.5em;font-size:1em;background:#dc3545;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:bold;margin-left:1em;">Delete Selected</button>
-            <div id="upload-result" style="margin-top:1em;"></div>
-        </form>
+        </div>
+
+        <!-- Stream Control -->
+        <div class="frame" id="stream-panel">
+            <h2>Stream Control</h2>
+            <div style="text-align: center; margin-bottom: 1.5rem;">
+                <button id="stream-btn" class="btn btn-primary">
+                    {{ 'Stop Streaming' if streaming else 'Start Streaming' }}
+                </button>
+            </div>
+            <div id="stream-status" class="status-message" style="display: none;"></div>
+            
+            <!-- Active Recordings Panel -->
+            <div id="active-recordings-frame" style="margin-top: 2rem; display: none;">
+                <h2>Active Recordings</h2>
+                <div class="file-list" id="active-recordings-list"></div>
+            </div>
+        </div>
+
+        <!-- Upload Recordings -->
+        {% if recording_files and not streaming %}
+        <div class="frame" id="upload-frame">
+            <h2>Upload Recordings</h2>
+            <form id="upload-form">
+                <div class="file-list">
+                    {% for file in recording_files if not file.active %}
+                    <div class="file-item">
+                        <input type="checkbox" class="upload-checkbox file-checkbox" id="recfile{{ loop.index }}" name="recording_files" value="{{ file.path }}" checked>
+                        <label for="recfile{{ loop.index }}" class="file-info" data-info='{{ file.path|parse_recording_filename|tojson|safe }}'>
+                            {% set info = file.path|parse_recording_filename %}
+                            {% if info %}
+                                <strong>Timestamp:</strong> {{ info.timestamp | datetimeformat }}<br>
+                                <strong>Duration:</strong> {{ info.duration | durationformat }}<br>
+                                <strong>Size:</strong> {{ file.size | filesizeformat }}
+                            {% else %}
+                                <strong>File:</strong> {{ file.path }}<br>
+                                <strong>Size:</strong> {{ file.size | filesizeformat }}
+                            {% endif %}
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div style="display: flex; gap: 1rem; margin-top: 1.5rem; flex-wrap: wrap;">
+                    <button type="submit" id="upload-btn" class="btn btn-success">Upload to Server</button>
+                    <button type="button" id="delete-btn" class="btn btn-danger">Delete Selected</button>
+                </div>
+                <div id="upload-result" style="margin-top: 1.5rem;"></div>
+            </form>
+        </div>        {% endif %}
     </div>
-    {% endif %}
     <script>
     // Ensure streaming variable is available before any script uses it
     // eslint-disable-next-line no-unused-vars, no-undef

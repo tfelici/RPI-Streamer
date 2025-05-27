@@ -2,118 +2,81 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>System Settings</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #f4f4f4; }
-        .frame {
-            background: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            padding: 2em;
-            margin: 2em auto;
-            max-width: 400px;
-            text-align: center;
-        }
-        h1 { color: #333; }
-        label { display: block; margin: 1em 0 0.5em; color: #555; }
-        input[type="text"], input[type="number"], select {
-            width: 90%;
-            padding: 0.5em;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            margin-bottom: 1em;
-        }
-        button {
-            padding: 0.7em 2em;
-            background: #0078d7;
-            color: #fff;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        button:disabled { background: #aaa; }
-        .msg { color: green; margin-top: 1em; }
-        .spinner {
-            border: 8px solid #f3f3f3;
-            border-top: 8px solid #0078d7;
-            border-radius: 50%;
-            width: 60px;
-            height: 60px;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        #overlay {
-            display:none;
-            position:fixed;
-            top:0;
-            left:0;
-            width:100vw;
-            height:100vh;
-            background:rgba(255,255,255,0.8);
-            z-index:9999;
-            align-items:center;
-            justify-content:center;
-        }
-        .update-section {
-            margin-top: 2em;
-            text-align: left;
-        }
-        .update-section table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-        }
-        .update-section th, .update-section td {
-            border: 1px solid #ddd;
-            padding: 8px;
-        }
-        .update-section th {
-            background-color: #f2f2f2;
-            text-align: left;
-        }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Settings - RPI Encoder</title>
 </head>
 <body>
     {% include 'navbar.html' %}
-    <div class="frame">
-        <h1>System Settings</h1>
-        <form id="auth-form">
-            <h2>Basic Authentication</h2>
-            <label>Username: <input type="text" id="auth-username" name="username" required></label><br><br>
-            <label>Password: <input type="password" id="auth-password" name="password" required>
-                <input type="checkbox" id="toggle-auth-pass" style="margin-left:0.5em;"> Show
-            </label><br><br>
-            <button type="submit">Save Auth Settings</button>
-            <span id="auth-result" style="margin-left:1em;"></span>
-        </form>
-        <hr>
-        <form id="wifi-form">
-            <h2>WiFi Settings</h2>
-            <label>SSID: <input type="text" id="wifi-ssid" name="ssid" required></label><br><br>
-            <label>Password: <input type="password" id="wifi-pass" name="wifi_password" required>
-                <input type="checkbox" id="toggle-wifi-pass" style="margin-left:0.5em;"> Show
-            </label><br><br>
-            <button type="submit">Save WiFi Settings</button>
-            <span id="wifi-result" style="margin-left:1em;"></span>
-        </form>
-        <hr>
-        <button id="reboot-btn" style="background:#d33;color:#fff;padding:0.5em 2em;border:none;border-radius:4px;font-weight:bold;">Reboot System</button>
-        <span id="reboot-result" style="margin-left:1em;"></span>
-        <hr>
-        <div class="update-section">
-            <button id="check-update-btn" style="background:#0078d7;color:#fff;padding:0.5em 2em;border:none;border-radius:4px;font-weight:bold;">Check for Updates</button>
-            <button id="do-update-btn" style="display:none;background:#28a745;color:#fff;padding:0.5em 2em;border:none;border-radius:4px;font-weight:bold;margin-top:1em;">Update Now</button>
-            <div id="update-status" style="margin-top:10px;"></div>
-            <div id="update-details" style="margin-top:10px;"></div>
+    
+    <div class="container">
+        <div class="frame">
+            <h1>System Settings</h1>
+            
+            <!-- Authentication Settings -->            <form id="auth-form">
+                <h2>Basic Authentication</h2>
+                <label for="auth-username">Username</label>
+                <input type="text" id="auth-username" name="username" required>
+                
+                <label for="auth-password">Password</label>
+                <p class="help-text" style="margin: 0.5rem 0; font-size: 0.9rem; color: var(--text-secondary);">
+                    Leave password blank to disable authentication completely.
+                </p>
+                <div style="position: relative;">
+                    <input type="password" id="auth-password" name="password">
+                    <label style="display: inline-flex; align-items: center; margin-top: 0.5rem; font-size: 0.9rem;">
+                        <input type="checkbox" id="toggle-auth-pass" style="margin-right: 0.5rem;"> Show Password
+                    </label>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">Save Auth Settings</button>
+                <div id="auth-result" class="status-message" style="display: none;"></div>
+            </form>
         </div>
-    </div>
-    <div id="overlay">
-        <div style="display:flex;flex-direction:column;align-items:center;">
+        
+        <div class="frame">
+            <!-- WiFi Settings -->
+            <form id="wifi-form">
+                <h2>WiFi Settings</h2>
+                <label for="wifi-ssid">SSID</label>
+                <input type="text" id="wifi-ssid" name="ssid" required>
+                
+                <label for="wifi-pass">Password</label>
+                <div style="position: relative;">
+                    <input type="password" id="wifi-pass" name="wifi_password" required>
+                    <label style="display: inline-flex; align-items: center; margin-top: 0.5rem; font-size: 0.9rem;">
+                        <input type="checkbox" id="toggle-wifi-pass" style="margin-right: 0.5rem;"> Show Password
+                    </label>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">Save WiFi Settings</button>
+                <div id="wifi-result" class="status-message" style="display: none;"></div>
+            </form>
+        </div>
+        
+        <div class="frame">
+            <!-- System Controls -->
+            <h2>System Controls</h2>
+            <div style="text-align: center; margin-bottom: 2rem;">
+                <button id="reboot-btn" class="btn btn-danger">Reboot System</button>
+                <div id="reboot-result" class="status-message" style="display: none;"></div>
+            </div>
+            
+            <!-- Update Section -->
+            <div class="update-section">
+                <h2>System Updates</h2>
+                <div style="text-align: center; margin-bottom: 1rem;">
+                    <button id="check-update-btn" class="btn btn-primary">Check for Updates</button>
+                    <button id="do-update-btn" class="btn btn-success" style="display: none;">Update Now</button>
+                </div>
+                <div id="update-status" class="status-message" style="display: none;"></div>
+                <div id="update-details" style="margin-top: 1rem;"></div>
+            </div>
+        </div>    </div>
+      <!-- Reboot Overlay -->
+    <div class="overlay" id="overlay">
+        <div class="overlay-content">
             <div class="spinner"></div>
-            <div style="margin-top:1em;font-size:1.2em;color:#333;">Rebooting... Please wait</div>
+            <div style="margin-top: 1rem; font-size: 1.2rem; color: var(--text-primary); font-weight: 500;">Rebooting... Please wait</div>
         </div>
     </div>
     <script>
@@ -129,24 +92,29 @@
                 document.getElementById('wifi-pass').value = data.wifi.password || '';
             }
         });
+        
         // Auth form submit
         document.getElementById('auth-form').onsubmit = function(e) {
             e.preventDefault();
+            const resultDiv = document.getElementById('auth-result');
             fetch('/system-settings-auth', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     username: document.getElementById('auth-username').value,
-                    password: document.getElementById('auth-password').value
-                })
+                    password: document.getElementById('auth-password').value                })
             }).then(r => r.json()).then(data => {
-                document.getElementById('auth-result').textContent = data.success ? 'Saved!' : (data.error || 'Error');
-                document.getElementById('auth-result').style.color = data.success ? 'green' : 'red';
+                const message = data.message || (data.success ? 'Authentication settings saved!' : (data.error || 'Error saving settings'));
+                resultDiv.textContent = message;
+                resultDiv.className = data.success ? 'status-message status-success' : 'status-message status-error';
+                resultDiv.style.display = 'block';
             });
         };
+        
         // WiFi form submit
         document.getElementById('wifi-form').onsubmit = function(e) {
             e.preventDefault();
+            const resultDiv = document.getElementById('wifi-result');
             fetch('/system-settings-wifi', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -155,17 +123,19 @@
                     password: document.getElementById('wifi-pass').value
                 })
             }).then(r => r.json()).then(data => {
-                document.getElementById('wifi-result').textContent = data.success ? 'Saved!' : (data.error || 'Error');
-                document.getElementById('wifi-result').style.color = data.success ? 'green' : 'red';
+                resultDiv.textContent = data.success ? 'WiFi settings saved!' : (data.error || 'Error saving settings');
+                resultDiv.className = data.success ? 'status-message status-success' : 'status-message status-error';
+                resultDiv.style.display = 'block';
             });
         };
+        
         // Reboot button
         document.getElementById('reboot-btn').onclick = function() {
             if (!confirm('Are you sure you want to reboot the system?')) return;
+            const resultDiv = document.getElementById('reboot-result');
             fetch('/system-settings-reboot', { method: 'POST' })
                 .then(r => r.json())
-                .then(function(data) {
-                    if (data.success) {
+                .then(function(data) {                    if (data.success) {
                         // Show overlay and start polling
                         document.getElementById('overlay').style.display = 'flex';
                         setTimeout(function pollForReload() {
@@ -180,32 +150,38 @@
                                 .catch(() => setTimeout(pollForReload, 2000));
                         }, 5000); // Wait 5s before first poll
                     } else {
-                        document.getElementById('reboot-result').textContent = data.error || 'Error';
-                        document.getElementById('reboot-result').style.color = 'red';
+                        resultDiv.textContent = data.error || 'Reboot failed';
+                        resultDiv.className = 'status-message status-error';
+                        resultDiv.style.display = 'block';
                     }
                 });
         };
+        
         // Check for Updates button
         var checkUpdateBtn = document.getElementById('check-update-btn');
         var updateStatus = document.getElementById('update-status');
         var updateDetails = document.getElementById('update-details');
         var doUpdateBtn = document.getElementById('do-update-btn');
+        
         if (checkUpdateBtn) {
             checkUpdateBtn.onclick = function() {
                 updateStatus.textContent = 'Checking for updates...';
+                updateStatus.className = 'status-message';
+                updateStatus.style.display = 'block';
                 updateDetails.innerHTML = '';
+                
                 fetch('/system-check-update', { method: 'POST' })
                     .then(r => r.json())
                     .then(data => {
                         if (data.success) {
                             updateStatus.textContent = data.summary;
+                            updateStatus.className = 'status-message status-success';
+                            
                             if (data.updates === true) {
                                 doUpdateBtn.style.display = 'inline-block';
                                 // Show update details if present
                                 if (data.details && data.details.length > 0) {
-                                    updateDetails.innerHTML = '<pre style="white-space:pre-wrap;word-break:break-all;">' + data.details + '</pre>';
-                                } else {
-                                    updateDetails.innerHTML = '';
+                                    updateDetails.innerHTML = '<pre style="white-space:pre-wrap;word-break:break-all; background: #f8f9fa; padding: 1rem; border-radius: 4px; margin-top: 1rem;">' + data.details + '</pre>';
                                 }
                             } else {
                                 updateDetails.innerHTML = '';
@@ -213,28 +189,34 @@
                             }
                         } else {
                             updateStatus.textContent = data.error || 'Update check failed.';
+                            updateStatus.className = 'status-message status-error';
                             updateDetails.innerHTML = '';
                             doUpdateBtn.style.display = 'none';
                         }
                     })
                     .catch(e => {
                         updateStatus.textContent = 'Update check failed.';
+                        updateStatus.className = 'status-message status-error';
                         updateDetails.innerHTML = '';
                         doUpdateBtn.style.display = 'none';
                     });
             };
         }
+        
         if (doUpdateBtn) {
             doUpdateBtn.onclick = function() {
                 doUpdateBtn.disabled = true;
                 updateStatus.textContent = 'Updating...';
+                updateStatus.className = 'status-message';
                 updateDetails.innerHTML = '';
+                
                 fetch('/system-do-update', { method: 'POST' })
                     .then(function(r) { return r.json(); })
                     .then(function(data) {
                         let statusSet = false;
                         if (data.success) {
                             updateStatus.textContent = 'Update complete!';
+                            updateStatus.className = 'status-message status-success';
                             statusSet = true;
                             // After successful update, call /system-restart-services (fire and forget)
                             fetch('/system-restart-services', { method: 'POST' });
@@ -242,35 +224,40 @@
                             let found = data.results.find(x => /update (complete|successful|succeeded)/i.test(x));
                             if (found) {
                                 updateStatus.textContent = found;
+                                updateStatus.className = 'status-message status-success';
                                 statusSet = true;
                             }
                         }
                         if (!statusSet) {
                             updateStatus.textContent = data.error || 'Update failed.';
+                            updateStatus.className = 'status-message status-error';
                         }
+                        
                         if (data.results && data.results.length > 0) {
-                            let html = '<div style="margin-top:10px;"><b>Update Results:</b><ul>';
+                            let html = '<div style="margin-top:1rem;"><strong>Update Results:</strong><ul style="text-align: left; margin-top: 0.5rem;">';
                             data.results.forEach(function(res) {
                                 html += `<li>${res}</li>`;
                             });
                             html += '</ul></div>';
                             updateDetails.innerHTML = html;
-                        } else {
-                            updateDetails.innerHTML = '';
                         }
+                        
                         if (data.traceback) {
-                            updateDetails.innerHTML += `<pre style=\"color:red;white-space:pre-wrap;word-break:break-all;\"><b>Traceback:</b>\n${data.traceback}</pre>`;
+                            updateDetails.innerHTML += `<pre style="color: var(--accent-color); white-space: pre-wrap; word-break: break-all; background: #f8f9fa; padding: 1rem; border-radius: 4px; margin-top: 1rem;"><strong>Traceback:</strong>\n${data.traceback}</pre>`;
                         }
+                        
                         doUpdateBtn.disabled = false;
                     })
                     .catch(function(e) {
                         let msg = (e && e.message) ? e.message : (typeof e === 'string' ? e : (e && e.toString ? e.toString() : 'Network or server error.'));
                         updateStatus.textContent = 'Update failed: ' + msg;
-                        updateDetails.innerHTML = '<pre style="color:red;white-space:pre-wrap;word-break:break-all;">' + msg + '</pre>';
+                        updateStatus.className = 'status-message status-error';
+                        updateDetails.innerHTML = '<pre style="color: var(--accent-color); white-space: pre-wrap; word-break: break-all; background: #f8f9fa; padding: 1rem; border-radius: 4px; margin-top: 1rem;">' + msg + '</pre>';
                         doUpdateBtn.disabled = false;
                     });
             };
         }
+        
         // Password visibility toggles
         document.getElementById('toggle-auth-pass').onchange = function() {
             document.getElementById('auth-password').type = this.checked ? 'text' : 'password';
