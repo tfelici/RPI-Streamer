@@ -18,6 +18,7 @@ def start(stream_name):
     vbitrate = get_setting('vbitrate', 1000)  # in kbps
     ar = get_setting('ar', 8000)  # Audio sample rate in Hz
     abitrate = get_setting('abitrate', '128k')  # Audio bitrate, default to 128k
+    volume = get_setting('volume', 100)  # Audio input volume percent
     static_img = os.path.join(os.path.dirname(__file__), 'no_camera.png')
 
     def find_usb_audio_device():
@@ -39,6 +40,21 @@ def start(stream_name):
         return None
 
     def build_ffmpeg_cmd(video_device, audio_device):
+        # Set hardware volume using amixer if audio_device and volume are set
+        if audio_device and volume is not None:
+            import re
+            m = re.search(r'(?:plug)?hw:(\d+)', str(audio_device))
+            if m:
+                cardnum = m.group(1)
+                try:
+                    subprocess.run([
+                        'amixer',
+                        '-c', str(cardnum),
+                        'sset', 'Mic', f'{volume}%'
+                    ], check=True)
+                except Exception as e:
+                    print(f"Warning: Failed to set mic volume with amixer: {e}")
+
         video_opts = []
         audio_opts = []
         vcodec = 'h264_v4l2m2m'
@@ -63,7 +79,7 @@ def start(stream_name):
             ]
             vcodec = 'libx264'
         if audio_device:
-            #we now prepend 'plug' to the audio device string to ensure compatibility with ALSA
+            # Prepend 'plug' to the audio device string to ensure compatibility with ALSA
             audio_opts = [
                 '-f', 'alsa',
                 '-i', f'plug{audio_device}'

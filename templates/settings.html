@@ -78,6 +78,9 @@
                     {% endfor %}
                 </select>
 
+                <label for="volume">Audio Input Volume (%)</label>
+                <input type="number" id="volume" name="volume" min="0" max="150" value="{{ settings.volume or 100 }}" required>
+
                 <button type="submit" class="btn btn-primary">Save Settings</button>
                 <div id="msg" class="status-message" style="display: none;"></div>            </form>
         </div>
@@ -98,6 +101,7 @@
                 document.getElementById('upload_url').value = data.upload_url || '';
                 document.getElementById('audio_input').value = data.audio_input || '';
                 document.getElementById('video_input').value = data.video_input || '';
+                document.getElementById('volume').value = data.volume || 100;
             });
             
         document.getElementById('settings-form').onsubmit = async function(e) {
@@ -114,6 +118,7 @@
             const upload_url = document.getElementById('upload_url').value.trim();
             const audio_input = document.getElementById('audio_input').value;
             const video_input = document.getElementById('video_input').value;
+            const volume = document.getElementById('volume').value;
             
             // Only validate if not empty
             if (stream_url) {
@@ -135,7 +140,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         stream_url, framerate, crf, gop, resolution, 
-                        vbitrate, abitrate, ar, upload_url, audio_input, video_input 
+                        vbitrate, abitrate, ar, upload_url, audio_input, video_input, volume
                     })
                 });
                 

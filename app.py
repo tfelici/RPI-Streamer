@@ -33,6 +33,7 @@ def load_settings():
         "abitrate": "128k",
         "ar": 16000,
         "upload_url": "",
+        "volume": 100,
         "gop": 30
     }
     if os.path.exists(SETTINGS_FILE):
@@ -174,6 +175,8 @@ def settings():
             settings['audio_input'] = data['audio_input']
         if 'video_input' in data:
             settings['video_input'] = data['video_input']
+        if 'volume' in data:
+            settings['volume'] = int(data['volume'])
         save_settings(settings)
         return '', 204
     else:
