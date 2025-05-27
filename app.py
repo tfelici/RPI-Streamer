@@ -31,7 +31,7 @@ def load_settings():
         "resolution": "1280x720",
         "vbitrate": 1000,
         "abitrate": "128k",
-        "ar": 44100,
+        "ar": 16000,
         "upload_url": "",
         "gop": 30
     }

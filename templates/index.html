@@ -420,6 +420,7 @@
         }
         streamBtn.disabled = true;
         streamStatus.textContent = streaming ? 'Stopping...' : 'Starting...';
+        streamStatus.style.display = '';
         fetch('/stream-control', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -429,12 +430,24 @@
         .then(result => {
             if (result.status !== 200 && result.data && result.data.error) {
                 streamStatus.textContent = result.data.error;
+                streamStatus.style.display = '';
+                streamStatus.style.color = '#fff';
+                streamStatus.style.backgroundColor = '#d9534f'; // Bootstrap danger
+                streamStatus.style.padding = '0.5em 1em';
+                streamStatus.style.borderRadius = '6px';
+                streamStatus.style.fontWeight = 'bold';
                 streamBtn.disabled = false;
                 return;
             }
             streaming = !streaming;
             streamBtn.textContent = streaming ? 'Stop Streaming' : 'Start Streaming';
             streamStatus.textContent = streaming ? 'Streaming is running.' : 'Streaming is stopped.';
+            streamStatus.style.display = '';
+            streamStatus.style.color = '';
+            streamStatus.style.backgroundColor = '';
+            streamStatus.style.padding = '';
+            streamStatus.style.borderRadius = '';
+            streamStatus.style.fontWeight = '';
             streamBtn.disabled = false;
             if (streaming) {
                 // Ensure the active recordings panel is visible again
