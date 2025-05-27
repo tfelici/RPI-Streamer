@@ -265,7 +265,7 @@ def get_auth_creds():
         with open(auth_file) as f:
             auth = json.load(f)
         return auth.get('username', 'admin'), auth.get('password', '12345')
-    return 'admin', '12345'
+    return '', ''
 
 def is_auth_enabled():
     """Check if authentication is enabled (password is not empty)"""
