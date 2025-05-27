@@ -8,7 +8,7 @@ Run the following commands in your home directory (do **not** use superuser/root
 
 ```sh
 curl -O https://raw.githubusercontent.com/tfelici/RPI-Encoder/main/install_rpi_encoder.sh
-bash install_rpi_encoder.sh --install
+bash install_rpi_encoder.sh --tailscale
 ```
 
 ## Features
