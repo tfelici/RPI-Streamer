@@ -4,11 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>System Stats - RPI Encoder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='responsive.css') }}">
 </head>
 <body>
+    {% set uploadrecordingsonly = request.args.get('uploadrecordingsonly') == '1' %}
+    {% if not uploadrecordingsonly %}
     {% include 'navbar.html' %}
-    
+    {% endif %}    
     <div class="container">
+        {% if not uploadrecordingsonly %}
         <!-- System Stats -->
         <div class="frame">
             <h1>System Statistics</h1>
@@ -44,13 +48,13 @@
                 <div class="file-list" id="active-recordings-list"></div>
             </div>
         </div>
-
-        <!-- Upload Recordings -->
-        {% if recording_files and not streaming %}
+        {% endif %}        <!-- Upload Recordings -->
+        {% if (recording_files and not streaming) or uploadrecordingsonly %}
         <div class="frame" id="upload-frame">
             <h2>Upload Recordings</h2>
             <form id="upload-form">
                 <div class="file-list">
+                    {% if recording_files %}
                     {% for file in recording_files if not file.active %}
                     <div class="file-item">
                         <input type="checkbox" class="upload-checkbox file-checkbox" id="recfile{{ loop.index }}" name="recording_files" value="{{ file.path }}" checked>
@@ -67,14 +71,18 @@
                         </label>
                     </div>
                     {% endfor %}
+                    {% else %}
+                    <div class="file-item">
+                        <p>No recordings available for upload.</p>
+                    </div>
+                    {% endif %}
                 </div>
                 <div style="display: flex; gap: 1rem; margin-top: 1.5rem; flex-wrap: wrap;">
                     <button type="submit" id="upload-btn" class="btn btn-success">Upload to Server</button>
                     <button type="button" id="delete-btn" class="btn btn-danger">Delete Selected</button>
                 </div>
                 <div id="upload-result" style="margin-top: 1.5rem;"></div>
-            </form>
-        </div>        {% endif %}
+            </form>        </div>        {% endif %}
     </div>
     <script>
     // Ensure streaming variable is available before any script uses it
@@ -314,13 +322,7 @@
                 }
             }
         })();
-    });
-    </script>
-    <script>
-    // Ensure streaming variable is available before any script uses it
-    // eslint-disable-next-line no-unused-vars, no-undef
-    var streaming = {{ streaming | tojson | safe }};
-    </script>
+    });    </script>    {% if not uploadrecordingsonly %}
     <script>
         const cpu = document.getElementById('cpu');
         const mem = document.getElementById('mem');
@@ -504,76 +506,77 @@
                 if (newUploadFrame) {
                     // Re-run the upload form JS logic
                     document.dispatchEvent(new Event('DOMContentLoaded'));
-                }
-            });
+                }            });
     }
     </script>
+    {% endif %}
+    
     <script>
-            document.addEventListener('DOMContentLoaded', function() {
-                const deleteBtn = document.getElementById('delete-btn');
-                const uploadForm = document.getElementById('upload-form');
-                const uploadBtn = document.getElementById('upload-btn');
-                const uploadResult = document.getElementById('upload-result');
-                if (deleteBtn && uploadForm) {
-                    deleteBtn.onclick = async function() {
-                        const checkboxes = document.querySelectorAll('.upload-checkbox:checked');
-                        if (checkboxes.length === 0) {
-                            uploadResult.innerHTML = '<span style="color:red;">No recordings selected.</span>';
-                            return;
-                        }
-                        if (!confirm('Delete selected recordings?')) return;
-                        deleteBtn.disabled = true;
-                        uploadBtn.disabled = true;
-                        let deletedCount = 0;
-                        let resultList = uploadResult.querySelector('ul');
-                        if (!resultList) {
-                            resultList = document.createElement('ul');
-                            uploadResult.innerHTML = '';
-                            uploadResult.appendChild(resultList);
-                        }
-                        resultList.innerHTML = '';
-                        for (let i = 0; i < checkboxes.length; i++) {
-                            const filePath = checkboxes[i].value;
-                            const li = document.createElement('li');
-                            li.textContent = `Deleting ${filePath}... (${i+1}/${checkboxes.length})`;
-                            resultList.appendChild(li);
-                            try {
-                                const resp = await fetch('/delete-recording', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ file_path: filePath })
-                                });
-                                const result = await resp.json();
-                                if (resp.ok && !result.error) {
-                                    li.style.color = 'green';
-                                    li.textContent = `Deleted ${filePath}`;
-                                    deletedCount++;
-                                    const checkboxDiv = checkboxes[i].closest('div');
-                                    if (checkboxDiv) checkboxDiv.remove();
-                                } else {
-                                    li.style.color = 'red';
-                                    li.textContent = `Error deleting ${filePath}: ${result.error || resp.statusText}`;
-                                }
-                            } catch (e) {
+        document.addEventListener('DOMContentLoaded', function() {
+            const deleteBtn = document.getElementById('delete-btn');
+            const uploadForm = document.getElementById('upload-form');
+            const uploadBtn = document.getElementById('upload-btn');
+            const uploadResult = document.getElementById('upload-result');
+            if (deleteBtn && uploadForm) {
+                deleteBtn.onclick = async function() {
+                    const checkboxes = document.querySelectorAll('.upload-checkbox:checked');
+                    if (checkboxes.length === 0) {
+                        uploadResult.innerHTML = '<span style="color:red;">No recordings selected.</span>';
+                        return;
+                    }
+                    if (!confirm('Delete selected recordings?')) return;
+                    deleteBtn.disabled = true;
+                    uploadBtn.disabled = true;
+                    let deletedCount = 0;
+                    let resultList = uploadResult.querySelector('ul');
+                    if (!resultList) {
+                        resultList = document.createElement('ul');
+                        uploadResult.innerHTML = '';
+                        uploadResult.appendChild(resultList);
+                    }
+                    resultList.innerHTML = '';
+                    for (let i = 0; i < checkboxes.length; i++) {
+                        const filePath = checkboxes[i].value;
+                        const li = document.createElement('li');
+                        li.textContent = `Deleting ${filePath}... (${i+1}/${checkboxes.length})`;
+                        resultList.appendChild(li);
+                        try {
+                            const resp = await fetch('/delete-recording', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ file_path: filePath })
+                            });
+                            const result = await resp.json();
+                            if (resp.ok && !result.error) {
+                                li.style.color = 'green';
+                                li.textContent = `Deleted ${filePath}`;
+                                deletedCount++;
+                                const checkboxDiv = checkboxes[i].closest('div');
+                                if (checkboxDiv) checkboxDiv.remove();
+                            } else {
                                 li.style.color = 'red';
-                                li.textContent = `Error deleting ${filePath}: ${e.message}`;
+                                li.textContent = `Error deleting ${filePath}: ${result.error || resp.statusText}`;
                             }
+                        } catch (e) {
+                            li.style.color = 'red';
+                            li.textContent = `Error deleting ${filePath}: ${e.message}`;
                         }
-                        if (deletedCount > 0) {
-                            const summary = document.createElement('li');
-                            summary.style.color = 'green';
-                            summary.textContent = `Successfully deleted ${deletedCount} file(s).`;
-                            resultList.appendChild(summary);
-                        }
-                        deleteBtn.disabled = false;
-                        uploadBtn.disabled = false;
-                        if (document.querySelectorAll('.upload-checkbox').length === 0) {
-                            uploadBtn.remove();
-                            deleteBtn.remove();
-                        }
-                    };
-                }
-            });
-            </script>
+                    }
+                    if (deletedCount > 0) {
+                        const summary = document.createElement('li');
+                        summary.style.color = 'green';
+                        summary.textContent = `Successfully deleted ${deletedCount} file(s).`;
+                        resultList.appendChild(summary);
+                    }
+                    deleteBtn.disabled = false;
+                    uploadBtn.disabled = false;
+                    if (document.querySelectorAll('.upload-checkbox').length === 0) {
+                        uploadBtn.remove();
+                        deleteBtn.remove();
+                    }
+                };
+            }
+        });
+    </script>
 </body>
 </html>

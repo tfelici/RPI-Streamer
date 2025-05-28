@@ -23,20 +23,35 @@ def start(stream_name):
 
     def find_usb_audio_device():
         """
-        Return (device_str, channels) if audio_input is set, else (None, 2).
+        Return audio_input if set and available, else None.
         """
-        audio_input = get_setting('audio_input', None)
-        if audio_input:
-            return audio_input
-        return None  # Default to no audio input
-
+        configured_device = get_setting('audio_input', None)
+        if not configured_device:
+            return None
+          # Check if the configured device is in the list of available devices
+        available_devices = list_audio_inputs()
+        for device in available_devices:
+            if device['id'] == configured_device:
+                return configured_device
+        
+        # Device not found in available devices
+        return None
+    
     def find_video_device():
         """
-        Return video_input if set, else None.
+        Return video_input if set and available, else None.
         """
-        video_input = get_setting('video_input', None)
-        if video_input:
-            return video_input
+        configured_device = get_setting('video_input', None)
+        if not configured_device:
+            return None
+        
+        # Check if the configured device is in the list of available devices
+        available_devices = list_video_inputs()
+        for device in available_devices:
+            if device['id'] == configured_device:
+                return configured_device
+        
+        # Device not found in available devices
         return None
 
     def build_ffmpeg_cmd(video_device, audio_device):
@@ -55,9 +70,35 @@ def start(stream_name):
                 except Exception as e:
                     print(f"Warning: Failed to set mic volume with amixer: {e}")
 
-        video_opts = []
-        audio_opts = []
-        vcodec = 'h264_v4l2m2m'
+        def probe_hardware_encoder(video_opts):
+            # Try h264_v4l2m2m first (RPi hardware encoder)
+            try:
+                probe_cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'error'] + video_opts + [
+                    '-vcodec', 'h264_v4l2m2m', 
+                    '-pix_fmt', 'yuv420p',
+                    '-f', 'null', 
+                    '-frames:v', '1', 
+                    '-t', '1', 
+                    '-y', 'NUL' if os.name == 'nt' else '/dev/null'
+                ]
+                result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=10)
+                if result.returncode == 0:
+                    print("Using hardware encoder: h264_v4l2m2m")
+                    return 'h264_v4l2m2m'
+            except Exception as e:
+                print(f"h264_v4l2m2m probe failed: {e}")
+
+            # Check if hardware encoder devices exist
+            hw_devices = ['/dev/video10', '/dev/video11', '/dev/video12']
+            available_hw = [dev for dev in hw_devices if os.path.exists(dev)]
+            if available_hw:
+                print(f"Hardware encoder devices found: {available_hw}, but probing failed")
+            else:
+                print("No hardware encoder devices found")
+            
+            print("Hardware encoders not supported, falling back to libx264")
+            return 'libx264'
+
         if video_device:
             video_opts = [
                 '-f', 'v4l2',
@@ -65,19 +106,15 @@ def start(stream_name):
                 '-video_size', str(resolution),
                 '-i', video_device
             ]
-            try:
-                probe_cmd = ['ffmpeg', '-hide_banner'] + video_opts + ['-vcodec', 'h264_v4l2m2m', '-f', 'null', '-t', '1', '-y', '/dev/null']
-                subprocess.check_output(probe_cmd, stderr=subprocess.STDOUT, timeout=5)
-            except Exception:
-                vcodec = 'libx264'
-                print("h264_v4l2m2m not supported, falling back to libx264")
         else:
             video_opts = [
                 '-stream_loop', '-1',
                 '-re',
                 '-i', static_img
             ]
-            vcodec = 'libx264'
+
+        vcodec = probe_hardware_encoder(video_opts)
+
         if audio_device:
             # Prepend 'plug' to the audio device string to ensure compatibility with ALSA
             audio_opts = [
@@ -86,6 +123,7 @@ def start(stream_name):
             ]
         else:
             audio_opts = ['-an']
+
         output_opts = [
             '-vcodec', vcodec,
             '-preset', 'ultrafast',
