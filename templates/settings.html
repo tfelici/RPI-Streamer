@@ -68,9 +68,7 @@
                     {% for device in video_inputs %}
                         <option value="{{ device.id }}" {% if settings.video_input == device.id %}selected{% endif %}>{{ device.label }}</option>
                     {% endfor %}
-                </select>
-
-                <label for="audio_input">Audio Input Device</label>
+                </select>                <label for="audio_input">Audio Input Device</label>
                 <select id="audio_input" name="audio_input">
                     <option value="">(Disabled)</option>
                     {% for device in audio_inputs %}
@@ -78,11 +76,11 @@
                     {% endfor %}
                 </select>
 
-                <label for="volume">Audio Input Volume (%)</label>
-                <input type="number" id="volume" name="volume" min="0" max="150" value="{{ settings.volume or 100 }}" required>
-
+                <label for="volume">Audio Input Volume: <span id="volume-display">{{ settings.volume or 100 }}%</span></label>
+                <input type="range" id="volume" name="volume" min="0" max="150" value="{{ settings.volume or 100 }}" step="1" required>
                 <button type="submit" class="btn btn-primary">Save Settings</button>
-                <div id="msg" class="status-message" style="display: none;"></div>            </form>
+                <div id="msg" class="status-message" style="display: none;"></div>
+            </form>
         </div>
     </div>
     <script>
@@ -97,12 +95,19 @@
                 document.getElementById('resolution').value = data.resolution || '1280x720';
                 document.getElementById('vbitrate').value = data.vbitrate || 1000;
                 document.getElementById('abitrate').value = data.abitrate || '128k';
-                document.getElementById('ar').value = data.ar || 8000;
+                document.getElementById('ar').value = data.ar || 8000;                
                 document.getElementById('upload_url').value = data.upload_url || '';
                 document.getElementById('audio_input').value = data.audio_input || '';
                 document.getElementById('video_input').value = data.video_input || '';
                 document.getElementById('volume').value = data.volume || 100;
+                // Update volume display on page load
+                document.getElementById('volume-display').textContent = (data.volume || 100) + '%';
             });
+            
+        // Add event listener to update volume display in real-time
+        document.getElementById('volume').addEventListener('input', function() {
+            document.getElementById('volume-display').textContent = this.value + '%';
+        });
             
         document.getElementById('settings-form').onsubmit = async function(e) {
             e.preventDefault();
