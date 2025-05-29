@@ -79,13 +79,19 @@ if [ ! -w "$HOME/flask_app" ]; then
 fi
 
 # search and install latest version of mediamtx
-printf "Searching for the latest MediaMTX release...\n"
+printf "Detecting system architecture...\n"
+ARCH=$(uname -m)
+if [[ "$ARCH" == "aarch64"* || "$ARCH" == arm* ]]; then
+    MTX_SUFFIX="linux_arm64.tar.gz"
+else
+    MTX_SUFFIX="linux_amd64.tar.gz"
+fi
+printf "Searching for the latest MediaMTX release for $MTX_SUFFIX...\n"
 # Check if jq is installed, if not, install it
-# Ensure jq is installed
 if ! command -v jq &> /dev/null; then
     sudo apt-get install jq -y
 fi
-latest_url=$(curl -s https://api.github.com/repos/bluenviron/mediamtx/releases/latest | jq -r '.assets[] | select(.browser_download_url | endswith("linux_arm64.tar.gz")) | .browser_download_url')
+latest_url=$(curl -s https://api.github.com/repos/bluenviron/mediamtx/releases/latest | jq -r ".assets[] | select(.browser_download_url | endswith(\"$MTX_SUFFIX\")) | .browser_download_url")
 printf "Latest MediaMTX URL: %s\n" "$latest_url"
 if [ -z "$latest_url" ]; then
     echo "Error: Could not find the latest MediaMTX release URL."
