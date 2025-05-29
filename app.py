@@ -392,33 +392,62 @@ def system_settings_wifi():
     wifi_path = os.path.join(ENCODER_DATA_DIR, 'wifi.json')
     # Save to wifi.json for web UI
     with open(wifi_path, 'w') as f:
-        json.dump({'ssid': ssid, 'password': password}, f)
-    # Write to wpa_supplicant.conf
-    wpa_conf = f'''
-ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
-update_config=1
-country=US
-
-network={{
-    ssid="{ssid}"
-    psk="{password}"
-    key_mgmt=WPA-PSK
-}}
-'''
+        json.dump({'ssid': ssid, 'password': password}, f)    # Use NetworkManager for RPI5 with Bookworm (instead of wpa_supplicant/dhcpcd)
     try:
-        with open('/etc/wpa_supplicant/wpa_supplicant.conf', 'w') as f:
-            f.write(wpa_conf)
+        # First, remove any existing connection with the same SSID
+        subprocess.run(['sudo', 'nmcli', 'connection', 'delete', ssid], check=False)
+        
+        # Add new WiFi connection with NetworkManager
+        cmd = [
+            'sudo', 'nmcli', 'device', 'wifi', 'connect', ssid,
+            'password', password,
+            'name', ssid
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            # If direct connection fails, try creating connection profile first
+            create_cmd = [
+                'sudo', 'nmcli', 'connection', 'add',
+                'type', 'wifi',
+                'con-name', ssid,
+                'ssid', ssid,
+                'wifi-sec.key-mgmt', 'wpa-psk',
+                'wifi-sec.psk', password,
+                'connection.autoconnect', 'yes'
+            ]
+            subprocess.run(create_cmd, check=True)
+            
+            # Activate the connection
+            subprocess.run(['sudo', 'nmcli', 'connection', 'up', ssid], check=True)        # Ensure NetworkManager is enabled for auto-start on boot
+        subprocess.run(['sudo', 'systemctl', 'enable', 'NetworkManager'], check=False)
+        
+        # Configure WiFi with lower priority - fallback when Ethernet unavailable
+        subprocess.run([
+            'sudo', 'nmcli', 'connection', 'modify', ssid,
+            'connection.autoconnect', 'yes',
+            'connection.autoconnect-priority', '5'
+        ], check=False)
+        
+        # Ensure Ethernet connection exists and has higher priority (preferred)
+        subprocess.run([
+            'sudo', 'nmcli', 'connection', 'modify', 'Wired connection 1',
+            'connection.autoconnect', 'yes',
+            'connection.autoconnect-priority', '10'
+        ], check=False)
+        
+        # Alternative: Create ethernet connection if it doesn't exist
+        subprocess.run([
+            'sudo', 'nmcli', 'connection', 'add',
+            'type', 'ethernet',
+            'con-name', 'Ethernet-Primary',
+            'ifname', 'eth0',
+            'connection.autoconnect', 'yes',
+            'connection.autoconnect-priority', '10'
+        ], check=False)
+        
     except Exception as e:
-        return jsonify({'success': False, 'error': f'Failed to write wpa_supplicant.conf: {e}'})
-    # Try to reload WiFi settings
-    try:
-        subprocess.run(['sudo', 'wpa_cli', '-i', 'wlan0', 'reconfigure'], check=True)
-    except Exception:
-        # If wpa_cli fails, try restarting dhcpcd or networking
-        try:
-            subprocess.run(['sudo', 'systemctl', 'restart', 'dhcpcd'], check=True)
-        except Exception:
-            pass  # Ignore if restart fails
+        return jsonify({'success': False, 'error': f'Failed to configure WiFi with NetworkManager: {e}'})
     return jsonify({'success': True})
 
 @app.route('/system-settings-reboot', methods=['POST'])
