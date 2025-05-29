@@ -496,8 +496,13 @@ def system_do_update():
         # Remove extra local files tracked by git but not in remote (deleted from remote)
         clean = subprocess.run(['git', 'clean', '-fd'], capture_output=True, text=True)
         results.append('git clean: ' + clean.stdout.strip() + clean.stderr.strip())
-        # Change ownership of all files to admin:admin
-        chown = subprocess.run(['sudo', 'chown', '-R', 'admin:admin', '.'], capture_output=True, text=True)
+        # Change ownership of all files to the user/group specified by the first system parameter
+        import sys
+        if len(sys.argv) > 1:
+            owner = sys.argv[1]
+        else:
+            raise RuntimeError("No user:group parameter provided to Python app. Please run as: python app.py user:group")
+        chown = subprocess.run(['sudo', 'chown', '-R', owner, '.'], capture_output=True, text=True)
         results.append('chown: ' + chown.stdout.strip() + chown.stderr.strip())
         return jsonify({'success': True, 'results': results})
     except Exception as e:

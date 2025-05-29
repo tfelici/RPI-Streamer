@@ -8,12 +8,6 @@
 
 set -e
 
-# Check if the script is run as the user "admin"
-if [ "$(whoami)" != "admin" ]; then
-    echo "This script must be run as the user 'admin'."
-    echo "Please switch to the admin user and run the script again."
-    exit 1
-fi
 # Wait for internet connectivity (max 20 seconds)
 for i in {1..20}; do
     if ping -c 1 github.com &>/dev/null; then
@@ -78,8 +72,6 @@ if [ ! -f app.py ]; then
     echo "Error: app.py file not found in the Flask app directory."
     exit 1
 fi
-#change ownership of the flask_app directory to the admin user
-sudo chown -R admin:admin "$HOME/flask_app"
 # Check if the flask_app directory is writable
 if [ ! -w "$HOME/flask_app" ]; then
     echo "Error: Flask app directory is not writable."
@@ -136,7 +128,7 @@ Description=RPI Encoder
 After=network.target
 [Service]
 User=root
-WorkingDirectory=$HOME/flask_app
+WorkingDirectory=$HOME/flask_app $USER:$USER
 ExecStart=/usr/bin/python3 app.py
 #ExecStart=/usr/bin/gunicorn -w 1 -k gevent --threads 4 -b 0.0.0.0:80 app:app
 Restart=always
@@ -167,7 +159,7 @@ Description=RPI Encoder Installation Script
 After=network-online.target
 Wants=network-online.target
 [Service]
-User=admin
+User=$USER
 Type=oneshot
 ExecStart=/bin/bash $HOME/flask_app/install_rpi_encoder.sh
 RemainAfterExit=yes
