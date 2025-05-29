@@ -34,6 +34,7 @@ sudo apt-get install python3-psutil -y
 sudo apt-get install python3-requests -y
 sudo apt-get install python3-werkzeug -y
 sudo apt-get install gunicorn python3-gevent -y
+sudo ln -s /usr/bin/python3 /usr/bin/python
 
 # Setup flask app directory
 echo "Setting up Flask app directory... $HOME/flask_app"
