@@ -56,12 +56,12 @@ fi
 # If repository exists, force update it
 # If not, clone it fresh
 if [ -d .git ]; then
-    git fetch --all
-    git reset --hard origin/main
-    git clean -f -d
+    sudo git fetch --all
+    sudo git reset --hard origin/main
+    sudo git clean -f -d
 else
     echo "Repository not found, cloning fresh copy..."
-    git clone https://github.com/tfelici/RPI-Encoder.git .
+    sudo git clone https://github.com/tfelici/RPI-Encoder.git .
 fi
 #this command is needed to allow any users to run git in the flask_app directory
 sudo git config --global --add safe.directory "$HOME/flask_app"
