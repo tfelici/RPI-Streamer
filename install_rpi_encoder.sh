@@ -61,6 +61,7 @@ if [ -d .git ]; then
     sudo git reset --hard origin/main
     sudo git clean -f -d
 else
+    rm -rf *
     echo "Repository not found, cloning fresh copy..."
     sudo git clone https://github.com/tfelici/RPI-Encoder.git .
 fi
