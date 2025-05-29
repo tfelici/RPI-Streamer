@@ -128,8 +128,8 @@ Description=RPI Encoder
 After=network.target
 [Service]
 User=root
-WorkingDirectory=$HOME/flask_app $USER:$USER
-ExecStart=/usr/bin/python3 app.py
+WorkingDirectory=$HOME/flask_app
+ExecStart=/usr/bin/python3 app.py $USER:$USER
 #ExecStart=/usr/bin/gunicorn -w 1 -k gevent --threads 4 -b 0.0.0.0:80 app:app
 Restart=always
 [Install]
