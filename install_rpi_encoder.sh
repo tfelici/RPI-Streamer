@@ -34,7 +34,14 @@ sudo apt-get install python3-psutil -y
 sudo apt-get install python3-requests -y
 sudo apt-get install python3-werkzeug -y
 sudo apt-get install gunicorn python3-gevent -y
-sudo ln -s /usr/bin/python3 /usr/bin/python
+#create symbolic link for python3 to python if it doesn't exist
+if [ ! -L /usr/bin/python ]; then
+    echo "Creating symbolic link for python3 to python..."
+    sudo ln -s /usr/bin/python3 /usr/bin/python
+else
+    echo "Symbolic link for python3 to python already exists."
+fi
+
 
 # Setup flask app directory
 echo "Setting up Flask app directory... $HOME/flask_app"
