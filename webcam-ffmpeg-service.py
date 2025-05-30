@@ -11,14 +11,7 @@ def start(stream_name):
     if not stream_name:
         print("Error: stream_name must be provided as a command-line argument.")
         return
-    framerate = get_setting('framerate', 5)
-    resolution = get_setting('resolution', '1280x720')
-    crf = get_setting('crf', 30)
-    gop = get_setting('gop', 5)  # Keyframe interval in seconds
-    vbitrate = get_setting('vbitrate', 1000)  # in kbps
-    ar = get_setting('ar', 8000)  # Audio sample rate in Hz
-    abitrate = get_setting('abitrate', '128k')  # Audio bitrate, default to 128k
-    volume = get_setting('volume', 100)  # Audio input volume percent
+    
     static_img = os.path.join(os.path.dirname(__file__), 'no_camera.png')
 
     def find_usb_audio_device():
@@ -28,7 +21,7 @@ def start(stream_name):
         configured_device = get_setting('audio_input', None)
         if not configured_device:
             return None
-          # Check if the configured device is in the list of available devices
+        # Check if the configured device is in the list of available devices
         available_devices = list_audio_inputs()
         for device in available_devices:
             if device['id'] == configured_device:
@@ -53,10 +46,10 @@ def start(stream_name):
         
         # Device not found in available devices
         return None
-
-    def build_ffmpeg_cmd(video_device, audio_device):
+    
+    def build_ffmpeg_cmd(video_device, audio_device, framerate_val, resolution_val, crf_val, gop_val, vbitrate_val, ar_val, abitrate_val, volume_val):
         # Set hardware volume using amixer if audio_device and volume are set
-        if audio_device and volume is not None:
+        if audio_device and volume_val is not None:
             import re
             m = re.search(r'(?:plug)?hw:(\d+)', str(audio_device))
             if m:
@@ -65,7 +58,7 @@ def start(stream_name):
                     subprocess.run([
                         'amixer',
                         '-c', str(cardnum),
-                        'sset', 'Mic', f'{volume}%'
+                        'sset', 'Mic', f'{volume_val}%'
                     ], check=True)
                 except Exception as e:
                     print(f"Warning: Failed to set mic volume with amixer: {e}")
@@ -102,8 +95,8 @@ def start(stream_name):
         if video_device:
             video_opts = [
                 '-f', 'v4l2',
-                '-framerate', str(framerate),
-                '-video_size', str(resolution),
+                '-framerate', str(framerate_val),
+                '-video_size', str(resolution_val),
                 '-i', video_device
             ]
         else:
@@ -128,14 +121,14 @@ def start(stream_name):
             '-vcodec', vcodec,
             '-preset', 'ultrafast',
             '-pix_fmt', 'yuv420p',
-            '-crf', str(crf),
-            '-b:v', f'{vbitrate}k',
+            '-crf', str(crf_val),
+            '-b:v', f'{vbitrate_val}k',
             '-tune', 'zerolatency',
-            '-g', str(gop),
+            '-g', str(gop_val),
             '-keyint_min', '1',
             '-acodec', 'libopus',
-            '-ar', str(ar),
-            '-b:a', str(abitrate),
+            '-ar', str(ar_val),
+            '-b:a', str(abitrate_val),
             '-f', 'rtsp',
             '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
             f'rtsp://localhost:8554/{stream_name}'
@@ -148,26 +141,79 @@ def start(stream_name):
     def monitor_devices():
         prev_video_device = None
         prev_audio_device = None
+        prev_settings = {
+            'framerate': get_setting('framerate', 5),
+            'resolution': get_setting('resolution', '1280x720'),
+            'crf': get_setting('crf', 30),
+            'gop': get_setting('gop', 5),
+            'vbitrate': get_setting('vbitrate', 1000),
+            'ar': get_setting('ar', 8000),
+            'abitrate': get_setting('abitrate', '128k'),
+            'volume': get_setting('volume', 100)
+        }
+        
         while True:
             video_device = find_video_device()
             audio_device = find_usb_audio_device()
-            if video_device != prev_video_device or audio_device != prev_audio_device:
-                print(f"Device change detected. Video: {video_device}, Audio: {audio_device}")
+            
+            # Check for current settings
+            current_settings = {
+                'framerate': get_setting('framerate', 5),
+                'resolution': get_setting('resolution', '1280x720'),
+                'crf': get_setting('crf', 30),
+                'gop': get_setting('gop', 5),
+                'vbitrate': get_setting('vbitrate', 1000),
+                'ar': get_setting('ar', 8000),
+                'abitrate': get_setting('abitrate', '128k'),
+                'volume': get_setting('volume', 100)
+            }
+            
+            # Check for device changes
+            device_changed = (video_device != prev_video_device or audio_device != prev_audio_device)
+            
+            # Check for settings changes
+            settings_changed = current_settings != prev_settings
+            
+            if device_changed or settings_changed:
+                if device_changed:
+                    print(f"Device change detected. Video: {video_device}, Audio: {audio_device}")
+                if settings_changed:
+                    changed_settings = [k for k in current_settings if current_settings[k] != prev_settings[k]]
+                    print(f"Settings change detected: {changed_settings}")
+                    print(f"Previous: {[(k, prev_settings[k]) for k in changed_settings]}")
+                    print(f"Current: {[(k, current_settings[k]) for k in changed_settings]}")
+                
                 state['should_restart'] = True
                 if state['proc'] and state['proc'].poll() is None:
                     state['proc'].terminate()
+                    
             prev_video_device = video_device
             prev_audio_device = audio_device
+            prev_settings = current_settings.copy()
             time.sleep(check_interval)
 
+    # Start monitoring thread
     t = threading.Thread(target=monitor_devices, daemon=True)
     t.start()
 
     while True:
+        # Get current settings each iteration
+        current_framerate = get_setting('framerate', 5)
+        current_resolution = get_setting('resolution', '1280x720')
+        current_crf = get_setting('crf', 30)
+        current_gop = get_setting('gop', 5)
+        current_vbitrate = get_setting('vbitrate', 1000)
+        current_ar = get_setting('ar', 8000)
+        current_abitrate = get_setting('abitrate', '128k')
+        current_volume = get_setting('volume', 100)
+        
         video_device = find_video_device()
         audio_device = find_usb_audio_device()
-        # If neither device is set, stream the default image with no audio
-        cmd = build_ffmpeg_cmd(video_device, audio_device)
+        
+        # Build command with current settings
+        cmd = build_ffmpeg_cmd(video_device, audio_device, current_framerate, current_resolution, 
+                              current_crf, current_gop, current_vbitrate, current_ar, 
+                              current_abitrate, current_volume)
         print("Running:", ' '.join(str(x) for x in cmd))
         proc = subprocess.Popen(cmd)
         state['proc'] = proc
@@ -175,6 +221,8 @@ def start(stream_name):
         if not state['should_restart']:
             print(f"ffmpeg exited with code {proc.returncode}. Restarting in {check_interval} seconds...")
             time.sleep(check_interval)
+        else:
+            print("Restarting ffmpeg due to device or settings change...")
         state['should_restart'] = False
 
 
