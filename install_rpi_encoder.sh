@@ -72,6 +72,8 @@ else
     echo "Repository not found, cloning fresh copy..."
     sudo git clone https://github.com/tfelici/RPI-Encoder.git .
 fi
+#change ownership of the flask_app directory to the current user
+sudo chown -R "$USER":"$USER" "$HOME/flask_app"
 #this command is needed to allow any users to run git in the flask_app directory
 sudo git config --global --add safe.directory "$HOME/flask_app"
 echo "Repository update complete"
@@ -176,7 +178,7 @@ Wants=network-online.target
 [Service]
 User=$USER
 Type=oneshot
-ExecStart=/bin/bash $HOME/flask_app/install_rpi_encoder.sh
+ExecStart=/bin/bash $HOME/flask_app/install_rpi_encoder.sh 
 RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
