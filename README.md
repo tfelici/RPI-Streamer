@@ -7,7 +7,7 @@ A Flask-based web app and streaming server for Raspberry Pi, with easy installat
 Run the following commands in your home directory (do **not** use superuser/root):
 
 ```sh
-curl -O https://raw.githubusercontent.com/tfelici/RPI-Encoder/main/install_rpi_encoder.sh
+curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Encoder/main/install_rpi_encoder.sh?$(date +%s)
 bash install_rpi_encoder.sh --tailscale
 ```
 
