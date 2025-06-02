@@ -89,6 +89,20 @@ if [ ! -w "$HOME/flask_app" ]; then
     exit 1
 fi
 
+#download the executables directory from the Encoder-Uploader repository
+#do not fail if the executables do not exist
+if [ ! -d "$HOME/executables" ]; then
+    mkdir -p "$HOME/executables"
+fi
+# Download the EncoderUploader executables for different platforms
+printf "Downloading EncoderUploader executables...\n"
+curl -H "Cache-Control: no-cache" -L "https://raw.githubusercontent.com/tfelici/Encoder-Uploader/main/windows/dist/EncoderUploader.exe" -o "$HOME/executables/Uploader-windows.exe"
+curl -H "Cache-Control: no-cache" -L "https://raw.githubusercontent.com/tfelici/Encoder-Uploader/main/linux/dist/EncoderUploader" -o "$HOME/executables/Uploader-linux"
+curl -H "Cache-Control: no-cache" -L "https://raw.githubusercontent.com/tfelici/Encoder-Uploader/main/macos/dist/EncoderUploader" -o "$HOME/executables/Uploader-macos"
+# Make the Uploader-linux executable
+chmod +x "$HOME/executables/Uploader-linux"
+# Make the Uploader-macos executable
+chmod +x "$HOME/executables/Uploader-macos"
 # search and install latest version of mediamtx
 printf "Detecting system architecture...\n"
 ARCH=$(uname -m)
