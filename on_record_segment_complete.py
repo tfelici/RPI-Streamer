@@ -91,7 +91,7 @@ def main():
             script_dir = os.path.dirname(os.path.abspath(__file__))
             settings_file = os.path.join(os.path.dirname(script_dir), "encoderData", "settings.json")
             if os.path.exists(settings_file):
-                shutil.copy2(settings_file, usb_mount)
+                shutil.copy2(settings_file, os.path.join(usb_mount, "encoderData"))
                 print(f"Copied settings file to USB: {settings_file}")
             
     except Exception as e:
