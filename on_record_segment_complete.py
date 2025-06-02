@@ -85,9 +85,13 @@ def main():
     try:
         os.makedirs(output_dir, exist_ok=True)
         
-        # If using USB storage, copy executables to USB root
+        # If using USB storage, copy executables to USB root and the settings file
         if usb_mount:
             copy_executables_to_usb(usb_mount)
+            settings_file = os.path.join(os.path.dirname(script_dir), "encoderData", "settings.json")
+            if os.path.exists(settings_file):
+                shutil.copy2(settings_file, usb_mount)
+                print(f"Copied settings file to USB: {settings_file}")
             
     except Exception as e:
         print(f"Failed to create output directory {output_dir}: {e}")
