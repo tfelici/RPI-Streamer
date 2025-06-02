@@ -88,6 +88,7 @@ def main():
         # If using USB storage, copy executables to USB root and the settings file
         if usb_mount:
             copy_executables_to_usb(usb_mount)
+            script_dir = os.path.dirname(os.path.abspath(__file__))
             settings_file = os.path.join(os.path.dirname(script_dir), "encoderData", "settings.json")
             if os.path.exists(settings_file):
                 shutil.copy2(settings_file, usb_mount)
