@@ -29,6 +29,10 @@
                     <span class="stat-value" id="temp">--</span>
                     <div class="stat-label">Temperature</div>
                 </div>
+                <div class="stat-item">
+                    <span class="stat-value" id="power">--</span>
+                    <div class="stat-label">Power Draw</div>
+                </div>
             </div>
         </div>
 
@@ -57,16 +61,17 @@
                     {% if recording_files %}
                     {% for file in recording_files if not file.active %}
                     <div class="file-item">
-                        <input type="checkbox" class="upload-checkbox file-checkbox" id="recfile{{ loop.index }}" name="recording_files" value="{{ file.path }}" checked>
-                        <label for="recfile{{ loop.index }}" class="file-info" data-info='{{ file.path|parse_recording_filename|tojson|safe }}'>
+                        <input type="checkbox" class="upload-checkbox file-checkbox" id="recfile{{ loop.index }}" name="recording_files" value="{{ file.path }}" checked>                        <label for="recfile{{ loop.index }}" class="file-info" data-info='{{ file.path|parse_recording_filename|tojson|safe }}'>
                             {% set info = file.path|parse_recording_filename %}
                             {% if info %}
                                 <strong>Timestamp:</strong> {{ info.timestamp | datetimeformat }}<br>
                                 <strong>Duration:</strong> {{ info.duration | durationformat }}<br>
-                                <strong>Size:</strong> {{ file.size | filesizeformat }}
+                                <strong>Size:</strong> {{ file.size | filesizeformat }}<br>
+                                <strong>Location:</strong> {{ file.location }}
                             {% else %}
                                 <strong>File:</strong> {{ file.path }}<br>
-                                <strong>Size:</strong> {{ file.size | filesizeformat }}
+                                <strong>Size:</strong> {{ file.size | filesizeformat }}<br>
+                                <strong>Location:</strong> {{ file.location }}
                             {% endif %}
                         </label>
                     </div>
@@ -327,12 +332,14 @@
         const cpu = document.getElementById('cpu');
         const mem = document.getElementById('mem');
         const temp = document.getElementById('temp');
+        const power = document.getElementById('power');
         const evtSource = new EventSource('/stats');
         evtSource.onmessage = function(event) {
             const data = JSON.parse(event.data);
             cpu.textContent = data.cpu;
             mem.textContent = data.mem;
             temp.textContent = data.temp;
+            power.textContent = data.power;
         };
 
         // --- Active Recordings Panel Auto-Refresh ---
@@ -351,7 +358,7 @@
             files.forEach(file => {
                 const div = document.createElement('div');
                 div.style.marginBottom = '0.5em';
-                div.innerHTML = `<label style="word-break:break-all;"><b>Active recording:</b> ${file.name}<br>Size: ${file.size_fmt || file.size}</label>`;
+                div.innerHTML = `<label style="word-break:break-all;"><b>Active recording:</b> ${file.name}<br>Size: ${file.size_fmt || file.size}<br>Location: ${file.location}</label>`;
                 listDiv.appendChild(div);
             });
         } else if (streaming) {

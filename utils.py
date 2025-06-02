@@ -2,6 +2,8 @@ import subprocess
 import re
 import os
 import json
+import atexit
+from datetime import datetime
 
 def list_audio_inputs():
     """
@@ -85,3 +87,311 @@ def get_setting(key, default=None):
         return s.get(key, default)
     except Exception:
         return default
+
+# =============================================================================
+# USB Storage Functions
+# ==============================================================================
+
+def log_message(message):
+    """
+    Print a message with timestamp for better debugging.
+    """
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {message}")
+
+def detect_usb_devices():
+    """
+    Detect USB storage devices that are plugged in but not necessarily mounted.
+    Returns a list of device paths (e.g., ['/dev/sda1', '/dev/sdb1']).
+    Uses multiple detection methods for better compatibility.
+    """
+    usb_devices = []
+    
+    # Method 1: Use lsblk to find removable storage devices
+    try:
+        log_message("Detecting USB devices using lsblk...")
+        result = subprocess.run(['lsblk', '-n', '-o', 'NAME,TYPE,MOUNTPOINT,HOTPLUG,RM'], 
+                               capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            for line in result.stdout.strip().split('\n'):
+                if line.strip():
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        name, device_type, mountpoint, hotplug = parts[0], parts[1], parts[2] if len(parts) > 2 else '', parts[3] if len(parts) > 3 else '0'
+                        removable = parts[4] if len(parts) > 4 else '0'
+                        
+                        # Look for partitions on removable/hotplug devices
+                        if (device_type == 'part' and 
+                            (hotplug == '1' or removable == '1') and
+                            not name.startswith('mmcblk')):  # Exclude SD card
+                            
+                            device_path = f'/dev/{name}'
+                            if device_path not in usb_devices:
+                                usb_devices.append(device_path)
+                                log_message(f"Found USB device via lsblk: {device_path}")
+    except Exception as e:
+        log_message(f"lsblk detection failed: {e}")
+    
+    # Method 2: Check /dev for sd* devices (fallback method)
+    try:
+        log_message("Detecting USB devices using /dev scan...")
+        for device_file in os.listdir('/dev'):
+            # Look for USB storage devices (sd* pattern, excluding sda which is usually the SD card)
+            if (device_file.startswith('sd') and 
+                len(device_file) == 4 and 
+                device_file[-1].isdigit() and
+                device_file not in ['sda1', 'sda2']):  # Exclude main SD card partitions
+                
+                device_path = f'/dev/{device_file}'
+                
+                # Verify it's a block device and not already found
+                if device_path not in usb_devices:
+                    try:
+                        result = subprocess.run(['lsblk', '-n', '-o', 'TYPE', device_path], 
+                                              capture_output=True, text=True, timeout=5)
+                        if result.returncode == 0 and 'part' in result.stdout:
+                            usb_devices.append(device_path)
+                            log_message(f"Found USB device via /dev scan: {device_path}")
+                    except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+                        continue
+                        
+    except Exception as e:
+        log_message(f"Error in /dev scan: {e}")
+    
+    # Method 3: Check for USB devices using udevadm (most reliable)
+    try:
+        log_message("Detecting USB devices using udevadm...")
+        result = subprocess.run(['find', '/dev/disk/by-id/', '-name', '*usb*', '-type', 'l'], 
+                               capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            for usb_link in result.stdout.strip().split('\n'):
+                if usb_link.strip():
+                    try:
+                        # Resolve the symbolic link to get the actual device path
+                        real_device = os.path.realpath(usb_link)
+                        
+                        # Only include partitions, not whole disks
+                        if real_device and real_device[-1].isdigit():
+                            if real_device not in usb_devices:
+                                usb_devices.append(real_device)
+                                log_message(f"Found USB device via udevadm: {real_device} (from {usb_link})")
+                    except Exception as e:
+                        log_message(f"Error resolving USB link {usb_link}: {e}")
+                        
+    except Exception as e:
+        log_message(f"udevadm detection failed: {e}")
+    
+    # Remove duplicates while preserving order
+    unique_devices = []
+    for device in usb_devices:
+        if device not in unique_devices:
+            unique_devices.append(device)
+    
+    log_message(f"Total USB devices detected: {len(unique_devices)}")
+    return unique_devices
+
+def get_filesystem_type(device_path):
+    """
+    Get the filesystem type of a device.
+    Returns the filesystem type string or None if detection fails.
+    """
+    try:
+        result = subprocess.run(['blkid', '-o', 'value', '-s', 'TYPE', device_path], 
+                               capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            fstype = result.stdout.strip()
+            log_message(f"Device {device_path} has filesystem: {fstype}")
+            return fstype
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
+        log_message(f"Failed to detect filesystem for {device_path}: {e}")
+    return None
+
+def mount_usb_device(device_path, fstype):
+    """
+    Mount a USB device with auto-detection and fallback options.
+    Returns the mount point path if successful, None otherwise.
+    """
+    # Create a mount point
+    device_name = os.path.basename(device_path)
+    mount_point = f'/mnt/usb_{device_name}'
+    
+    try:
+        # Create mount point directory
+        os.makedirs(mount_point, exist_ok=True)
+        
+        # First try: Use auto-detection with options for common filesystems
+        mount_cmd = [
+            'sudo', 'mount', 
+            '-t', 'auto',
+            '-o', 'uid=1000,gid=1000,umask=022',
+            device_path, mount_point
+        ]
+        
+        log_message(f"Mounting {device_path} at {mount_point} using auto-detection")
+        log_message(f"Mount command: {' '.join(mount_cmd)}")
+        
+        result = subprocess.run(mount_cmd, capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            # Verify the mount was successful and is writable
+            if os.path.ismount(mount_point) and os.access(mount_point, os.W_OK):
+                log_message(f"Successfully mounted {device_path} at {mount_point} using auto-detection")
+                return mount_point
+            else:
+                log_message(f"Mount succeeded but directory not writable: {mount_point}")
+                # Try to unmount if not writable
+                subprocess.run(['sudo', 'umount', mount_point], capture_output=True)
+        else:
+            log_message(f"Auto-detection mount failed: {result.stderr}")
+            
+            # Fallback: Try with detected filesystem type if available
+            if fstype:
+                log_message(f"Trying fallback mount with detected filesystem type: {fstype}")
+                mount_cmd_fs = [
+                    'sudo', 'mount', 
+                    '-t', fstype,
+                    '-o', 'uid=1000,gid=1000,umask=022',
+                    device_path, mount_point
+                ]
+                
+                result_fs = subprocess.run(mount_cmd_fs, capture_output=True, text=True, timeout=10)
+                
+                if result_fs.returncode == 0:
+                    if os.path.ismount(mount_point) and os.access(mount_point, os.W_OK):
+                        log_message(f"Successfully mounted {device_path} at {mount_point} using {fstype}")
+                        return mount_point
+                    else:
+                        log_message(f"Filesystem-specific mount succeeded but directory not writable")
+                        subprocess.run(['sudo', 'umount', mount_point], capture_output=True)
+                else:
+                    log_message(f"Filesystem-specific mount failed: {result_fs.stderr}")
+            
+            # Final fallback: Try common filesystem types
+            common_fs_types = ['vfat', 'exfat', 'ntfs', 'ext4', 'ext3', 'ext2']
+            for fs_type in common_fs_types:
+                if fs_type == fstype:  # Skip if we already tried this
+                    continue
+                    
+                log_message(f"Trying fallback mount with filesystem type: {fs_type}")
+                mount_cmd_fallback = [
+                    'sudo', 'mount', 
+                    '-t', fs_type,
+                    '-o', 'uid=1000,gid=1000,umask=022',
+                    device_path, mount_point
+                ]
+                
+                result_fallback = subprocess.run(mount_cmd_fallback, capture_output=True, text=True, timeout=10)
+                
+                if result_fallback.returncode == 0:
+                    if os.path.ismount(mount_point) and os.access(mount_point, os.W_OK):
+                        log_message(f"Successfully mounted {device_path} at {mount_point} using {fs_type}")
+                        return mount_point
+                    else:
+                        log_message(f"Mount with {fs_type} succeeded but directory not writable")
+                        subprocess.run(['sudo', 'umount', mount_point], capture_output=True)
+                        
+    except Exception as e:
+        log_message(f"Error mounting {device_path}: {e}")
+    
+    # Clean up mount point if all mount attempts failed
+    try:
+        os.rmdir(mount_point)
+    except:
+        pass
+    
+    return None
+
+def find_usb_storage():
+    """
+    Find and mount the first available USB storage device on Raspberry Pi Lite.
+    Returns the mount point path if found and mounted, None otherwise.
+    """
+    log_message("Detecting USB storage devices...")
+    
+    # First check if any USB devices are already mounted
+    try:
+        with open('/proc/mounts', 'r') as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 3:
+                    device, mount_point, fstype = parts[0], parts[1], parts[2]
+                    # Look for already mounted USB devices
+                    if (device.startswith('/dev/sd') and 
+                        device != '/dev/sda1' and  # Exclude main SD card
+                        mount_point.startswith('/mnt/') and 
+                        fstype in ['vfat', 'exfat', 'ntfs', 'ext4', 'ext3', 'ext2']):
+                        
+                        # Verify the device still exists and mount point is accessible
+                        if (os.path.exists(device) and 
+                            os.path.exists(mount_point) and 
+                            os.access(mount_point, os.R_OK) and
+                            os.access(mount_point, os.W_OK)):
+                            
+                            # Double-check it's actually mounted using os.path.ismount
+                            if os.path.ismount(mount_point):
+                                log_message(f"Found already mounted USB storage: {mount_point} (device: {device}, filesystem: {fstype})")
+                                return mount_point
+                            else:
+                                log_message(f"Mount point {mount_point} appears in /proc/mounts but is not actually mounted")
+                        else:
+                            log_message(f"USB device {device} or mount point {mount_point} no longer accessible")
+    except Exception as e:
+        log_message(f"Error checking mounted devices: {e}")
+    
+    # Detect unmounted USB devices
+    usb_devices = detect_usb_devices()
+    
+    if not usb_devices:
+        log_message("No USB storage devices detected")
+        return None
+    
+    # Try to mount the first detected USB device
+    for device_path in usb_devices:
+        log_message(f"Attempting to mount USB device: {device_path}")
+        
+        # Get filesystem type
+        fstype = get_filesystem_type(device_path)
+        if not fstype:
+            log_message(f"Could not determine filesystem type for {device_path}, skipping")
+            continue
+        
+        # Try to mount the device
+        mount_point = mount_usb_device(device_path, fstype)
+        if mount_point:
+            return mount_point
+    
+    log_message("Failed to mount any USB storage devices")
+    return None
+
+# Global variable to track mounted USB device for cleanup
+_mounted_usb_device = None
+
+def cleanup_usb_mount():
+    """
+    Cleanup function to unmount USB device on script exit.
+    """
+    global _mounted_usb_device
+    if _mounted_usb_device:
+        try:
+            log_message(f"Unmounting USB device: {_mounted_usb_device}")
+            subprocess.run(['sudo', 'umount', _mounted_usb_device], 
+                          capture_output=True, text=True, timeout=10)
+        except Exception as e:
+            log_message(f"Warning: Failed to unmount USB device {_mounted_usb_device}: {e}")
+
+def set_mounted_usb_device(mount_point):
+    """
+    Set the mounted USB device path for cleanup tracking.
+    Call this function when you successfully mount a USB device.
+    """
+    global _mounted_usb_device
+    _mounted_usb_device = mount_point
+
+def register_usb_cleanup():
+    """
+    Register the USB cleanup function with atexit.
+    Call this once in your script to enable automatic USB cleanup on exit.
+    """
+    atexit.register(cleanup_usb_mount)

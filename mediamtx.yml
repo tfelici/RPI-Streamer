@@ -734,9 +734,5 @@ paths:
     record: yes
     recordPath: ../encoderData/recordings/%path/%s
     recordDeleteAfter: 0s
-    runOnRecordSegmentComplete: > 
-      bash -c "
-      /usr/bin/ffmpeg -i $MTX_SEGMENT_PATH -movflags faststart -c copy ../encoderData/recordings/broadcast/`/usr/bin/echo '$MTX_SEGMENT_PATH' | /usr/bin/grep -oP '\d+(?=\.mp4)'`d$MTX_SEGMENT_DURATION.mp4;
-      /usr/bin/rm -f $MTX_SEGMENT_PATH;
-      "
+    runOnRecordSegmentComplete: python3 ./on_record_segment_complete.py $MTX_SEGMENT_PATH $MTX_SEGMENT_DURATION $MTX_PATH
     

@@ -8,7 +8,7 @@ import subprocess
 import re
 from datetime import datetime
 from functools import wraps
-from utils import list_audio_inputs, list_video_inputs
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage
 
 app = Flask(__name__)
 
@@ -57,6 +57,51 @@ def get_temperature():
     except Exception:
         return "N/A"
 
+def get_power_draw():
+    """
+    Try to get total power draw in watts (W) or microwatts (uW).
+    Returns a string, or 'N/A' if not available.
+    """
+    power_paths = [
+        '/sys/class/power_supply/rpi_battery/power_now',
+        '/sys/class/power_supply/battery/power_now',
+        '/sys/class/power_supply/axp20x-battery/power_now',
+        '/sys/class/power_supply/usb/power_now',
+    ]
+    for path in power_paths:
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    val = int(f.read().strip())
+                    if val > 10000:
+                        return f"{val/1_000_000:.2f} W"
+                    else:
+                        return f"{val} uW"
+            except Exception:
+                continue
+    # Try using vcgencmd if available (returns voltage and current)
+    try:
+        result = subprocess.run(['vcgencmd', 'measure_volts'], capture_output=True, text=True)
+        volts = None
+        if result.returncode == 0:
+            m = re.search(r'volt=([\d.]+)V', result.stdout)
+            if m:
+                volts = float(m.group(1))
+        result = subprocess.run(['vcgencmd', 'measure_current'], capture_output=True, text=True)
+        amps = None
+        if result.returncode == 0:
+            m = re.search(r'current=([\d.]+)A', result.stdout)
+            if m:
+                amps = float(m.group(1))
+        if volts is not None and amps is not None:
+            watts = volts * amps
+            return f"{watts:.2f} W"
+        elif volts is not None:
+            return f"{volts:.2f} V"
+    except Exception:
+        pass
+    return "N/A"
+
 def is_streaming():
     """Return True if streaming is currently active (broadcast)."""
     if os.path.exists(STREAM_PIDFILE):
@@ -101,33 +146,50 @@ def home():
 
     # Gather recording files info
     recording_files = []
-    recording_path = os.path.join(ENCODER_DATA_DIR, 'recordings', 'broadcast')
-    if os.path.isdir(recording_path):
-        files = [f for f in os.listdir(recording_path) if os.path.isfile(os.path.join(recording_path, f))]
-        files.sort(key=lambda f: os.path.getmtime(os.path.join(recording_path, f)), reverse=True)
-        for f in files:
-            file_path = os.path.join(recording_path, f)
-            file_size = os.path.getsize(file_path)
-            if re.match(r'^\d+\.mp4$', f):
-                recording_files.append({
-                    'path': file_path,
-                    'size': file_size,
-                    'active': True,
-                    'name': f
-                })
-            else:
-                recording_files.append({
-                    'path': file_path,
-                    'size': file_size,
-                    'active': False
-                })
+    
+    def add_files_from_path(path, source_label="", location="Local"):
+        """Helper function to add files from a given path"""
+        if os.path.isdir(path):
+            files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
+            files.sort(key=lambda f: os.path.getmtime(os.path.join(path, f)), reverse=True)
+            for f in files:
+                file_path = os.path.join(path, f)
+                file_size = os.path.getsize(file_path)
+                display_name = f"{source_label}{f}" if source_label else f
+                if re.match(r'^\d+\.mp4$', f):
+                    recording_files.append({
+                        'path': file_path,
+                        'size': file_size,
+                        'active': True,
+                        'name': display_name,
+                        'location': location
+                    })
+                else:
+                    recording_files.append({
+                        'path': file_path,
+                        'size': file_size,
+                        'active': False,
+                        'name': display_name,
+                        'location': location
+                    })
+    
+    # Add files from local storage
+    local_recording_path = os.path.join(ENCODER_DATA_DIR, 'recordings', 'broadcast')
+    add_files_from_path(local_recording_path, "", "Local")
+    
+    # Add files from USB storage if available
+    usb_mount_point = find_usb_storage()
+    if usb_mount_point:
+        usb_recording_path = os.path.join(usb_mount_point, 'encoderData', 'recordings', 'broadcast')
+        add_files_from_path(usb_recording_path, "[USB] ", "USB")
 
     if request.args.get('active_only') == '1':
         active_files = [
             {
                 'name': f['name'],
                 'size': f['size'],
-                'size_fmt': f"{f['size'] // 1024} KB" if f['size'] < 1024*1024 else f"{f['size'] / (1024*1024):.1f} MB"
+                'size_fmt': f"{f['size'] // 1024} KB" if f['size'] < 1024*1024 else f"{f['size'] / (1024*1024):.1f} MB",
+                'location': f['location']
             }
             for f in recording_files if f.get('active')
         ]
@@ -142,7 +204,8 @@ def stats():
             cpu = psutil.cpu_percent(interval=1)
             mem = psutil.virtual_memory().percent
             temp = get_temperature()
-            data = f"data: {{\"cpu\": {cpu}, \"mem\": {mem}, \"temp\": \"{temp}\"}}\n\n"
+            power = get_power_draw()
+            data = f"data: {{\"cpu\": {cpu}, \"mem\": {mem}, \"temp\": \"{temp}\", \"power\": \"{power}\"}}\n\n"
             yield data
             time.sleep(1)
     return Response(event_stream(), mimetype='text/event-stream')
