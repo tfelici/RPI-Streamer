@@ -96,9 +96,12 @@ if [ ! -d "$HOME/executables" ]; then
 fi
 # Download the EncoderUploader executables for different platforms
 printf "Downloading EncoderUploader executables...\n"
-curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Encoder-Uploader/raw/main/windows/dist/EncoderUploader_Standalone/EncoderUploader_Standalone.exe" -o "$HOME/executables/Uploader-windows.exe"
-curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Encoder-Uploader/raw/main/macos/dist/EncoderUploader_Standalone/EncoderUploader_Standalone.exe" -o "$HOME/executables/Uploader-macos.exe"
-curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Encoder-Uploader/raw/main/linux/dist/EncoderUploader_Standalone/EncoderUploader_Standalone.exe" -o "$HOME/executables/Uploader-linux.exe"
+curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Encoder-Uploader/raw/main/windows/dist/EncoderUploader.exe" -o "$HOME/executables/Uploader-windows.exe"
+curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Encoder-Uploader/raw/main/macos/dist/EncoderUploader" -o "$HOME/executables/Uploader-macos"
+curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Encoder-Uploader/raw/main/linux/dist/EncoderUploader" -o "$HOME/executables/Uploader-linux"
+# if they exist, Make the downloaded linux and macos executables executable
+[ -f "$HOME/executables/Uploader-linux" ] && chmod +x "$HOME/executables/Uploader-linux"
+[ -f "$HOME/executables/Uploader-macos" ] && chmod +x "$HOME/executables/Uploader-macos"
 # search and install latest version of mediamtx
 printf "Detecting system architecture...\n"
 ARCH=$(uname -m)
