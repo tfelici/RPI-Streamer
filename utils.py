@@ -118,8 +118,15 @@ def detect_usb_devices():
                 if line.strip():
                     parts = line.split()
                     if len(parts) >= 4:
-                        name, device_type, mountpoint, hotplug = parts[0], parts[1], parts[2] if len(parts) > 2 else '', parts[3] if len(parts) > 3 else '0'
+                        name_raw, device_type = parts[0], parts[1]
+                        hotplug = parts[3] if len(parts) > 3 else '0'
                         removable = parts[4] if len(parts) > 4 else '0'
+                        
+                        # Clean up the device name - remove tree drawing characters
+                        name = name_raw
+                        for char in ['└─', '├─', '│ ', '├ ', '└ ']:
+                            name = name.replace(char, '')
+                        name = name.strip()
                         
                         # Look for partitions on removable/hotplug devices
                         if (device_type == 'part' and 
@@ -319,8 +326,8 @@ def find_usb_storage():
                     device, mount_point, fstype = parts[0], parts[1], parts[2]
                     # Look for already mounted USB devices
                     if (device.startswith('/dev/sd') and 
-                        device != '/dev/sda1' and  # Exclude main SD card
-                        mount_point.startswith('/mnt/') and 
+                        device != '/dev/sda' and  # Exclude main SD card (if it exists)
+                        not device.endswith('a') and  # Skip whole disks, only partitions
                         fstype in ['vfat', 'exfat', 'ntfs', 'ext4', 'ext3', 'ext2']):
                         
                         # Verify the device still exists and mount point is accessible
@@ -350,6 +357,25 @@ def find_usb_storage():
     # Try to mount the first detected USB device
     for device_path in usb_devices:
         log_message(f"Attempting to mount USB device: {device_path}")
+        
+        # Skip devices with invalid paths (containing tree characters)
+        if any(char in device_path for char in ['└', '├', '─']):
+            log_message(f"Skipping device with tree characters: {device_path}")
+            continue
+        
+        # Check if this device is already mounted
+        try:
+            with open('/proc/mounts', 'r') as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[0] == device_path:
+                        mount_point = parts[1]
+                        if os.path.exists(mount_point) and os.access(mount_point, os.W_OK):
+                            log_message(f"Device {device_path} is already mounted at {mount_point}")
+                            return mount_point
+                        break
+        except Exception as e:
+            log_message(f"Error checking if {device_path} is mounted: {e}")
         
         # Get filesystem type
         fstype = get_filesystem_type(device_path)
