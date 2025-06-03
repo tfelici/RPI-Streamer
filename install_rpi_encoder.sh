@@ -99,10 +99,6 @@ printf "Downloading EncoderUploader executables...\n"
 curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Encoder-Uploader/raw/main/windows/dist/EncoderUploader_Standalone/EncoderUploader_Standalone.exe" -o "$HOME/executables/Uploader-windows.exe"
 curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Encoder-Uploader/raw/main/macos/dist/EncoderUploader_Standalone/EncoderUploader_Standalone.exe" -o "$HOME/executables/Uploader-macos.exe"
 curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Encoder-Uploader/raw/main/linux/dist/EncoderUploader_Standalone/EncoderUploader_Standalone.exe" -o "$HOME/executables/Uploader-linux.exe"
-# Make the Uploader-linux executable
-chmod +x "$HOME/executables/Uploader-linux"
-# Make the Uploader-macos executable
-chmod +x "$HOME/executables/Uploader-macos"
 # search and install latest version of mediamtx
 printf "Detecting system architecture...\n"
 ARCH=$(uname -m)
