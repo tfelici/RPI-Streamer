@@ -34,6 +34,7 @@ sudo apt-get install python3-psutil -y
 sudo apt-get install python3-requests -y
 sudo apt-get install python3-werkzeug -y
 sudo apt-get install gunicorn python3-gevent -y
+sudo apt-get install python3-requests-toolbelt -y
 #create symbolic link for python3 to python if it doesn't exist
 if [ ! -L /usr/bin/python ]; then
     echo "Creating symbolic link for python3 to python..."

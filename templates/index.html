@@ -9,9 +9,12 @@
 <body>
     {% set uploadrecordingsonly = request.args.get('uploadrecordingsonly') == '1' %}
     {% if not uploadrecordingsonly %}
-    {% include 'navbar.html' %}
-    {% endif %}    
-    <div class="container">        {% if not uploadrecordingsonly %}        <!-- System Stats -->
+        {% include 'navbar.html' %}
+    {% endif %}
+    
+    <div class="container">
+        {% if not uploadrecordingsonly %}
+        <!-- System Stats -->
         <div class="frame">
             <h2>System Statistics</h2>
             <div class="stats-grid">
@@ -73,34 +76,37 @@
                 <div class="file-list" id="active-recordings-list"></div>
             </div>
         </div>
-        {% endif %}        <!-- Upload Recordings -->
+        {% endif %}
+        
+        <!-- Upload Recordings -->
         {% if (recording_files and not streaming) or uploadrecordingsonly %}
         <div class="frame" id="upload-frame">
             <h2>Upload Recordings</h2>
             <form id="upload-form">
                 <div class="file-list">
                     {% if recording_files %}
-                    {% for file in recording_files if not file.active %}
-                    <div class="file-item">
-                        <input type="checkbox" class="upload-checkbox file-checkbox" id="recfile{{ loop.index }}" name="recording_files" value="{{ file.path }}" checked>                        <label for="recfile{{ loop.index }}" class="file-info" data-info='{{ file.path|parse_recording_filename|tojson|safe }}'>
-                            {% set info = file.path|parse_recording_filename %}
-                            {% if info %}
-                                <strong>Timestamp:</strong> {{ info.timestamp | datetimeformat }}<br>
-                                <strong>Duration:</strong> {{ info.duration | durationformat }}<br>
-                                <strong>Size:</strong> {{ file.size | filesizeformat }}<br>
-                                <strong>Location:</strong> {{ file.location }}
-                            {% else %}
-                                <strong>File:</strong> {{ file.path }}<br>
-                                <strong>Size:</strong> {{ file.size | filesizeformat }}<br>
-                                <strong>Location:</strong> {{ file.location }}
-                            {% endif %}
-                        </label>
-                    </div>
-                    {% endfor %}
+                        {% for file in recording_files if not file.active %}
+                            <div class="file-item">
+                                <input type="checkbox" class="upload-checkbox file-checkbox" id="recfile{{ loop.index }}" name="recording_files" value="{{ file.path }}" checked>
+                                <label for="recfile{{ loop.index }}" class="file-info" data-info='{{ file.path|parse_recording_filename|tojson|safe }}'>
+                                    {% set info = file.path|parse_recording_filename %}
+                                    {% if info %}
+                                        <strong>Timestamp:</strong> {{ info.timestamp | datetimeformat }}<br>
+                                        <strong>Duration:</strong> {{ info.duration | durationformat }}<br>
+                                        <strong>Size:</strong> {{ file.size | filesizeformat }}<br>
+                                        <strong>Location:</strong> {{ file.location }}
+                                    {% else %}
+                                        <strong>File:</strong> {{ file.path }}<br>
+                                        <strong>Size:</strong> {{ file.size | filesizeformat }}<br>
+                                        <strong>Location:</strong> {{ file.location }}
+                                    {% endif %}
+                                </label>
+                            </div>
+                        {% endfor %}
                     {% else %}
-                    <div class="file-item">
-                        <p>No recordings available for upload.</p>
-                    </div>
+                        <div class="file-item">
+                            <p>No recordings available for upload.</p>
+                        </div>
                     {% endif %}
                 </div>
                 <div style="display: flex; gap: 1rem; margin-top: 1.5rem; flex-wrap: wrap;">
@@ -108,247 +114,387 @@
                     <button type="button" id="delete-btn" class="btn btn-danger">Delete Selected</button>
                 </div>
                 <div id="upload-result" style="margin-top: 1.5rem;"></div>
-            </form>        </div>        {% endif %}
+            </form>
+        </div>
+        {% endif %}
     </div>
+    
     <script>
-    // Ensure streaming variable is available before any script uses it
-    // eslint-disable-next-line no-unused-vars, no-undef
-    var streaming = {{ streaming | tojson | safe }};
+        // Ensure streaming variable is available before any script uses it
+        // eslint-disable-next-line no-unused-vars, no-undef
+        var streaming = {{ streaming | tojson | safe }};
     </script>
+    
     <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        const uploadForm = document.getElementById('upload-form');
-        const uploadBtn = document.getElementById('upload-btn');
-        const uploadResult = document.getElementById('upload-result');
-        if (uploadForm) {
-            let resultList = document.createElement('ul');
-            resultList.style.textAlign = 'left';
-            uploadResult.innerHTML = '';
-            uploadResult.appendChild(resultList);
-            uploadForm.onsubmit = async function(e) {
-                e.preventDefault();
-                uploadBtn.disabled = true;
-                resultList.innerHTML = '';
-                const checkboxes = document.querySelectorAll('.upload-checkbox:checked');
-                if (checkboxes.length === 0) {
-                    resultList.innerHTML = '<li style="color:red;">No recordings selected.</li>';
-                    uploadBtn.disabled = false;
-                    return;
-                }
-                let successCount = 0;
-                for (let i = 0; i < checkboxes.length; i++) {
-                    const filePath = checkboxes[i].value;
-                    const formData = new FormData();
-                    formData.append('file_path', filePath);
-                    const li = document.createElement('li');
-                    li.textContent = `Uploading ${filePath}... (${i+1}/${checkboxes.length})`;
-                    const progress = document.createElement('progress');
-                    progress.value = 0;
-                    progress.max = 100;
-                    progress.style.width = '120px';
-                    progress.style.marginLeft = '1em';
-                    li.appendChild(progress);
-                    const cancelBtn = document.createElement('button');
-                    cancelBtn.textContent = 'Cancel Upload';
-                    cancelBtn.style.marginLeft = '1em';
-                    cancelBtn.type = 'button';
-                    li.appendChild(cancelBtn);
-                    resultList.appendChild(li);
-                    const xhr = new XMLHttpRequest();
-                    xhr.open('POST', '/upload-recording');
-                    xhr.upload.onprogress = function(event) {
-                        if (event.lengthComputable) {
-                            progress.value = Math.round((event.loaded / event.total) * 100);
-                        }
-                    };
-                    let cancelled = false;
-                    cancelBtn.onclick = function() {
-                        cancelled = true;
-                        xhr.abort();
-                        li.style.color = 'red';
-                        li.textContent = `Upload cancelled: ${filePath}`;
-                        progress.remove();
-                        cancelBtn.remove();
+        document.addEventListener('DOMContentLoaded', function() {
+            const uploadForm = document.getElementById('upload-form');
+            const uploadBtn = document.getElementById('upload-btn');
+            const uploadResult = document.getElementById('upload-result');
+              if (uploadForm) {
+                let resultList = document.createElement('ul');
+                resultList.style.textAlign = 'left';
+                uploadResult.innerHTML = '';
+                uploadResult.appendChild(resultList);
+                
+                uploadForm.onsubmit = async function(e) {
+                    e.preventDefault();
+                    uploadBtn.disabled = true;
+                    resultList.innerHTML = '';
+                    const checkboxes = document.querySelectorAll('.upload-checkbox:checked');
+                    if (checkboxes.length === 0) {
+                        resultList.innerHTML = '<li style="color:red;">No recordings selected.</li>';
                         uploadBtn.disabled = false;
-                    };
-                    xhr.onload = function() {
-                        if (cancelled) return;
-                        if (xhr.status !== 200) {
-                            li.style.color = 'red';
-                            li.textContent = `Error uploading ${filePath}: ${xhr.statusText}`;
-                            progress.remove();
-                            cancelBtn.remove();
-                            uploadBtn.disabled = false;
-                            return;
-                        }
-                        let result;
-                        try {
-                            result = JSON.parse(xhr.responseText);
-                        } catch (err) {
-                            li.style.color = 'red';
-                            li.textContent = `Error uploading ${filePath}: Invalid server response.`;
-                            progress.remove();
-                            cancelBtn.remove();
-                            uploadBtn.disabled = false;
-                            return;
-                        }
-                        if (result.error) {
-                            li.style.color = 'red';
-                            li.textContent = `Error uploading ${filePath}: ${result.error}`;
-                            progress.remove();
-                            cancelBtn.remove();
-                            uploadBtn.disabled = false;
-                            return;
-                        }
-                        li.style.color = 'green';
-                        let replacedMsg = '';
-                        if (typeof result.files_replaced !== 'undefined') {
-                            replacedMsg = ` (${result.files_replaced} file${result.files_replaced == 1 ? '' : 's'} replaced on server)`;
-                        }
-                        li.textContent = `Uploaded ${filePath}: Success.` + replacedMsg;
-                        progress.remove();
-                        cancelBtn.remove();
-                        successCount++;
-                        const checkboxDiv = checkboxes[i].closest('div');
-                        if (checkboxDiv) checkboxDiv.remove();
-                        if (document.querySelectorAll('.upload-checkbox').length === 0) {
-                            uploadBtn.remove();
-                        }
-                    };
-                    xhr.onerror = function() {
-                        if (cancelled) return;
-                        li.style.color = 'red';
-                        li.textContent = `Error uploading ${filePath}: Network error.`;
-                        progress.remove();
-                        cancelBtn.remove();
-                        uploadBtn.disabled = false;
-                    };
-                    xhr.send(formData);
-                }
-                const observer = new MutationObserver(() => {
-                    if (resultList.querySelectorAll('progress').length === 0) {
-                        const summary = document.createElement('li');
-                        summary.style.color = 'green';
-                        summary.textContent = `Successfully uploaded ${successCount} file(s).`;
-                        resultList.appendChild(summary);
-                        uploadBtn.disabled = false;
-                        observer.disconnect();
+                        return;
                     }
-                });
-                observer.observe(resultList, { childList: true, subtree: true });
-            };
-        }
-
-        async function getUploadServerUrl() {
-            try {
-                const resp = await fetch('/settings');
-                const data = await resp.json();
-                return data.upload_url || '';
-            } catch (e) {
-                return '';
-            }
-        }
-
-        async function fetchOverlappingInfo(uploadUrl, file) {
-            if (!uploadUrl) return null;
-            const filename = file.split('/').pop();
-            let url = new URL(uploadUrl);
-            url.searchParams.set('command', 'getrecordingsinfo');
-            url.searchParams.set('videofilename', filename);
-            try {
-                const response = await fetch(url, { method: 'GET' });
-                if (!response.ok) throw new Error('Network response was not ok. URL: ' + url.toString());
-                return await response.json();
-            } catch (e) {
-                return { error: e.message + ' (URL: ' + url.toString() + ')' };
-            }
-        }
-
-        (async function() {
-            const uploadUrl = await getUploadServerUrl();
-            const checkboxes = document.querySelectorAll('.upload-checkbox');
-            for (const checkbox of checkboxes) {
-                const file = checkbox.value;
-                const label = document.querySelector(`label[for="${checkbox.id}"]`);
-                if (!file || !label) continue;
-                const loadingDiv = document.createElement('div');
-                loadingDiv.style.fontSize = '0.9em';
-                loadingDiv.style.color = '#888';
-                loadingDiv.textContent = 'Checking server for overlapping files...';
-                label.appendChild(loadingDiv);
-                const info = await fetchOverlappingInfo(uploadUrl, file);
-                loadingDiv.remove();
-                let localInfo = null;
-                try {
-                    localInfo = JSON.parse(label.getAttribute('data-info'));
-                } catch (e) {}
-                if (info && info.overlapping_files && info.overlapping_files.length > 0 && localInfo) {
-                    const barWidth = 220;
-                    const barHeight = 18;
-                    const barColor = "#eee";
-                    const borderColor = "#bbb";
-                    const overlapColor = "#d33";
-                    const localStart = Number(localInfo.timestamp);
-                    const localDuration = Number(localInfo.duration);
-                    const localEnd = localStart + localDuration;
-                    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-                    svg.setAttribute("width", barWidth);
-                    svg.setAttribute("height", barHeight);
-                    svg.style.display = "block";
-                    svg.style.margin = "8px 0";
-                    const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-                    bg.setAttribute("x", 0);
-                    bg.setAttribute("y", 2);
-                    bg.setAttribute("width", barWidth);
-                    bg.setAttribute("height", barHeight - 4);
-                    bg.setAttribute("fill", barColor);
-                    bg.setAttribute("stroke", borderColor);
-                    bg.setAttribute("stroke-width", 1);
-                    svg.appendChild(bg);
-                    info.overlapping_files.forEach(f => {
-                        const overlapStart = Math.max(Number(f.timestamp), localStart);
-                        const overlapEnd = Math.min(Number(f.timestamp) + Number(f.duration), localEnd);
-                        if (overlapEnd > overlapStart) {
-                            const x = ((overlapStart - localStart) / localDuration) * barWidth;
-                            const w = ((overlapEnd - overlapStart) / localDuration) * barWidth;
-                            const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-                            rect.setAttribute("x", x);
-                            rect.setAttribute("y", 2);
-                            rect.setAttribute("width", w);
-                            rect.setAttribute("height", barHeight - 4);
-                            rect.setAttribute("fill", overlapColor);
-                            rect.setAttribute("opacity", 0.8);
-                            svg.appendChild(rect);
+                    
+                    let successCount = 0;
+                    const activeUploads = [];
+                    
+                    for (let i = 0; i < checkboxes.length; i++) {
+                        const filePath = checkboxes[i].value;
+                        const fileName = filePath.split(/[/\\]/).pop() || filePath;
+                        
+                        // Find the file-item div for this checkbox
+                        const fileItemDiv = checkboxes[i].closest('.file-item');
+                        
+                        // Create upload progress container within the file-item
+                        const uploadContainer = document.createElement('div');
+                        uploadContainer.className = 'upload-progress-container';
+                        uploadContainer.style.marginTop = '0.5rem';
+                        uploadContainer.style.padding = '0.5rem';
+                        uploadContainer.style.backgroundColor = '#f8f9fa';
+                        uploadContainer.style.border = '1px solid #dee2e6';
+                        uploadContainer.style.borderRadius = '4px';
+                        
+                        const statusText = document.createElement('div');
+                        statusText.textContent = `Uploading ${fileName}... (${i+1}/${checkboxes.length})`;
+                        statusText.style.marginBottom = '0.5rem';
+                        uploadContainer.appendChild(statusText);
+                        
+                        const progressContainer = document.createElement('div');
+                        progressContainer.style.display = 'flex';
+                        progressContainer.style.alignItems = 'center';
+                        progressContainer.style.gap = '0.5rem';
+                        
+                        const progress = document.createElement('progress');
+                        progress.value = 0;
+                        progress.max = 100;
+                        progress.style.width = '200px';
+                        progress.style.height = '20px';
+                        progressContainer.appendChild(progress);
+                        
+                        const cancelBtn = document.createElement('button');
+                        cancelBtn.textContent = 'Cancel';
+                        cancelBtn.type = 'button';
+                        cancelBtn.className = 'btn btn-sm btn-danger';
+                        cancelBtn.style.padding = '0.25rem 0.5rem';
+                        cancelBtn.style.fontSize = '0.875rem';
+                        progressContainer.appendChild(cancelBtn);
+                        
+                        uploadContainer.appendChild(progressContainer);
+                        fileItemDiv.appendChild(uploadContainer);
+                        
+                        // Start the upload
+                        const formData = new FormData();
+                        formData.append('file_path', filePath);
+                        
+                        try {
+                            const response = await fetch('/upload-recording', {
+                                method: 'POST',
+                                body: formData
+                            });
+                            
+                            const result = await response.json();
+                              if (result.error) {
+                                statusText.style.color = 'red';
+                                statusText.textContent = `Error uploading ${fileName}: ${result.error}`;
+                                uploadContainer.remove();
+                                continue;
+                            }
+                            
+                            const uploadId = result.upload_id;
+                            let cancelled = false;
+                              // Set up cancel button
+                            cancelBtn.onclick = async function() {
+                                cancelled = true;
+                                try {
+                                    await fetch(`/cancel-upload/${uploadId}`, { method: 'POST' });
+                                    statusText.style.color = 'red';
+                                    statusText.textContent = `Upload cancelled: ${fileName}`;
+                                    uploadContainer.remove();
+                                    
+                                    // Remove from active uploads immediately
+                                    const index = activeUploads.indexOf(uploadId);
+                                    if (index > -1) activeUploads.splice(index, 1);
+                                    
+                                    // Check if all uploads are done
+                                    if (activeUploads.length === 0) {
+                                        uploadBtn.disabled = false;
+                                    }
+                                } catch (e) {
+                                    console.error('Error cancelling upload:', e);
+                                }
+                            };
+                            
+                            // Use SSE for real-time progress monitoring
+                            let eventSource = null;
+                            
+                            const startProgressMonitoring = () => {
+                                if (cancelled) return;
+                                
+                                eventSource = new EventSource(`/upload-progress-stream/${uploadId}`);
+                                
+                                eventSource.onmessage = function(event) {
+                                    if (cancelled) {
+                                        eventSource.close();
+                                        return;
+                                    }
+                                    
+                                    try {
+                                        const progressData = JSON.parse(event.data);
+                                        
+                                        if (progressData.type === 'connected') {
+                                            console.log(`SSE connected for upload ${uploadId}`);
+                                            return;
+                                        }
+                                        
+                                        if (progressData.type === 'closed') {
+                                            eventSource.close();
+                                            return;
+                                        }
+                                          if (progressData.type === 'progress') {
+                                            if (progressData.error) {
+                                                statusText.style.color = 'red';
+                                                statusText.textContent = `Error uploading ${fileName}: ${progressData.error}`;
+                                                uploadContainer.remove();
+                                                eventSource.close();
+                                                return;
+                                            }
+                                            
+                                            // Update progress bar
+                                            progress.value = progressData.progress || 0;
+                                            
+                                            if (progressData.status === 'completed') {
+                                                const uploadResult = progressData.result;
+                                                if (uploadResult && uploadResult.error) {
+                                                    statusText.style.color = 'red';
+                                                    statusText.textContent = `Error uploading ${fileName}: ${uploadResult.error}`;
+                                                } else {
+                                                    statusText.style.color = 'green';
+                                                    let replacedMsg = '';
+                                                    if (uploadResult && typeof uploadResult.files_replaced !== 'undefined') {
+                                                        replacedMsg = ` (${uploadResult.files_replaced} file${uploadResult.files_replaced == 1 ? '' : 's'} replaced on server)`;
+                                                    }
+                                                    statusText.textContent = `Uploaded ${fileName}: Success.` + replacedMsg;
+                                                    successCount++;
+                                                    
+                                                    // Remove the checkbox since upload succeeded
+                                                    const checkboxDiv = checkboxes[i].closest('div');
+                                                    if (checkboxDiv) checkboxDiv.remove();                                                }
+                                                uploadContainer.remove();
+                                                eventSource.close();
+                                                
+                                                // Remove from active uploads
+                                                const index = activeUploads.indexOf(uploadId);
+                                                if (index > -1) activeUploads.splice(index, 1);
+                                                
+                                                // Check if all uploads are done
+                                                if (activeUploads.length === 0) {
+                                                    const summary = document.createElement('li');
+                                                    summary.style.color = 'green';
+                                                    summary.textContent = `Successfully uploaded ${successCount} file(s).`;
+                                                    resultList.appendChild(summary);
+                                                    uploadBtn.disabled = false;
+                                                    
+                                                    if (document.querySelectorAll('.upload-checkbox').length === 0) {
+                                                        uploadBtn.remove();
+                                                    }
+                                                }
+                                            } else if (progressData.status === 'error') {
+                                                statusText.style.color = 'red';
+                                                statusText.textContent = `Error uploading ${fileName}: ${progressData.error}`;
+                                                uploadContainer.remove();
+                                                eventSource.close();
+                                                
+                                                // Remove from active uploads
+                                                const index = activeUploads.indexOf(uploadId);
+                                                if (index > -1) activeUploads.splice(index, 1);
+                                                
+                                                // Check if all uploads are done
+                                                if (activeUploads.length === 0) {
+                                                    uploadBtn.disabled = false;
+                                                }                                            } else if (progressData.status === 'cancelled') {
+                                                statusText.style.color = 'red';
+                                                statusText.textContent = `Upload cancelled: ${fileName}`;
+                                                uploadContainer.remove();
+                                                eventSource.close();
+                                                
+                                                // Remove from active uploads
+                                                const index = activeUploads.indexOf(uploadId);
+                                                if (index > -1) activeUploads.splice(index, 1);
+                                                
+                                                // Check if all uploads are done
+                                                if (activeUploads.length === 0) {
+                                                    uploadBtn.disabled = false;
+                                                }
+                                            }
+                                            // For 'uploading' status, just continue receiving updates
+                                        }
+                                    } catch (e) {
+                                        console.error('Error parsing SSE data:', e);
+                                    }
+                                };
+                                  eventSource.onerror = function(event) {
+                                    console.error('SSE error:', event);
+                                    if (!cancelled) {
+                                        statusText.style.color = 'red';
+                                        statusText.textContent = `Error uploading ${fileName}: Connection lost`;
+                                        uploadContainer.remove();
+                                        
+                                        // Remove from active uploads
+                                        const index = activeUploads.indexOf(uploadId);
+                                        if (index > -1) activeUploads.splice(index, 1);
+                                        
+                                        // Check if all uploads are done
+                                        if (activeUploads.length === 0) {
+                                            uploadBtn.disabled = false;
+                                        }
+                                    }
+                                    eventSource.close();
+                                };
+                            };
+                            
+                            // Add to active uploads and start SSE monitoring
+                            activeUploads.push(uploadId);
+                            startProgressMonitoring();
+                              } catch (e) {
+                            statusText.style.color = 'red';
+                            statusText.textContent = `Error uploading ${fileName}: ${e.message}`;
+                            uploadContainer.remove();
                         }
-                    });
-                    const div = document.createElement('div');
-                    div.style.fontSize = '0.9em';
-                    div.style.color = '#b00';
-                    div.innerHTML = 'Overlapping server files:';
-                    div.appendChild(svg);
-                    const overlaps = info.overlapping_files.map(f =>
-                        `Server file: ${f.timestamp} (${f.duration}s, ${f.size_mb} MB)`
-                    ).join('<br>');
-                    const textDiv = document.createElement('div');
-                    textDiv.innerHTML = overlaps;
-                    div.appendChild(textDiv);
-                    label.appendChild(div);
-                } else if (info && info.error) {
-                    const div = document.createElement('div');
-                    div.style.fontSize = '0.9em';
-                    div.style.color = '#b00';
-                    div.textContent = 'Error: ' + info.error;
-                    label.appendChild(div);
-                } else {
-                    const div = document.createElement('div');
-                    div.style.fontSize = '0.9em';
-                    div.style.color = '#080';
-                    div.textContent = 'No overlapping files on server.';
-                    label.appendChild(div);
+                    }
+                    
+                    // If no uploads were started successfully, re-enable the button
+                    if (activeUploads.length === 0) {
+                        uploadBtn.disabled = false;
+                    }
+                };
+            }
+
+            async function getUploadServerUrl() {
+                try {
+                    const resp = await fetch('/settings');
+                    const data = await resp.json();
+                    return data.upload_url || '';
+                } catch (e) {
+                    return '';
                 }
             }
-        })();
-    });    </script>    {% if not uploadrecordingsonly %}    <script>
+
+            async function fetchOverlappingInfo(uploadUrl, file) {
+                if (!uploadUrl) return null;
+                const filename = file.split('/').pop();
+                let url = new URL(uploadUrl);
+                url.searchParams.set('command', 'getrecordingsinfo');
+                url.searchParams.set('videofilename', filename);
+                try {
+                    const response = await fetch(url, { method: 'GET' });
+                    if (!response.ok) throw new Error('Network response was not ok. URL: ' + url.toString());
+                    return await response.json();
+                } catch (e) {
+                    return { error: e.message + ' (URL: ' + url.toString() + ')' };
+                }
+            }
+
+            (async function() {
+                const uploadUrl = await getUploadServerUrl();
+                const checkboxes = document.querySelectorAll('.upload-checkbox');
+                for (const checkbox of checkboxes) {
+                    const file = checkbox.value;
+                    const label = document.querySelector(`label[for="${checkbox.id}"]`);
+                    if (!file || !label) continue;
+                    const loadingDiv = document.createElement('div');
+                    loadingDiv.style.fontSize = '0.9em';
+                    loadingDiv.style.color = '#888';
+                    loadingDiv.textContent = 'Checking server for overlapping files...';
+                    label.appendChild(loadingDiv);
+                    const info = await fetchOverlappingInfo(uploadUrl, file);
+                    loadingDiv.remove();
+                    let localInfo = null;
+                    try {
+                        localInfo = JSON.parse(label.getAttribute('data-info'));
+                    } catch (e) {}
+                    if (info && info.overlapping_files && info.overlapping_files.length > 0 && localInfo) {
+                        const barWidth = 220;
+                        const barHeight = 18;
+                        const barColor = "#eee";
+                        const borderColor = "#bbb";
+                        const overlapColor = "#d33";
+                        const localStart = Number(localInfo.timestamp);
+                        const localDuration = Number(localInfo.duration);
+                        const localEnd = localStart + localDuration;
+                        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                        svg.setAttribute("width", barWidth);
+                        svg.setAttribute("height", barHeight);
+                        svg.style.display = "block";
+                        svg.style.margin = "8px 0";
+                        const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                        bg.setAttribute("x", 0);
+                        bg.setAttribute("y", 2);
+                        bg.setAttribute("width", barWidth);
+                        bg.setAttribute("height", barHeight - 4);
+                        bg.setAttribute("fill", barColor);
+                        bg.setAttribute("stroke", borderColor);
+                        bg.setAttribute("stroke-width", 1);
+                        svg.appendChild(bg);
+                        info.overlapping_files.forEach(f => {
+                            const overlapStart = Math.max(Number(f.timestamp), localStart);
+                            const overlapEnd = Math.min(Number(f.timestamp) + Number(f.duration), localEnd);
+                            if (overlapEnd > overlapStart) {
+                                const x = ((overlapStart - localStart) / localDuration) * barWidth;
+                                const w = ((overlapEnd - overlapStart) / localDuration) * barWidth;
+                                const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                                rect.setAttribute("x", x);
+                                rect.setAttribute("y", 2);
+                                rect.setAttribute("width", w);
+                                rect.setAttribute("height", barHeight - 4);
+                                rect.setAttribute("fill", overlapColor);
+                                rect.setAttribute("opacity", 0.8);
+                                svg.appendChild(rect);
+                            }
+                        });
+                        const div = document.createElement('div');
+                        div.style.fontSize = '0.9em';
+                        div.style.color = '#b00';
+                        div.innerHTML = 'Overlapping server files:';
+                        div.appendChild(svg);
+                        const overlaps = info.overlapping_files.map(f =>
+                            `Server file: ${f.timestamp} (${f.duration}s, ${f.size_mb} MB)`
+                        ).join('<br>');
+                        const textDiv = document.createElement('div');
+                        textDiv.innerHTML = overlaps;
+                        div.appendChild(textDiv);
+                        label.appendChild(div);
+                    } else if (info && info.error) {
+                        const div = document.createElement('div');
+                        div.style.fontSize = '0.9em';
+                        div.style.color = '#b00';
+                        div.textContent = 'Error: ' + info.error;
+                        label.appendChild(div);
+                    } else {
+                        const div = document.createElement('div');
+                        div.style.fontSize = '0.9em';
+                        div.style.color = '#080';
+                        div.textContent = 'No overlapping files on server.';
+                        label.appendChild(div);
+                    }
+                }
+            })();
+        });
+    </script>
+    
+    {% if not uploadrecordingsonly %}
+    <script>
         const cpu = document.getElementById('cpu');
         const mem = document.getElementById('mem');
         const temp = document.getElementById('temp');
@@ -398,178 +544,179 @@
         };
 
         // --- Active Recordings Panel Auto-Refresh ---
-    function renderActiveRecordingsPanel(files) {
-        let frame = document.getElementById('active-recordings-frame');
-        if (!frame) return;
-        // Show/hide the panel based on streaming/active files
-        if ((!files || files.length === 0) && !streaming) {
-            frame.style.display = 'none';
-            return;
-        }
-        frame.style.display = '';
-        const listDiv = frame.querySelector('#active-recordings-list');
-        listDiv.innerHTML = '';
-        if (files && files.length > 0) {
-            files.forEach(file => {
+        function renderActiveRecordingsPanel(files) {
+            let frame = document.getElementById('active-recordings-frame');
+            if (!frame) return;
+            // Show/hide the panel based on streaming/active files
+            if ((!files || files.length === 0) && !streaming) {
+                frame.style.display = 'none';
+                return;
+            }
+            frame.style.display = '';
+            const listDiv = frame.querySelector('#active-recordings-list');
+            listDiv.innerHTML = '';
+            if (files && files.length > 0) {
+                files.forEach(file => {
+                    const div = document.createElement('div');
+                    div.style.marginBottom = '0.5em';
+                    div.innerHTML = `<label style="word-break:break-all;"><b>Active recording:</b> ${file.name}<br>Size: ${file.size_fmt || file.size}<br>Location: ${file.location}</label>`;
+                    listDiv.appendChild(div);
+                });
+            } else if (streaming) {
                 const div = document.createElement('div');
                 div.style.marginBottom = '0.5em';
-                div.innerHTML = `<label style="word-break:break-all;"><b>Active recording:</b> ${file.name}<br>Size: ${file.size_fmt || file.size}<br>Location: ${file.location}</label>`;
+                div.innerHTML = '<label>No active recordings yet. Streaming is running...</label>';
                 listDiv.appendChild(div);
-            });
-        } else if (streaming) {
-            const div = document.createElement('div');
-            div.style.marginBottom = '0.5em';
-            div.innerHTML = '<label>No active recordings yet. Streaming is running...</label>';
-            listDiv.appendChild(div);
-        }
-    }
-
-    let activeRecordingsInterval = null;
-    let lastActiveRecordings = [];
-
-    async function fetchAndUpdateActiveRecordings() {
-        try {
-            const resp = await fetch('/?active_only=1');
-            if (!resp.ok) return;
-            const data = await resp.json();
-            const files = data.files || [];
-            renderActiveRecordingsPanel(files);
-            lastActiveRecordings = files;
-            // If streaming is stopped and no active recordings, hide panel and stop interval
-            if (!streaming && files.length === 0) {
-                if (activeRecordingsInterval) {
-                    clearInterval(activeRecordingsInterval);
-                    activeRecordingsInterval = null;
-                }
-                const frame = document.getElementById('active-recordings-frame');
-                if (frame) frame.style.display = 'none'; // Hide instead of remove
-                return;
             }
-        } catch (e) {}
-    }
-
-    function startActiveRecordingsRefresh() {
-        if (activeRecordingsInterval) {
-            clearInterval(activeRecordingsInterval);
         }
-        fetchAndUpdateActiveRecordings();
-        activeRecordingsInterval = setInterval(fetchAndUpdateActiveRecordings, 1000);
-    }
 
-    function stopActiveRecordingsRefresh() {
-        if (activeRecordingsInterval) {
-            clearInterval(activeRecordingsInterval);
-            activeRecordingsInterval = null;
-        }
-    }
+        let activeRecordingsInterval = null;
+        let lastActiveRecordings = [];
 
-    document.addEventListener('DOMContentLoaded', function() {
-        // Always start the active recordings refresh if there are active recordings or streaming is active
-        fetch('/?active_only=1').then(resp => resp.json()).then(data => {
-            const files = data.files || [];
-            if ((typeof streaming !== 'undefined' && streaming) || files.length > 0) {
-                startActiveRecordingsRefresh();
-            }
-        });
-    });
-
-    // Streaming control
-    const streamBtn = document.getElementById('stream-btn');
-    const streamStatus = document.getElementById('stream-status');
-    streamBtn.addEventListener('click', function() {
-        // Remove upload box if present when starting streaming
-        if (!streaming) {
-            const uploadFrame = document.getElementById('upload-frame');
-            if (uploadFrame) uploadFrame.remove();
-        }
-        streamBtn.disabled = true;
-        streamStatus.textContent = streaming ? 'Stopping...' : 'Starting...';
-        streamStatus.style.display = '';
-        fetch('/stream-control', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: streaming ? 'stop' : 'start' })
-        })
-        .then(r => r.json().then(data => ({status: r.status, data})))
-        .then(result => {
-            if (result.status !== 200 && result.data && result.data.error) {
-                streamStatus.textContent = result.data.error;
-                streamStatus.style.display = '';
-                streamStatus.style.color = '#fff';
-                streamStatus.style.backgroundColor = '#d9534f'; // Bootstrap danger
-                streamStatus.style.padding = '0.5em 1em';
-                streamStatus.style.borderRadius = '6px';
-                streamStatus.style.fontWeight = 'bold';
-                streamBtn.disabled = false;
-                return;
-            }
-            streaming = !streaming;
-            streamBtn.textContent = streaming ? 'Stop Streaming' : 'Start Streaming';
-            streamStatus.textContent = streaming ? 'Streaming is running.' : 'Streaming is stopped.';
-            streamStatus.style.display = '';
-            streamStatus.style.color = '';
-            streamStatus.style.backgroundColor = '';
-            streamStatus.style.padding = '';
-            streamStatus.style.borderRadius = '';
-            streamStatus.style.fontWeight = '';
-            streamBtn.disabled = false;
-            if (streaming) {
-                // Ensure the active recordings panel is visible again
-                const activeFrame = document.getElementById('active-recordings-frame');
-                if (activeFrame) activeFrame.style.display = '';
-                startActiveRecordingsRefresh();
-            } else {
-                // After streaming stops, keep refreshing until all active recordings are gone
-                if (lastActiveRecordings.length === 0) {
-                    stopActiveRecordingsRefresh();
+        async function fetchAndUpdateActiveRecordings() {
+            try {
+                const resp = await fetch('/?active_only=1');
+                if (!resp.ok) return;
+                const data = await resp.json();
+                const files = data.files || [];
+                renderActiveRecordingsPanel(files);
+                lastActiveRecordings = files;
+                // If streaming is stopped and no active recordings, hide panel and stop interval
+                if (!streaming && files.length === 0) {
+                    if (activeRecordingsInterval) {
+                        clearInterval(activeRecordingsInterval);
+                        activeRecordingsInterval = null;
+                    }
                     const frame = document.getElementById('active-recordings-frame');
                     if (frame) frame.style.display = 'none'; // Hide instead of remove
-                    // Instead of reloading, update the upload recordings list dynamically
-                    updateUploadRecordingsList();
-                } else {
-                    // If there are still active recordings, poll until they are gone, then update
-                    const waitForNoActive = setInterval(() => {
-                        if (lastActiveRecordings.length === 0) {
-                            clearInterval(waitForNoActive);
-                            updateUploadRecordingsList();
-                        }
-                    }, 1000);
+                    return;
                 }
-            }
-        })
-        .catch(() => {
-            streamStatus.textContent = 'Error.';
-            streamBtn.disabled = false;
-        });
-    });
+            } catch (e) {}
+        }
 
-    // Add this function after the streaming control logic
-    function updateUploadRecordingsList() {
-        fetch(window.location.pathname)
-            .then(resp => resp.text())
-            .then(html => {
-                // Create a temporary DOM to parse the new upload-form
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = html;
-                const newUploadFrame = tempDiv.querySelector('#upload-frame');
-                const oldUploadFrame = document.getElementById('upload-frame');
-                if (newUploadFrame) {
-                    if (oldUploadFrame) {
-                        oldUploadFrame.replaceWith(newUploadFrame);
-                    } else {
-                        // Insert after stream-panel
-                        const streamPanel = document.getElementById('stream-panel');
-                        streamPanel.parentNode.insertBefore(newUploadFrame, streamPanel.nextSibling);
-                    }
-                } else if (oldUploadFrame) {
-                    oldUploadFrame.remove();
+        function startActiveRecordingsRefresh() {
+            if (activeRecordingsInterval) {
+                clearInterval(activeRecordingsInterval);
+            }
+            fetchAndUpdateActiveRecordings();
+            activeRecordingsInterval = setInterval(fetchAndUpdateActiveRecordings, 1000);
+        }
+
+        function stopActiveRecordingsRefresh() {
+            if (activeRecordingsInterval) {
+                clearInterval(activeRecordingsInterval);
+                activeRecordingsInterval = null;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Always start the active recordings refresh if there are active recordings or streaming is active
+            fetch('/?active_only=1').then(resp => resp.json()).then(data => {
+                const files = data.files || [];
+                if ((typeof streaming !== 'undefined' && streaming) || files.length > 0) {
+                    startActiveRecordingsRefresh();
                 }
-                // Re-initialize upload form JS
-                if (newUploadFrame) {
-                    // Re-run the upload form JS logic
-                    document.dispatchEvent(new Event('DOMContentLoaded'));
-                }            });
-    }
+            });
+        });
+
+        // Streaming control
+        const streamBtn = document.getElementById('stream-btn');
+        const streamStatus = document.getElementById('stream-status');
+        streamBtn.addEventListener('click', function() {
+            // Remove upload box if present when starting streaming
+            if (!streaming) {
+                const uploadFrame = document.getElementById('upload-frame');
+                if (uploadFrame) uploadFrame.remove();
+            }
+            streamBtn.disabled = true;
+            streamStatus.textContent = streaming ? 'Stopping...' : 'Starting...';
+            streamStatus.style.display = '';
+            fetch('/stream-control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: streaming ? 'stop' : 'start' })
+            })
+            .then(r => r.json().then(data => ({status: r.status, data})))
+            .then(result => {
+                if (result.status !== 200 && result.data && result.data.error) {
+                    streamStatus.textContent = result.data.error;
+                    streamStatus.style.display = '';
+                    streamStatus.style.color = '#fff';
+                    streamStatus.style.backgroundColor = '#d9534f'; // Bootstrap danger
+                    streamStatus.style.padding = '0.5em 1em';
+                    streamStatus.style.borderRadius = '6px';
+                    streamStatus.style.fontWeight = 'bold';
+                    streamBtn.disabled = false;
+                    return;
+                }
+                streaming = !streaming;
+                streamBtn.textContent = streaming ? 'Stop Streaming' : 'Start Streaming';
+                streamStatus.textContent = streaming ? 'Streaming is running.' : 'Streaming is stopped.';
+                streamStatus.style.display = '';
+                streamStatus.style.color = '';
+                streamStatus.style.backgroundColor = '';
+                streamStatus.style.padding = '';
+                streamStatus.style.borderRadius = '';
+                streamStatus.style.fontWeight = '';
+                streamBtn.disabled = false;
+                if (streaming) {
+                    // Ensure the active recordings panel is visible again
+                    const activeFrame = document.getElementById('active-recordings-frame');
+                    if (activeFrame) activeFrame.style.display = '';
+                    startActiveRecordingsRefresh();
+                } else {
+                    // After streaming stops, keep refreshing until all active recordings are gone
+                    if (lastActiveRecordings.length === 0) {
+                        stopActiveRecordingsRefresh();
+                        const frame = document.getElementById('active-recordings-frame');
+                        if (frame) frame.style.display = 'none'; // Hide instead of remove
+                        // Instead of reloading, update the upload recordings list dynamically
+                        updateUploadRecordingsList();
+                    } else {
+                        // If there are still active recordings, poll until they are gone, then update
+                        const waitForNoActive = setInterval(() => {
+                            if (lastActiveRecordings.length === 0) {
+                                clearInterval(waitForNoActive);
+                                updateUploadRecordingsList();
+                            }
+                        }, 1000);
+                    }
+                }
+            })
+            .catch(() => {
+                streamStatus.textContent = 'Error.';
+                streamBtn.disabled = false;
+            });
+        });
+
+        // Add this function after the streaming control logic
+        function updateUploadRecordingsList() {
+            fetch(window.location.pathname)
+                .then(resp => resp.text())
+                .then(html => {
+                    // Create a temporary DOM to parse the new upload-form
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = html;
+                    const newUploadFrame = tempDiv.querySelector('#upload-frame');
+                    const oldUploadFrame = document.getElementById('upload-frame');
+                    if (newUploadFrame) {
+                        if (oldUploadFrame) {
+                            oldUploadFrame.replaceWith(newUploadFrame);
+                        } else {
+                            // Insert after stream-panel
+                            const streamPanel = document.getElementById('stream-panel');
+                            streamPanel.parentNode.insertBefore(newUploadFrame, streamPanel.nextSibling);
+                        }
+                    } else if (oldUploadFrame) {
+                        oldUploadFrame.remove();
+                    }
+                    // Re-initialize upload form JS
+                    if (newUploadFrame) {
+                        // Re-run the upload form JS logic
+                        document.dispatchEvent(new Event('DOMContentLoaded'));
+                    }
+                });
+        }
     </script>
     {% endif %}
     

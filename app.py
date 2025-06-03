@@ -6,11 +6,20 @@ import os
 import json
 import subprocess
 import re
+import uuid
+import requests
 from datetime import datetime
 from functools import wraps
+from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 from utils import list_audio_inputs, list_video_inputs, find_usb_storage
 
 app = Flask(__name__)
+
+# Global dictionary to track upload progress and allow cancellation
+upload_progress = {}
+upload_threads = {}
+# SSE clients tracking for upload progress
+upload_sse_clients = {}
 
 @app.after_request
 def add_no_cache_headers(response):
@@ -296,35 +305,174 @@ def stream_control():
 @app.route('/upload-recording', methods=['POST'])
 def upload_recording():
     from werkzeug.utils import secure_filename
-    import requests
+    
     settings = load_settings()
     upload_url = settings.get('upload_url', '').strip()
     if not upload_url:
         return jsonify({'error': 'Upload URL is not set. Please configure it in Settings.'}), 400
+    
     # Ensure command=replacerecordings is present
     if 'command=replacerecordings' not in upload_url:
         if '?' in upload_url:
             upload_url += '&command=replacerecordings'
         else:
             upload_url += '?command=replacerecordings'
+    
     file_path = request.form.get('file_path')
     if not file_path or not os.path.isfile(file_path):
         return jsonify({'error': 'Recording file not found.'}), 400
-    with open(file_path, 'rb') as f:
-        files = {'video': (secure_filename(os.path.basename(file_path)), f)}
+    
+    # Generate unique upload ID for progress tracking
+    upload_id = str(uuid.uuid4())
+    
+    # Store upload progress globally
+    upload_progress[upload_id] = {
+        'progress': 0,
+        'status': 'starting',
+        'error': None,
+        'result': None,
+        'cancelled': False
+    }
+    
+    def upload_file_async():
         try:
-            resp = requests.post(upload_url, files=files)
-            resp.raise_for_status()
-            result = resp.json()
+            upload_progress[upload_id]['status'] = 'uploading'
+            
+            # Get file size for progress calculation
+            file_size = os.path.getsize(file_path)
+            
+            def progress_callback(monitor):
+                if upload_progress[upload_id]['cancelled']:
+                    # Cancel the upload by raising an exception
+                    raise Exception("Upload cancelled by user")
+                
+                progress = min(100, int((monitor.bytes_read / file_size) * 100))
+                upload_progress[upload_id]['progress'] = progress
+                
+                # Notify all SSE clients about the progress
+                for client_id, client_data in upload_sse_clients.items():
+                    if client_data['upload_id'] == upload_id:
+                        try:
+                            # Send progress update to SSE client
+                            client_data['queue'].put({'progress': progress})
+                        except Exception:
+                            pass  # Ignore errors in notifying clients
+            
+            # Use MultipartEncoder for upload with progress monitoring
+            with open(file_path, 'rb') as f:
+                multipart_data = MultipartEncoder(
+                    fields={'video': (secure_filename(os.path.basename(file_path)), f, 'application/octet-stream')}
+                )
+                
+                monitor = MultipartEncoderMonitor(multipart_data, progress_callback)
+                
+                response = requests.post(
+                    upload_url, 
+                    data=monitor,
+                    headers={'Content-Type': monitor.content_type},
+                    timeout=300
+                )
+                
+                if response.status_code == 200:
+                    try:
+                        result = response.json()
+                    except:
+                        result = {'success': True, 'message': 'Upload completed', 'error': ''}
+                else:
+                    result = {'error': f'Upload failed: {response.status_code}'}
+                
+                upload_progress[upload_id]['status'] = 'completed'
+                upload_progress[upload_id]['progress'] = 100
+                upload_progress[upload_id]['result'] = result
+                
+                # If upload succeeded and no error, delete the original file
+                if result.get('error') == '':
+                    try:
+                        os.remove(file_path)
+                    except Exception:
+                        pass  # Ignore deletion errors
+                        
         except Exception as e:
-            return jsonify({'error': f'Upload failed: {e}'}), 500
-    # If upload succeeded and no error, delete the original file
-    if result.get('error') == '':
-        try:
-            os.remove(file_path)
-        except Exception:
-            pass  # Ignore deletion errors
-    return jsonify(result)
+            if upload_progress[upload_id]['cancelled']:
+                upload_progress[upload_id]['status'] = 'cancelled'
+                upload_progress[upload_id]['error'] = 'Upload cancelled by user'
+            else:
+                upload_progress[upload_id]['status'] = 'error'
+                upload_progress[upload_id]['error'] = f'Upload failed: {e}'
+        finally:
+            # Clean up thread reference
+            if upload_id in upload_threads:
+                del upload_threads[upload_id]
+      # Start upload in background thread
+    thread = threading.Thread(target=upload_file_async)
+    thread.daemon = True
+    upload_threads[upload_id] = thread
+    thread.start()
+    
+    return jsonify({'upload_id': upload_id, 'status': 'started'})
+
+@app.route('/upload-progress/<upload_id>')
+def get_upload_progress(upload_id):
+    """Get the current progress of an upload"""
+    if upload_id not in upload_progress:
+        return jsonify({'error': 'Upload ID not found'}), 404
+    
+    progress_data = upload_progress[upload_id].copy()
+    
+    # Clean up completed/error/cancelled uploads after returning status
+    if progress_data['status'] in ['completed', 'error', 'cancelled']:
+        # Keep the data for a short time to allow frontend to get final status
+        pass
+    
+    return jsonify(progress_data)
+
+@app.route('/cancel-upload/<upload_id>', methods=['POST'])
+def cancel_upload(upload_id):
+    """Cancel an ongoing upload"""
+    if upload_id not in upload_progress:
+        return jsonify({'error': 'Upload ID not found'}), 404
+    
+    # Mark upload as cancelled
+    upload_progress[upload_id]['cancelled'] = True
+    upload_progress[upload_id]['status'] = 'cancelling'
+    
+    return jsonify({'status': 'cancelling'})
+
+@app.route('/upload-progress-stream/<upload_id>')
+def upload_progress_stream(upload_id):
+    """SSE endpoint for real-time upload progress monitoring"""
+    def generate():
+        # Send initial connection event
+        yield f"data: {json.dumps({'type': 'connected', 'upload_id': upload_id})}\n\n"
+        
+        # Monitor upload progress
+        while upload_id in upload_progress:
+            progress_data = upload_progress[upload_id].copy()
+            
+            # Send progress update
+            progress_data['type'] = 'progress'
+            yield f"data: {json.dumps(progress_data)}\n\n"
+            
+            # If upload is finished, send final status and close
+            if progress_data['status'] in ['completed', 'error', 'cancelled']:
+                time.sleep(0.1)  # Small delay to ensure client receives final update
+                break
+                
+            time.sleep(0.2)  # Update every 200ms for real-time feel
+        
+        # Send close event
+        yield f"data: {json.dumps({'type': 'closed', 'upload_id': upload_id})}\n\n"
+    
+    return Response(
+        generate(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Cache-Control'
+        }
+    )
 
 @app.route('/camera-viewer')
 def camera_viewer():
@@ -780,4 +928,4 @@ def get_connection_info():
     return connection_info
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=80, debug=False, threaded=True)
+    app.run(host='0.0.0.0', port=80, debug=True, threaded=True)
