@@ -96,9 +96,9 @@ if [ ! -d "$HOME/executables" ]; then
 fi
 # Download the EncoderUploader executables for different platforms
 printf "Downloading EncoderUploader executables...\n"
-curl -H "Cache-Control: no-cache" -L "https://raw.githubusercontent.com/tfelici/Encoder-Uploader/main/windows/dist/EncoderUploader.exe" -o "$HOME/executables/Uploader-windows.exe"
-curl -H "Cache-Control: no-cache" -L "https://raw.githubusercontent.com/tfelici/Encoder-Uploader/main/linux/dist/EncoderUploader" -o "$HOME/executables/Uploader-linux"
-curl -H "Cache-Control: no-cache" -L "https://raw.githubusercontent.com/tfelici/Encoder-Uploader/main/macos/dist/EncoderUploader" -o "$HOME/executables/Uploader-macos"
+curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Encoder-Uploader/raw/main/windows/dist/EncoderUploader_Standalone/EncoderUploader_Standalone.exe" -o "$HOME/executables/Uploader-windows.exe"
+curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Encoder-Uploader/raw/main/macos/dist/EncoderUploader_Standalone/EncoderUploader_Standalone.exe" -o "$HOME/executables/Uploader-macos.exe"
+curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Encoder-Uploader/raw/main/linux/dist/EncoderUploader_Standalone/EncoderUploader_Standalone.exe" -o "$HOME/executables/Uploader-linux.exe"
 # Make the Uploader-linux executable
 chmod +x "$HOME/executables/Uploader-linux"
 # Make the Uploader-macos executable
