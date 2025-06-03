@@ -19,7 +19,7 @@ def add_no_cache_headers(response):
     response.headers["Expires"] = "0"
     return response
 
-ENCODER_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../encoderData'))
+ENCODER_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'encoderData'))
 STREAM_PIDFILE = "/tmp/webcam-ffmpeg.pid"
 SETTINGS_FILE = os.path.join(ENCODER_DATA_DIR, 'settings.json')
 
@@ -34,11 +34,14 @@ def load_settings():
         "ar": 16000,
         "upload_url": "",
         "volume": 100,
-        "gop": 30
-    }
+        "gop": 30    }
     if os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE, 'r') as f:
-            settings.update(json.load(f))
+        try:
+            with open(SETTINGS_FILE, 'r') as f:
+                settings.update(json.load(f))
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Warning: Could not parse settings.json: {e}")
+            # Keep default settings
     settings['streaming'] = is_streaming()
     return settings
 
@@ -328,9 +331,13 @@ import json
 def get_auth_creds():
     auth_file = os.path.join(ENCODER_DATA_DIR, 'auth.json')
     if os.path.exists(auth_file):
-        with open(auth_file) as f:
-            auth = json.load(f)
-        return auth.get('username', 'admin'), auth.get('password', '12345')
+        try:
+            with open(auth_file) as f:
+                auth = json.load(f)
+            return auth.get('username', 'admin'), auth.get('password', '12345')
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Warning: Could not parse auth.json: {e}")
+            return 'admin', '12345'
     return '', ''
 
 def is_auth_enabled():
@@ -407,12 +414,23 @@ def get_auth_and_wifi():
     wifi = {}
     auth_path = os.path.join(ENCODER_DATA_DIR, 'auth.json')
     wifi_path = os.path.join(ENCODER_DATA_DIR, 'wifi.json')
+    
     if os.path.exists(auth_path):
-        with open(auth_path) as f:
-            auth = json.load(f)
+        try:
+            with open(auth_path) as f:
+                auth = json.load(f)
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Warning: Could not parse auth.json: {e}")
+            auth = {}
+    
     if os.path.exists(wifi_path):
-        with open(wifi_path) as f:
-            wifi = json.load(f)
+        try:
+            with open(wifi_path) as f:
+                wifi = json.load(f)
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Warning: Could not parse wifi.json: {e}")
+            wifi = {}
+    
     return auth, wifi
 
 @app.route('/system-settings')
