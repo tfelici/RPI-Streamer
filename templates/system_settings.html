@@ -92,11 +92,18 @@
                 document.getElementById('wifi-pass').value = data.wifi.password || '';
             }
         });
-        
-        // Auth form submit
+          // Auth form submit
         document.getElementById('auth-form').onsubmit = function(e) {
             e.preventDefault();
             const resultDiv = document.getElementById('auth-result');
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            
+            // Show updating message
+            resultDiv.textContent = 'Updating authentication settings...';
+            resultDiv.className = 'status-message';
+            resultDiv.style.display = 'block';
+            submitBtn.disabled = true;
+            
             fetch('/system-settings-auth', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -108,13 +115,26 @@
                 resultDiv.textContent = message;
                 resultDiv.className = data.success ? 'status-message status-success' : 'status-message status-error';
                 resultDiv.style.display = 'block';
+            }).catch(error => {
+                resultDiv.textContent = 'Error updating authentication settings: ' + error.message;
+                resultDiv.className = 'status-message status-error';
+                resultDiv.style.display = 'block';
+            }).finally(() => {
+                submitBtn.disabled = false;
             });
         };
-        
-        // WiFi form submit
+          // WiFi form submit
         document.getElementById('wifi-form').onsubmit = function(e) {
             e.preventDefault();
             const resultDiv = document.getElementById('wifi-result');
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            
+            // Show updating message
+            resultDiv.textContent = 'Updating WiFi settings...';
+            resultDiv.className = 'status-message';
+            resultDiv.style.display = 'block';
+            submitBtn.disabled = true;
+            
             fetch('/system-settings-wifi', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -126,16 +146,31 @@
                 resultDiv.textContent = data.success ? 'WiFi settings saved!' : (data.error || 'Error saving settings');
                 resultDiv.className = data.success ? 'status-message status-success' : 'status-message status-error';
                 resultDiv.style.display = 'block';
+            }).catch(error => {
+                resultDiv.textContent = 'Error updating WiFi settings: ' + error.message;
+                resultDiv.className = 'status-message status-error';
+                resultDiv.style.display = 'block';
+            }).finally(() => {
+                submitBtn.disabled = false;
             });
         };
-        
-        // Reboot button
+          // Reboot button
         document.getElementById('reboot-btn').onclick = function() {
             if (!confirm('Are you sure you want to reboot the system?')) return;
             const resultDiv = document.getElementById('reboot-result');
+            const rebootBtn = document.getElementById('reboot-btn');
+            
+            // Show updating message
+            resultDiv.textContent = 'Initiating system reboot...';
+            resultDiv.className = 'status-message';
+            resultDiv.style.display = 'block';
+            rebootBtn.disabled = true;
+            
             fetch('/system-settings-reboot', { method: 'POST' })
                 .then(r => r.json())
                 .then(function(data) {                    if (data.success) {
+                        resultDiv.textContent = 'System rebooting...';
+                        resultDiv.className = 'status-message status-success';
                         // Show overlay and start polling
                         document.getElementById('overlay').style.display = 'flex';
                         setTimeout(function pollForReload() {
@@ -153,7 +188,13 @@
                         resultDiv.textContent = data.error || 'Reboot failed';
                         resultDiv.className = 'status-message status-error';
                         resultDiv.style.display = 'block';
+                        rebootBtn.disabled = false;
                     }
+                }).catch(error => {
+                    resultDiv.textContent = 'Error initiating reboot: ' + error.message;
+                    resultDiv.className = 'status-message status-error';
+                    resultDiv.style.display = 'block';
+                    rebootBtn.disabled = false;
                 });
         };
         

@@ -208,7 +208,13 @@ def stats():
             mem = psutil.virtual_memory().percent
             temp = get_temperature()
             power = get_power_draw()
-            data = f"data: {{\"cpu\": {cpu}, \"mem\": {mem}, \"temp\": \"{temp}\", \"power\": \"{power}\"}}\n\n"
+            connection = get_connection_info()
+            
+            # Format connection info for JSON
+            import json
+            connection_json = json.dumps(connection).replace('"', '\\"')
+            
+            data = f"data: {{\"cpu\": {cpu}, \"mem\": {mem}, \"temp\": \"{temp}\", \"power\": \"{power}\", \"connection\": \"{connection_json}\"}}\n\n"
             yield data
             time.sleep(1)
     return Response(event_stream(), mimetype='text/event-stream')
@@ -653,5 +659,125 @@ def delete_recording():
     except Exception as e:
         return jsonify({'error': f'Failed to delete: {e}'}), 500
 
+def get_connection_info():
+    """
+    Get current network connection information including IP addresses and connection types.
+    Returns a dictionary with connection details.
+    """
+    connection_info = {
+        "ethernet": "Disconnected",
+        "wifi": "Disconnected", 
+        "ip_addresses": [],
+        "active_connections": []
+    }
+    
+    try:
+        # Get network interfaces and their addresses
+        import socket
+        import subprocess
+        import platform
+        
+        # Get all network interfaces with IP addresses
+        interfaces = psutil.net_if_addrs()
+        for interface_name, addresses in interfaces.items():
+            for addr in addresses:
+                if addr.family == socket.AF_INET and not addr.address.startswith('127.'):
+                    # Skip APIPA addresses (169.254.x.x) unless no other connections exist
+                    is_apipa = addr.address.startswith('169.254.')
+                    
+                    # Determine connection type based on interface name
+                    interface_lower = interface_name.lower()
+                    if any(keyword in interface_lower for keyword in ['ethernet', 'eth', 'en0', 'eno', 'enp']):
+                        conn_type = "ethernet"
+                        if not is_apipa:
+                            connection_info["ethernet"] = "Connected"
+                    elif any(keyword in interface_lower for keyword in ['wi-fi', 'wifi', 'wlan', 'wlp', 'wireless']):
+                        conn_type = "wifi"
+                        if not is_apipa:
+                            connection_info["wifi"] = "Connected"
+                    else:
+                        conn_type = "other"
+                    
+                    connection_info["ip_addresses"].append({
+                        "interface": interface_name,
+                        "ip": addr.address,
+                        "type": conn_type
+                    })
+        
+        # Platform-specific connection detection
+        try:
+            if platform.system() == "Windows":
+                # Use ipconfig on Windows to get more detailed connection info
+                result = subprocess.run(['ipconfig'], capture_output=True, text=True, timeout=3)
+                if result.returncode == 0:
+                    lines = result.stdout.split('\n')
+                    current_adapter = ""
+                    for line in lines:
+                        line = line.strip()
+                        if "adapter" in line.lower() and ":" in line:
+                            current_adapter = line
+                        elif "IPv4 Address" in line and current_adapter:
+                            # Found an active connection
+                            if "ethernet" in current_adapter.lower():
+                                connection_info["ethernet"] = "Connected"
+                            elif "wi-fi" in current_adapter.lower() or "wireless" in current_adapter.lower():
+                                connection_info["wifi"] = "Connected"
+            else:
+                # Use ip command on Linux/Unix
+                result = subprocess.run(['ip', 'route', 'show', 'default'], capture_output=True, text=True, timeout=2)
+                if result.returncode == 0:
+                    lines = result.stdout.strip().split('\n')
+                    for line in lines:
+                        if 'dev' in line:
+                            parts = line.split()
+                            if 'dev' in parts:
+                                dev_index = parts.index('dev')
+                                if dev_index + 1 < len(parts):
+                                    interface = parts[dev_index + 1]
+                                    if interface not in connection_info["active_connections"]:
+                                        connection_info["active_connections"].append(interface)
+                                        
+                                        # Determine connection type
+                                        if any(keyword in interface.lower() for keyword in ["eth", "en", "eno", "enp"]):
+                                            connection_info["ethernet"] = "Connected"
+                                        elif any(keyword in interface.lower() for keyword in ["wlan", "wi", "wlp"]):
+                                            connection_info["wifi"] = "Connected"
+        except Exception:
+            pass
+              # Try to get WiFi SSID if connected
+        try:
+            if connection_info["wifi"] == "Connected":
+                if platform.system() == "Windows":
+                    # Try netsh on Windows to get WiFi SSID
+                    result = subprocess.run(['netsh', 'wlan', 'show', 'profiles'], capture_output=True, text=True, timeout=3)
+                    if result.returncode == 0:
+                        # Get currently connected profile
+                        interfaces_result = subprocess.run(['netsh', 'wlan', 'show', 'interfaces'], capture_output=True, text=True, timeout=3)
+                        if interfaces_result.returncode == 0:
+                            for line in interfaces_result.stdout.split('\n'):
+                                if 'SSID' in line and ':' in line:
+                                    ssid = line.split(':', 1)[1].strip()
+                                    if ssid and ssid != '':
+                                        connection_info["wifi"] = f"Connected ({ssid})"
+                                        break
+                else:
+                    # Try nmcli first (NetworkManager) on Linux/Unix
+                    result = subprocess.run(['nmcli', '-t', '-f', 'active,ssid', 'dev', 'wifi'], capture_output=True, text=True, timeout=2)
+                    if result.returncode == 0:
+                        lines = result.stdout.strip().split('\n')
+                        for line in lines:
+                            if line.startswith('yes:'):
+                                ssid = line.split(':', 1)[1]
+                                if ssid:
+                                    connection_info["wifi"] = f"Connected ({ssid})"
+                                    break
+        except Exception:
+            pass
+            
+    except Exception as e:
+        connection_info["error"] = str(e)
+    
+    return connection_info
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=80, debug=True, threaded=True)
+    app.run(host='0.0.0.0', port=80, debug=False, threaded=True)

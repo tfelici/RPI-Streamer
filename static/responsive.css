@@ -309,6 +309,17 @@ button:disabled,
     display: block;
 }
 
+/* Connection status values need smaller font and text wrapping */
+.stat-value.connection-status {
+    font-size: 1.2rem;
+    word-wrap: break-word;
+    word-break: break-word;
+    hyphens: auto;
+    line-height: 1.3;
+    overflow-wrap: break-word;
+    max-width: 100%;
+}
+
 .stat-label {
     color: var(--text-secondary);
     font-size: 0.9rem;
@@ -470,6 +481,37 @@ button:disabled,
     max-width: 90vw;
 }
 
+/* IP Addresses Display */
+.ip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.ip-item {
+    background: var(--surface-color);
+    padding: 0.5rem 1rem;
+    border-radius: var(--border-radius);
+    border: 1px solid var(--border-color);
+    font-size: 0.9rem;
+    transition: var(--transition);
+}
+
+.ip-item:hover {
+    background: var(--background-color);
+    border-color: var(--secondary-color);
+}
+
+.ip-address {
+    font-weight: bold;
+    color: var(--secondary-color);
+}
+
+.ip-item small {
+    color: var(--text-secondary);
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .overlay-content {
@@ -547,10 +589,12 @@ button:disabled,
     .stats-grid {
         grid-template-columns: 1fr;
         gap: 0.75rem;
+    }    .stat-value {
+        font-size: 1.5rem;
     }
 
-    .stat-value {
-        font-size: 1.5rem;
+    .stat-value.connection-status {
+        font-size: 1rem;
     }
 
     .btn,

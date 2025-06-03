@@ -11,11 +11,9 @@
     {% if not uploadrecordingsonly %}
     {% include 'navbar.html' %}
     {% endif %}    
-    <div class="container">
-        {% if not uploadrecordingsonly %}
-        <!-- System Stats -->
+    <div class="container">        {% if not uploadrecordingsonly %}        <!-- System Stats -->
         <div class="frame">
-            <h1>System Statistics</h1>
+            <h2>System Statistics</h2>
             <div class="stats-grid">
                 <div class="stat-item">
                     <span class="stat-value" id="cpu">--</span>
@@ -32,6 +30,29 @@
                 <div class="stat-item">
                     <span class="stat-value" id="power">--</span>
                     <div class="stat-label">Power Draw</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Network Connection -->
+        <div class="frame">
+            <h2>Network Connection</h2>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <span class="stat-value connection-status" id="ethernet">--</span>
+                    <div class="stat-label">Ethernet</div>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value connection-status" id="wifi">--</span>
+                    <div class="stat-label">WiFi</div>
+                </div>
+            </div>
+            
+            <!-- IP Addresses Section -->
+            <div id="ip-addresses" style="margin-top: 1rem; display: none;">
+                <h3>IP Addresses</h3>
+                <div id="ip-list" class="ip-list">
+                    <!-- IP addresses will be populated here -->
                 </div>
             </div>
         </div>
@@ -327,12 +348,16 @@
                 }
             }
         })();
-    });    </script>    {% if not uploadrecordingsonly %}
-    <script>
+    });    </script>    {% if not uploadrecordingsonly %}    <script>
         const cpu = document.getElementById('cpu');
         const mem = document.getElementById('mem');
         const temp = document.getElementById('temp');
         const power = document.getElementById('power');
+        const ethernet = document.getElementById('ethernet');
+        const wifi = document.getElementById('wifi');
+        const ipAddressesDiv = document.getElementById('ip-addresses');
+        const ipList = document.getElementById('ip-list');
+        
         const evtSource = new EventSource('/stats');
         evtSource.onmessage = function(event) {
             const data = JSON.parse(event.data);
@@ -340,6 +365,36 @@
             mem.textContent = data.mem;
             temp.textContent = data.temp;
             power.textContent = data.power;
+            
+            // Handle connection information
+            if (data.connection) {
+                try {
+                    const connection = JSON.parse(data.connection);
+                    
+                    // Update ethernet and wifi status
+                    ethernet.textContent = connection.ethernet || 'Disconnected';
+                    wifi.textContent = connection.wifi || 'Disconnected';
+                    
+                    // Update IP addresses
+                    if (connection.ip_addresses && connection.ip_addresses.length > 0) {
+                        ipAddressesDiv.style.display = 'block';
+                        ipList.innerHTML = '';
+                        
+                        connection.ip_addresses.forEach(function(ipInfo) {
+                            const ipItem = document.createElement('div');
+                            ipItem.className = 'ip-item';
+                            ipItem.innerHTML = '<span class="ip-address">' + ipInfo.ip + '</span> <small>(' + ipInfo.interface + ')</small>';
+                            ipList.appendChild(ipItem);
+                        });
+                    } else {
+                        ipAddressesDiv.style.display = 'none';
+                    }
+                } catch (e) {
+                    console.error('Error parsing connection data:', e);
+                    ethernet.textContent = 'Error';
+                    wifi.textContent = 'Error';
+                }
+            }
         };
 
         // --- Active Recordings Panel Auto-Refresh ---
