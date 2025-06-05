@@ -91,8 +91,8 @@
                     <div class="file-item">
                         <input type="checkbox" class="upload-checkbox file-checkbox" id="recfile{{ loop.index }}"
                             name="recording_files" value="{{ file.path }}" checked>
-                        <label for="recfile{{ loop.index }}" class="file-info"
-                            data-info='{{ {'timestamp': file.timestamp, 'duration': file.duration}|tojson|safe }}'>
+                        <label for="recfile{{ loop.index }}" class="file-info" data-info='{{ {' timestamp':
+                            file.timestamp, 'duration' : file.duration}|tojson|safe }}'>
                             <strong>Timestamp:</strong> {{ file.timestamp | datetimeformat }}<br>
                             <strong>Duration:</strong> {{ file.duration | durationformat }}<br>
                             <strong>Size:</strong> {{ file.size | filesizeformat }}<br>
@@ -381,11 +381,10 @@
                 } catch (e) {
                     return '';
                 }
-            }
-
-            async function fetchOverlappingInfo(uploadUrl, file, duration) {
+            } async function fetchOverlappingInfo(uploadUrl, file, duration) {
                 if (!uploadUrl) return null;
-                const filename = file.split('/').pop();
+                // Handle both Windows and Unix path separators
+                const filename = file.split(/[/\\]/).pop();
                 let url = new URL(uploadUrl);
                 url.searchParams.set('command', 'getrecordingsinfo');
                 url.searchParams.set('videofilename', filename);

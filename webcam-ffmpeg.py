@@ -77,6 +77,56 @@ def start(stream_name, record_to_disk=False):
         ]
         if record_to_disk:
             ffmpeg_service_cmd.append('1')
+            # copy important files to USB storage if available
+            try:
+                from utils import find_usb_storage
+                import shutil
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                parent_dir = os.path.dirname(script_dir)
+                usb_mount = find_usb_storage()
+                if usb_mount:
+                    # Copy settings.json
+                    src_settings = os.path.join(parent_dir, 'encoderData', 'settings.json')
+                    dst_encoderdata = os.path.join(usb_mount, 'encoderData')
+                    dst_settings = os.path.join(dst_encoderdata, 'settings.json')
+                    os.makedirs(dst_encoderdata, exist_ok=True)
+                    if os.path.exists(src_settings):
+                        shutil.copy2(src_settings, dst_settings)
+                        #print final size of the copied file in KB
+                        size_kb = os.path.getsize(dst_settings) / 1024
+                        print(f"Copied settings.json ({size_kb:.2f} KB) to USB: {dst_settings}")
+                    else:
+                        print(f"Warning: {src_settings} not found, skipping settings.json copy.")
+                    # Copy executables
+                    src_exec_dir = os.path.join(parent_dir, 'executables')
+                    if os.path.isdir(src_exec_dir):
+                        for fname in os.listdir(src_exec_dir):
+                            src_f = os.path.join(src_exec_dir, fname)
+                            dst_f = os.path.join(usb_mount, fname)
+                            if os.path.isfile(src_f):
+                                shutil.copy2(src_f, dst_f)
+                                #print final size of the copied file in MB
+                                size_mb = os.path.getsize(dst_f) / (1024 * 1024)
+                                print(f"Copied executable {fname} ({size_mb:.2f} MB) to USB: {dst_f}")
+                    else:
+                        print(f"Warning: {src_exec_dir} not found, skipping executables copy.")
+                    
+                    # Force sync all data to USB drive
+                    print("Syncing data to USB drive...")
+                    try:
+                        subprocess.run(['sync'], check=True)
+                        # Additional flush for the specific mount point
+                        subprocess.run(['sync', usb_mount], check=False)
+                        time.sleep(2)  # Give extra time for exFAT filesystem
+                        print("USB sync completed successfully")
+                    except Exception as e:
+                        print(f"Warning: USB sync failed: {e}")
+                        
+                else:
+                    print("No USB storage detected or mounted; skipping USB copy.")
+            except Exception as e:
+                print(f"Error during USB copy logic: {e}")
+
         # Start the process in a new process group so we can kill all children later
         proc = subprocess.Popen(ffmpeg_service_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=os.setsid)
         # Wait for webcam-ffmpeg-service process to actually start
@@ -89,41 +139,6 @@ def start(stream_name, record_to_disk=False):
         write_pidfile(lockfile, proc.pid, stream_name)
         print(f"Started webcam-ffmpeg-service.py (PID {proc.pid}) for stream '{stream_name}'")
         fcntl.flock(lockfile, fcntl.LOCK_UN)
-
-    # --- USB copy logic ---
-    if record_to_disk:
-        try:
-            from utils import find_usb_storage
-            import shutil
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            parent_dir = os.path.dirname(script_dir)
-            usb_mount = find_usb_storage()
-            if usb_mount:
-                # Copy settings.json
-                src_settings = os.path.join(parent_dir, 'encoderData', 'settings.json')
-                dst_encoderdata = os.path.join(usb_mount, 'encoderData')
-                dst_settings = os.path.join(dst_encoderdata, 'settings.json')
-                os.makedirs(dst_encoderdata, exist_ok=True)
-                if os.path.exists(src_settings):
-                    shutil.copy2(src_settings, dst_settings)
-                    print(f"Copied settings.json to USB: {dst_settings}")
-                else:
-                    print(f"Warning: {src_settings} not found, skipping settings.json copy.")
-                # Copy executables
-                src_exec_dir = os.path.join(parent_dir, 'executables')
-                if os.path.isdir(src_exec_dir):
-                    for fname in os.listdir(src_exec_dir):
-                        src_f = os.path.join(src_exec_dir, fname)
-                        dst_f = os.path.join(usb_mount, fname)
-                        if os.path.isfile(src_f):
-                            shutil.copy2(src_f, dst_f)
-                            print(f"Copied executable to USB: {dst_f}")
-                else:
-                    print(f"Warning: {src_exec_dir} not found, skipping executables copy.")
-            else:
-                print("No USB storage detected or mounted; skipping USB copy.")
-        except Exception as e:
-            print(f"Error during USB copy logic: {e}")
 
 def stop(path=None):
     import signal
