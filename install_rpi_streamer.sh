@@ -49,7 +49,7 @@ fi
 # Setup flask app directory
 echo "Setting up Flask app directory... $HOME/flask_app"
 mkdir -p "$HOME/flask_app"
-mkdir -p "$HOME/encoderData"
+mkdir -p "$HOME/streamerData"
 cd "$HOME/flask_app"
 
 

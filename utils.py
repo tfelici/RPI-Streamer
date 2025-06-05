@@ -101,9 +101,9 @@ def list_video_inputs():
 
 def get_setting(key, default=None):
     """
-    Load a single setting from the settings.json file in ../encoderData.
+    Load a single setting from the settings.json file in ../streamerData.
     """
-    SETTINGS_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), '../encoderData/settings.json'))
+    SETTINGS_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), '../streamerData/settings.json'))
     try:
         with open(SETTINGS_FILE, 'r') as f:
             s = json.load(f)

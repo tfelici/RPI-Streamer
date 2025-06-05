@@ -86,10 +86,10 @@ def start(stream_name, record_to_disk=False):
                 usb_mount = find_usb_storage()
                 if usb_mount:
                     # Copy settings.json
-                    src_settings = os.path.join(parent_dir, 'encoderData', 'settings.json')
-                    dst_encoderdata = os.path.join(usb_mount, 'encoderData')
-                    dst_settings = os.path.join(dst_encoderdata, 'settings.json')
-                    os.makedirs(dst_encoderdata, exist_ok=True)
+                    src_settings = os.path.join(parent_dir, 'streamerData', 'settings.json')
+                    dst_streamerData = os.path.join(usb_mount, 'streamerData')
+                    dst_settings = os.path.join(dst_streamerData, 'settings.json')
+                    os.makedirs(dst_streamerData, exist_ok=True)
                     if os.path.exists(src_settings):
                         shutil.copy2(src_settings, dst_settings)
                         #print final size of the copied file in KB
