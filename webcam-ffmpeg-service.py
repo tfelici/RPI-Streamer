@@ -220,11 +220,11 @@ def start(stream_name, record_to_disk=False):
             if usb_mount:
                 print(f"Recording to USB storage at {usb_mount}")
                 # Use USB mount path for recordings
-                record_dir = os.path.join(usb_mount, 'encoderData', 'recordings', stream_name)
+                record_dir = os.path.join(usb_mount, 'streamerData', 'recordings', stream_name)
             else:
                 print("No USB storage found, recording to local disk")
                 # Use local disk path for recordings
-                record_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'encoderData', 'recordings', stream_name))
+                record_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'streamerData', 'recordings', stream_name))
             os.makedirs(record_dir, exist_ok=True)
             timestamp = int(time.time())
             recording_file = os.path.join(record_dir, f"{timestamp}.mp4")

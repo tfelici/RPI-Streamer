@@ -36,7 +36,7 @@ The RPI Streamer automatically detects and uses USB storage devices for saving r
 - **USB priority**: Recording segments are automatically saved to USB storage when available
 - **Local fallback**: Falls back to local storage if no USB device is detected
 - **Auto-cleanup**: USB devices are safely unmounted when the script exits
-- **Directory structure**: Creates `encoderData/recordings/<stream_name>/` on USB devices
+- **Directory structure**: Creates `streamerData/recordings/<stream_name>/` on USB devices
 
 ### Testing USB Detection
 Test the USB detection functionality without running recordings:
