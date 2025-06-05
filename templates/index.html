@@ -92,18 +92,11 @@
                         <input type="checkbox" class="upload-checkbox file-checkbox" id="recfile{{ loop.index }}"
                             name="recording_files" value="{{ file.path }}" checked>
                         <label for="recfile{{ loop.index }}" class="file-info"
-                            data-info='{{ file.path|parse_recording_filename|tojson|safe }}'>
-                            {% set info = file.path|parse_recording_filename %}
-                            {% if info %}
-                            <strong>Timestamp:</strong> {{ info.timestamp | datetimeformat }}<br>
-                            <strong>Duration:</strong> {{ info.duration | durationformat }}<br>
+                            data-info='{{ {'timestamp': file.timestamp, 'duration': file.duration}|tojson|safe }}'>
+                            <strong>Timestamp:</strong> {{ file.timestamp | datetimeformat }}<br>
+                            <strong>Duration:</strong> {{ file.duration | durationformat }}<br>
                             <strong>Size:</strong> {{ file.size | filesizeformat }}<br>
                             <strong>Location:</strong> {{ file.location }}
-                            {% else %}
-                            <strong>File:</strong> {{ file.path }}<br>
-                            <strong>Size:</strong> {{ file.size | filesizeformat }}<br>
-                            <strong>Location:</strong> {{ file.location }}
-                            {% endif %}
                         </label>
                     </div>
                     {% endfor %}
@@ -390,12 +383,13 @@
                 }
             }
 
-            async function fetchOverlappingInfo(uploadUrl, file) {
+            async function fetchOverlappingInfo(uploadUrl, file, duration) {
                 if (!uploadUrl) return null;
                 const filename = file.split('/').pop();
                 let url = new URL(uploadUrl);
                 url.searchParams.set('command', 'getrecordingsinfo');
                 url.searchParams.set('videofilename', filename);
+                url.searchParams.set('duration', duration);
                 try {
                     const response = await fetch(url, { method: 'GET' });
                     if (!response.ok) throw new Error('Network response was not ok. URL: ' + url.toString());
@@ -417,12 +411,12 @@
                     loadingDiv.style.color = '#888';
                     loadingDiv.textContent = 'Checking server for overlapping files...';
                     label.appendChild(loadingDiv);
-                    const info = await fetchOverlappingInfo(uploadUrl, file);
                     loadingDiv.remove();
                     let localInfo = null;
                     try {
                         localInfo = JSON.parse(label.getAttribute('data-info'));
                     } catch (e) { }
+                    const info = await fetchOverlappingInfo(uploadUrl, file, localInfo ? localInfo.duration : 0);
                     if (info && info.overlapping_files && info.overlapping_files.length > 0 && localInfo) {
                         const barWidth = 220;
                         const barHeight = 18;

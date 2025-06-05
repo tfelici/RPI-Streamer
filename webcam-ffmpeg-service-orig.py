@@ -6,7 +6,8 @@ import time
 import threading
 from utils import list_audio_inputs, list_video_inputs, get_setting
 
-def start(stream_name, record_to_disk=False):
+
+def start(stream_name):
     if not stream_name:
         print("Error: stream_name must be provided as a command-line argument.")
         return
@@ -46,7 +47,7 @@ def start(stream_name, record_to_disk=False):
         # Device not found in available devices
         return None
     
-    def build_ffmpeg_cmd(video_device, audio_device, framerate_val, resolution_val, crf_val, gop_val, vbitrate_val, ar_val, abitrate_val, volume_val, record_to_disk=False, stream_name=None):
+    def build_ffmpeg_cmd(video_device, audio_device, framerate_val, resolution_val, crf_val, gop_val, vbitrate_val, ar_val, abitrate_val, volume_val):
         # Set hardware volume using amixer if audio_device and volume are set
         if audio_device and volume_val is not None:
             import re
@@ -91,149 +92,48 @@ def start(stream_name, record_to_disk=False):
             print("Hardware encoders not supported, falling back to libx264")
             return 'libx264'
 
-        # Four cases: both present, only video, only audio, neither
-        if video_device and audio_device:
-            # Both present
+        if video_device:
             video_opts = [
                 '-f', 'v4l2',
                 '-framerate', str(framerate_val),
                 '-video_size', str(resolution_val),
                 '-i', video_device
             ]
-            vcodec = probe_hardware_encoder(video_opts)
-            audio_opts = [
-                '-f', 'alsa',
-                '-i', f'plug{audio_device}'
-            ]
-            map_opts = ['-map', '0:v:0', '-map', '1:a:0']
-            base_opts = [
-                '-vcodec', vcodec,
-                '-preset', 'ultrafast',
-                '-pix_fmt', 'yuv420p',
-                '-crf', str(crf_val),
-                '-b:v', f'{vbitrate_val}k',
-                '-tune', 'zerolatency',
-                '-g', str(gop_val),
-                '-keyint_min', '1',
-                '-acodec', 'libopus',
-                '-ar', str(ar_val),
-                '-b:a', str(abitrate_val),
-                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
-            ] + map_opts
-        elif video_device and not audio_device:
-            # Only video, generate silent audio
-            video_opts = [
-                '-f', 'v4l2',
-                '-framerate', str(framerate_val),
-                '-video_size', str(resolution_val),
-                '-i', video_device
-            ]
-            vcodec = probe_hardware_encoder(video_opts)
-            audio_opts = [
-                '-f', 'lavfi',
-                '-i', f'anullsrc=r={ar_val}:cl=mono'
-            ]
-            map_opts = ['-map', '0:v:0', '-map', '1:a:0']
-            base_opts = [
-                '-shortest',
-                '-vcodec', vcodec,
-                '-preset', 'ultrafast',
-                '-pix_fmt', 'yuv420p',
-                '-crf', str(crf_val),
-                '-b:v', f'{vbitrate_val}k',
-                '-tune', 'zerolatency',
-                '-g', str(gop_val),
-                '-keyint_min', '1',
-                '-acodec', 'libopus',
-                '-ar', str(ar_val),
-                '-b:a', str(abitrate_val),
-                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
-            ] + map_opts
-        elif audio_device and not video_device:
-            # Only audio device present: static image + real audio (efficient settings)
-            static_crf = 35      # Higher CRF for lower quality (saves CPU/bandwidth)
-            static_vbitrate = 32 # Lower video bitrate (kbps)
-            static_gop = 1       # All keyframes
-            video_opts = [
-                '-re',
-                '-stream_loop', '-1',
-                '-i', static_img
-            ]
-            vcodec = probe_hardware_encoder(video_opts)
-            audio_opts = [
-                '-f', 'alsa',
-                '-i', f'plug{audio_device}'
-            ]
-            map_opts = ['-map', '0:v:0', '-map', '1:a:0']
-            base_opts = [
-                '-shortest',
-                '-vcodec', vcodec,
-                '-preset', 'ultrafast',
-                '-pix_fmt', 'yuv420p',
-                '-crf', str(static_crf),
-                '-b:v', f'{static_vbitrate}k',
-                '-tune', 'zerolatency',
-                '-g', str(static_gop),
-                '-keyint_min', '1',
-                '-acodec', 'libopus',
-                '-ar', str(ar_val),
-                '-b:a', str(abitrate_val),
-                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
-            ] + map_opts
-        elif not video_device and not audio_device:
-            # Neither present: static image + silent audio (efficient settings)
-            static_crf = 35      # Higher CRF for lower quality (saves CPU/bandwidth)
-            static_vbitrate = 64 # Lower video bitrate (kbps)
-            static_abitrate = '8k' # Lower audio bitrate
-            static_gop = 1       # All keyframes
-            video_opts = [
-                '-re',
-                '-loop', '1',
-                '-i', static_img
-            ]
-            vcodec = probe_hardware_encoder(video_opts)
-            audio_opts = [
-                '-f', 'lavfi',
-                '-i', f'anullsrc=r={ar_val}:cl=mono'
-            ]
-            map_opts = ['-map', '0:v:0', '-map', '1:a:0']
-            base_opts = [
-                '-shortest',
-                '-vcodec', vcodec,
-                '-preset', 'ultrafast',
-                '-pix_fmt', 'yuv420p',
-                '-crf', str(static_crf),
-                '-b:v', f'{static_vbitrate}k',
-                '-tune', 'zerolatency',
-                '-g', str(static_gop),
-                '-keyint_min', '1',
-                '-acodec', 'libopus',
-                '-ar', str(ar_val),
-                '-b:a', static_abitrate,
-                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
-            ] + map_opts
-        recording_file = None
-        if record_to_disk and stream_name:
-            import time
-            from utils import find_usb_storage
-            usb_mount = find_usb_storage()
-            if usb_mount:
-                print(f"Recording to USB storage at {usb_mount}")
-                # Use USB mount path for recordings
-                record_dir = os.path.join(usb_mount, 'encoderData', 'recordings', stream_name)
-            else:
-                print("No USB storage found, recording to local disk")
-                # Use local disk path for recordings
-                record_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'encoderData', 'recordings', stream_name))
-            os.makedirs(record_dir, exist_ok=True)
-            timestamp = int(time.time())
-            recording_file = os.path.join(record_dir, f"{timestamp}.mp4")
-            tee_output = f"[f=rtsp]rtsp://localhost:8554/{stream_name}|[f=mp4]{recording_file}"
-            output_opts = ['-f', 'tee', tee_output]
         else:
-            output_opts = ['-f', 'rtsp', f'rtsp://localhost:8554/{stream_name}']
-        cmd = ['ffmpeg'] + video_opts + audio_opts + base_opts + output_opts
-        return cmd, recording_file
+            video_opts = [
+                '-stream_loop', '-1',
+                '-re',
+                '-i', static_img
+            ]
+
+        vcodec = probe_hardware_encoder(video_opts)
+
+        if audio_device:
+            # Prepend 'plug' to the audio device string to ensure compatibility with ALSA
+            audio_opts = [
+                '-f', 'alsa',
+                '-i', f'plug{audio_device}'
+            ]
+        else:
+            audio_opts = ['-an']
+
+        output_opts = [
+            '-vcodec', vcodec,
+            '-preset', 'ultrafast',
+            '-pix_fmt', 'yuv420p',
+            '-crf', str(crf_val),
+            '-b:v', f'{vbitrate_val}k',
+            '-tune', 'zerolatency',
+            '-g', str(gop_val),
+            '-keyint_min', '1',
+            '-acodec', 'libopus',
+            '-ar', str(ar_val),
+            '-b:a', str(abitrate_val),
+            '-f', 'rtsp',
+            '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+            f'rtsp://localhost:8554/{stream_name}'
+        ]
+        return ['ffmpeg'] + video_opts + audio_opts + output_opts
 
     state = {'video': None, 'audio': None, 'proc': None, 'should_restart': False}
     check_interval = 2
@@ -296,7 +196,6 @@ def start(stream_name, record_to_disk=False):
     t = threading.Thread(target=monitor_devices, daemon=True)
     t.start()
 
-    ACTIVE_PIDFILE = "/tmp/webcam-ffmpeg-service.pid"
     while True:
         # Get current settings each iteration
         current_framerate = get_setting('framerate', 5)
@@ -307,48 +206,18 @@ def start(stream_name, record_to_disk=False):
         current_ar = get_setting('ar', 8000)
         current_abitrate = get_setting('abitrate', '128k')
         current_volume = get_setting('volume', 100)
-
+        
         video_device = find_video_device()
         audio_device = find_usb_audio_device()
-
+        
         # Build command with current settings
-        cmd, recording_file = build_ffmpeg_cmd(
-            video_device, audio_device, current_framerate, current_resolution,
-            current_crf, current_gop, current_vbitrate, current_ar,
-            current_abitrate, current_volume, record_to_disk, stream_name
-        )
-
+        cmd = build_ffmpeg_cmd(video_device, audio_device, current_framerate, current_resolution, 
+                              current_crf, current_gop, current_vbitrate, current_ar, 
+                              current_abitrate, current_volume)
         print("Running:", ' '.join(str(x) for x in cmd))
         proc = subprocess.Popen(cmd)
         state['proc'] = proc
-
-        # Write active PID file if recording to disk
-        if record_to_disk and recording_file:
-            try:
-                with open(ACTIVE_PIDFILE, 'w') as f:
-                    f.write(f"{proc.pid}:{recording_file}\n")
-                print(f"Active PID file written: {ACTIVE_PIDFILE} with PID {proc.pid} and file {recording_file}")
-            except Exception as e:
-                print(f"Warning: Could not write active PID file: {e}")
-        else:
-            print("Not writing active PID file since not recording to disk")
-        # Wait for ffmpeg to exit
         proc.wait()
-
-        # Remove active PID file if it matches this process
-        if record_to_disk and recording_file:
-            try:
-                # Only remove if the PID and file match
-                if os.path.exists(ACTIVE_PIDFILE):
-                    with open(ACTIVE_PIDFILE, 'r') as f:
-                        line = f.read().strip()
-                        if line:
-                            pid_str, file_str = line.split(':', 1)
-                            if str(proc.pid) == pid_str and file_str == recording_file:
-                                os.remove(ACTIVE_PIDFILE)
-            except Exception as e:
-                print(f"Warning: Could not remove active PID file: {e}")
-
         if not state['should_restart']:
             print(f"ffmpeg exited with code {proc.returncode}. Restarting in {check_interval} seconds...")
             time.sleep(check_interval)
@@ -359,15 +228,10 @@ def start(stream_name, record_to_disk=False):
 
 def main():
     stream_name = sys.argv[1] if len(sys.argv) > 1 else None
-    record_to_disk = False
-    if len(sys.argv) > 2:
-        val = sys.argv[2].lower()
-        if val in ('1', 'true', 'yes', 'on'):
-            record_to_disk = True
     if not stream_name:
         print("Error: stream_name must be provided as a command-line argument.")
         return
-    start(stream_name, record_to_disk)
+    start(stream_name)
 
 if __name__ == "__main__":
     main()

@@ -710,7 +710,7 @@ pathDefaults:
 # Any setting in "pathDefaults" can be overridden here.
 # It's possible to use regular expressions by using a tilde as prefix,
 # for example "~^(test1|test2)$" will match both "test1" and "test2",
-# for example "~^prefix" will match all paths that start with "prefix".
+# for example "~^prefix" will match all paths that start with "prefix".   
 paths:
   # example:
   # my_camera:
@@ -731,8 +731,4 @@ paths:
   broadcast:
     runOnReady: python ./relay-ffmpeg.py $RTSP_PORT $MTX_PATH
     runOnReadyRestart: yes
-    record: yes
-    recordPath: ../encoderData/recordings/%path/%s
-    recordDeleteAfter: 0s
-    runOnRecordSegmentComplete: python3 ./on_record_segment_complete.py $MTX_SEGMENT_PATH $MTX_SEGMENT_DURATION $MTX_PATH
     

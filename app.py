@@ -13,6 +13,12 @@ from functools import wraps
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 from utils import list_audio_inputs, list_video_inputs, find_usb_storage
 
+# Use pymediainfo for fast video duration extraction
+try:
+    from pymediainfo import MediaInfo
+except ImportError:
+    MediaInfo = None
+
 app = Flask(__name__)
 
 # Global dictionary to track upload progress and allow cancellation
@@ -159,8 +165,33 @@ def home():
     # Gather recording files info
     recording_files = []
     
+    import signal
+    def is_pid_running(pid):
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    def get_active_recording_info():
+        """Return (pid, file_path) if an active recording is in progress, else (None, None)"""
+        ACTIVE_PIDFILE = "/tmp/webcam-ffmpeg-service.pid"
+        if os.path.exists(ACTIVE_PIDFILE):
+            try:
+                with open(ACTIVE_PIDFILE, 'r') as f:
+                    line = f.read().strip()
+                    if line:
+                        pid_str, file_path = line.split(':', 1)
+                        pid = int(pid_str)
+                        if is_pid_running(pid):
+                            return pid, file_path
+            except Exception:
+                pass
+        return None, None
+
     def add_files_from_path(path, source_label="", location="Local"):
         """Helper function to add files from a given path"""
+        active_pid, active_file = get_active_recording_info()
         if os.path.isdir(path):
             files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
             files.sort(key=lambda f: os.path.getmtime(os.path.join(path, f)), reverse=True)
@@ -168,22 +199,24 @@ def home():
                 file_path = os.path.join(path, f)
                 file_size = os.path.getsize(file_path)
                 display_name = f"{source_label}{f}" if source_label else f
-                if re.match(r'^\d+\.mp4$', f):
-                    recording_files.append({
-                        'path': file_path,
-                        'size': file_size,
-                        'active': True,
-                        'name': display_name,
-                        'location': location
-                    })
+                is_active = (active_file is not None and os.path.abspath(file_path) == os.path.abspath(active_file) and is_pid_running(active_pid))
+                # Add duration and timestamp if file is not active
+                if is_active:
+                    duration = None
                 else:
-                    recording_files.append({
-                        'path': file_path,
-                        'size': file_size,
-                        'active': False,
-                        'name': display_name,
-                        'location': location
-                    })
+                    duration = get_video_duration_mediainfo(file_path)
+                # Extract timestamp from filename if possible
+                m = re.match(r'^(\d+)\.mp4$', f)
+                timestamp = int(m.group(1)) if m else None
+                recording_files.append({
+                    'path': file_path,
+                    'size': file_size,
+                    'active': is_active,
+                    'name': display_name,
+                    'location': location,
+                    'duration': duration,
+                    'timestamp': timestamp
+                })
     
     # Add files from local storage
     local_recording_path = os.path.join(ENCODER_DATA_DIR, 'recordings', 'broadcast')
@@ -294,7 +327,8 @@ def stream_control():
         if not stream_url:
             return jsonify({'error': 'Remote Streaming URL is not set. Please configure it in Settings.'}), 400
         subprocess.run(['python', 'webcam-ffmpeg.py', 'stop'])
-        subprocess.Popen(['python', 'webcam-ffmpeg.py', 'start', 'broadcast'])
+        # Launch with recording enabled ("1" as extra argument)
+        subprocess.Popen(['python', 'webcam-ffmpeg.py', 'start', 'broadcast', '1'])
         return jsonify({'status': 'started'})
     elif action == 'stop':
         subprocess.run(['python', 'webcam-ffmpeg.py', 'stop'])
@@ -321,7 +355,6 @@ def upload_recording():
     file_path = request.form.get('file_path')
     if not file_path or not os.path.isfile(file_path):
         return jsonify({'error': 'Recording file not found.'}), 400
-    
     # Generate unique upload ID for progress tracking
     upload_id = str(uuid.uuid4())
     
@@ -555,12 +588,21 @@ def durationformat_filter(value):
     except Exception:
         return str(value)
 
-@app.template_filter('parse_recording_filename')
-def parse_recording_filename(value):
-    filename = os.path.basename(value)
-    m = re.search(r'(\d+)d([\d.]+)\.mp4$', filename)
-    if m:
-        return {'timestamp': int(m.group(1)), 'duration': float(m.group(2))}
+# Fast duration extraction using pymediainfo
+def get_video_duration_mediainfo(path):
+    if MediaInfo is None:
+        return None
+    try:
+        media_info = MediaInfo.parse(path)
+        for track in media_info.tracks:
+            if track.track_type == 'Video' and track.duration:
+                return track.duration / 1000.0  # ms to seconds
+        # fallback: try general track
+        for track in media_info.tracks:
+            if track.track_type == 'General' and track.duration:
+                return track.duration / 1000.0
+    except Exception:
+        pass
     return None
 
 def get_auth_and_wifi():

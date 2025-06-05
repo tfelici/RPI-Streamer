@@ -1,3 +1,26 @@
+def get_video_duration_ffprobe(filepath):
+    """
+    Return the duration of a video file in seconds using ffprobe. Returns None on error.
+    """
+    try:
+        # ffprobe must be installed and in PATH
+        result = subprocess.run([
+            'ffprobe',
+            '-v', 'error',
+            '-show_entries', 'format=duration',
+            '-of', 'default=noprint_wrappers=1:nokey=1',
+            filepath
+        ], capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            duration_str = result.stdout.strip()
+            try:
+                return float(duration_str)
+            except ValueError:
+                return None
+        else:
+            return None
+    except Exception:
+        return None
 import subprocess
 import re
 import os

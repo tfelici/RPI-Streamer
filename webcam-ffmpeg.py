@@ -5,7 +5,10 @@
 # - Start streaming: Launches webcam-ffmpeg-service.py as a subprocess with the stream name, ensuring only one instance runs at a time. Tracks the process using a PID file.
 # - Stop streaming: Reads the PID file, verifies the process is running, and sends a termination signal to stop it. Cleans up the PID file.
 # - Uses file locking (fcntl) to prevent race conditions when reading/writing the PID file.
-# - Can be run as 'python webcam-ffmpeg.py start [stream_name]' or 'python webcam-ffmpeg.py stop [stream_name]'. 
+# - Can be run as:
+#     'python webcam-ffmpeg.py start [stream_name] [record_to_disk]'
+#     'python webcam-ffmpeg.py stop [stream_name]'
+#   where [record_to_disk] is optional and can be 1/true/yes/on to enable recording the stream to disk in addition to streaming.
 # - Prints status and warnings to the console for user feedback.
 #
 # In summary, this script acts as a safe, single-instance launcher and stopper for a video streaming service, delegating the actual streaming work to another Python script.
@@ -44,7 +47,7 @@ def clear_pidfile(lockfile):
     lockfile.truncate(0)
     lockfile.flush()
 
-def start(stream_name):
+def start(stream_name, record_to_disk=False):
     with open(PIDFILE, 'a+') as lockfile:
         fcntl.flock(lockfile, fcntl.LOCK_EX)
         pid, running_stream = read_pidfile(lockfile)
@@ -65,6 +68,8 @@ def start(stream_name):
             os.path.join(os.path.dirname(__file__), 'webcam-ffmpeg-service.py'),
             stream_name
         ]
+        if record_to_disk:
+            ffmpeg_service_cmd.append('1')
         # Start the process in a new process group so we can kill all children later
         proc = subprocess.Popen(ffmpeg_service_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=os.setsid)
         # Wait for webcam-ffmpeg-service process to actually start
@@ -114,15 +119,20 @@ def stop(path=None):
 
 def main():
     if len(sys.argv) < 2 or sys.argv[1] not in ("start", "stop"):
-        print("Usage: python webcam-ffmpeg.py start|stop [stream_name]")
+        print("Usage: python webcam-ffmpeg.py start|stop [stream_name] [record_to_disk]")
         sys.exit(1)
     if sys.argv[1] == "start":
         if len(sys.argv) < 3:
             print("Error: stream_name must be provided as a command-line argument.")
-            print("Usage: python webcam-ffmpeg.py start [stream_name]")
+            print("Usage: python webcam-ffmpeg.py start [stream_name] [record_to_disk]")
             sys.exit(1)
         stream_name = sys.argv[2]
-        start(stream_name)
+        record_to_disk = False
+        if len(sys.argv) > 3:
+            val = sys.argv[3].lower()
+            if val in ('1', 'true', 'yes', 'on'):
+                record_to_disk = True
+        start(stream_name, record_to_disk)
     elif sys.argv[1] == "stop":
         path = sys.argv[2] if len(sys.argv) > 2 else None
         stop(path)
