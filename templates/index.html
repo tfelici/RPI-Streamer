@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 
-<head>    <meta charset="UTF-8">
+<head>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>System Stats - RPI Streamer</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='responsive.css') }}">
@@ -90,7 +91,7 @@
                     <div class="file-item">
                         <input type="checkbox" class="upload-checkbox file-checkbox" id="recfile{{ loop.index }}"
                             name="recording_files" value="{{ file.path }}" checked>
-                        <label for="recfile{{ loop.index }}" class="file-info" data-info='{{ {' timestamp':
+                        <label for="recfile{{ loop.index }}" class="file-info" data-info='{{ {'timestamp':
                             file.timestamp, 'duration' : file.duration}|tojson|safe }}'>
                             <strong>Timestamp:</strong> {{ file.timestamp | datetimeformat }}<br>
                             <strong>Duration:</strong> {{ file.duration | durationformat }}<br>
