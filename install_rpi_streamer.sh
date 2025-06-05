@@ -1,8 +1,8 @@
 #!/bin/bash
-# RPI Encoder installation script
-# Usage: bash install_rpi_encoder.sh [--tailscale]
+# RPI Streamer installation script
+# Usage: bash install_rpi_streamer.sh [--tailscale]
 
-# This script installs the RPI Encoder Flask app and MediaMTX on a Raspberry Pi running Raspberry Pi OS Lite.
+# This script installs the RPI Streamer Flask app and MediaMTX on a Raspberry Pi running Raspberry Pi OS Lite.
 # It also sets up a systemd service for the Flask app and MediaMTX, and installs Tailscale for remote access.
 ################################################
 
@@ -56,7 +56,7 @@ cd "$HOME/flask_app"
 #     Force update the codebase to match the remote GitHub repository (overwriting local changes, restoring missing files, removing extra tracked files), fix permissions, and restart services.
 #     This is useful if the codebase has been modified locally and you want to reset it to the latest version from the remote repository.
 #     If the repository is not already cloned, it will clone it.
-echo "Updating RPI Encoder codebase..."
+echo "Updating RPI Streamer codebase..."
 
 # Check if git is installed
 if ! command -v git &> /dev/null; then
@@ -73,7 +73,7 @@ if [ -d .git ]; then
 else
     rm -rf *
     echo "Repository not found, cloning fresh copy..."
-    sudo git clone https://github.com/tfelici/RPI-Encoder.git .
+    sudo git clone https://github.com/tfelici/RPI-Streamer.git .
 fi
 #change ownership of the flask_app directory to the current user
 sudo chown -R "$USER":"$USER" "$HOME/flask_app"
@@ -153,11 +153,11 @@ if [ ! -f mediamtx ]; then
 fi
 #mv mediamtx.yml flask_app
 
-# Create systemd service for flask app - this must run after the install_rpi_encoder.service
+# Create systemd service for flask app - this must run after the install_rpi_streamer.service
 printf "Creating systemd service for Flask app...\n"
 sudo tee /etc/systemd/system/flask_app.service >/dev/null << EOF
 [Unit]
-Description=RPI Encoder
+Description=RPI Streamer
 After=network.target
 [Service]
 User=root
@@ -169,7 +169,7 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
-# Create systemd service for mediamtx - this must run after the install_rpi_encoder.service
+# Create systemd service for mediamtx - this must run after the install_rpi_streamer.service
 printf "Creating systemd service for MediaMTX...\n"
 sudo tee /etc/systemd/system/mediamtx.service >/dev/null << EOF
 [Unit]
@@ -186,22 +186,22 @@ EOF
 
 #create a systemd service for this script
 printf "Creating systemd service for this script...\n"
-sudo tee /etc/systemd/system/install_rpi_encoder.service >/dev/null << EOF
+sudo tee /etc/systemd/system/install_rpi_streamer.service >/dev/null << EOF
 [Unit]
-Description=RPI Encoder Installation Script
+Description=RPI Streamer Installation Script
 After=network-online.target
 Wants=network-online.target
 [Service]
 User=$USER
 Type=oneshot
-ExecStart=/bin/bash $HOME/flask_app/install_rpi_encoder.sh 
+ExecStart=/bin/bash $HOME/flask_app/install_rpi_streamer.sh 
 RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 EOF
 
 sudo systemctl daemon-reload
-sudo systemctl enable install_rpi_encoder
+sudo systemctl enable install_rpi_streamer
 sudo systemctl enable flask_app
 sudo systemctl restart flask_app
 sudo systemctl enable mediamtx

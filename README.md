@@ -1,4 +1,4 @@
-# RPI Encoder
+# RPI Streamer
 
 A Flask-based web app and streaming server for Raspberry Pi, with easy installation and systemd integration.
 
@@ -7,8 +7,8 @@ A Flask-based web app and streaming server for Raspberry Pi, with easy installat
 Run the following commands in your home directory (do **not** use superuser/root):
 
 ```sh
-curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Encoder/main/install_rpi_encoder.sh?$(date +%s)
-bash install_rpi_encoder.sh --tailscale
+curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh?$(date +%s)
+bash install_rpi_streamer.sh --tailscale
 ```
 
 ## Features
@@ -24,7 +24,7 @@ bash install_rpi_encoder.sh --tailscale
 
 ## USB Storage Support
 
-The RPI Encoder automatically detects and uses USB storage devices for saving recording segments:
+The RPI Streamer automatically detects and uses USB storage devices for saving recording segments:
 
 ### Automatic Detection
 - **Multiple detection methods**: Uses `lsblk`, `/dev` scanning, and `udevadm` for reliable USB device detection
@@ -42,7 +42,7 @@ The RPI Encoder automatically detects and uses USB storage devices for saving re
 Test the USB detection functionality without running recordings:
 
 ```sh
-cd ~/RPI-encoder
+cd ~/RPI-streamer
 python3 test_usb_detection.py
 ```
 
@@ -78,4 +78,4 @@ After installation, access the web UI at `http://<your-pi-ip>/` in your browser.
 
 ## Support
 
-For issues or questions, open an issue on the [GitHub repository](https://github.com/tfelici/RPI-Encoder).
+For issues or questions, open an issue on the [GitHub repository](https://github.com/tfelici/RPI-Streamer).
