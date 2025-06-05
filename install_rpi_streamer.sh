@@ -92,16 +92,16 @@ if [ ! -w "$HOME/flask_app" ]; then
     exit 1
 fi
 
-#download the executables directory from the Encoder-Uploader repository
+#download the executables directory from the Streamer-Uploader repository
 #do not fail if the executables do not exist
 if [ ! -d "$HOME/executables" ]; then
     mkdir -p "$HOME/executables"
 fi
-# Download the EncoderUploader executables for different platforms
-printf "Downloading EncoderUploader executables...\n"
-curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Encoder-Uploader/raw/main/windows/dist/EncoderUploader.exe" -o "$HOME/executables/Uploader-windows.exe"
-curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Encoder-Uploader/raw/main/macos/dist/EncoderUploader" -o "$HOME/executables/Uploader-macos"
-curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Encoder-Uploader/raw/main/linux/dist/EncoderUploader" -o "$HOME/executables/Uploader-linux"
+# Download the StreamerUploader executables for different platforms
+printf "Downloading StreamerUploader executables...\n"
+curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/windows/dist/StreamerUploader.exe" -o "$HOME/executables/Uploader-windows.exe"
+curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/macos/dist/StreamerUploader" -o "$HOME/executables/Uploader-macos"
+curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/linux/dist/StreamerUploader" -o "$HOME/executables/Uploader-linux"
 # if they exist, Make the downloaded linux and macos executables executable
 [ -f "$HOME/executables/Uploader-linux" ] && chmod +x "$HOME/executables/Uploader-linux"
 [ -f "$HOME/executables/Uploader-macos" ] && chmod +x "$HOME/executables/Uploader-macos"
