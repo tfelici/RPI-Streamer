@@ -34,9 +34,9 @@ def add_no_cache_headers(response):
     response.headers["Expires"] = "0"
     return response
 
-ENCODER_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'encoderData'))
+STREAMER_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'streamerData'))
 STREAM_PIDFILE = "/tmp/webcam-ffmpeg.pid"
-SETTINGS_FILE = os.path.join(ENCODER_DATA_DIR, 'settings.json')
+SETTINGS_FILE = os.path.join(STREAMER_DATA_DIR, 'settings.json')
 
 def load_settings():
     settings = {
@@ -49,7 +49,8 @@ def load_settings():
         "ar": 16000,
         "upload_url": "",
         "volume": 100,
-        "gop": 30    }
+        "gop": 30
+    }
     if os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, 'r') as f:
@@ -217,15 +218,14 @@ def home():
                     'duration': duration,
                     'timestamp': timestamp
                 })
-    
-    # Add files from local storage
-    local_recording_path = os.path.join(ENCODER_DATA_DIR, 'recordings', 'broadcast')
+      # Add files from local storage
+    local_recording_path = os.path.join(STREAMER_DATA_DIR, 'recordings', 'broadcast')
     add_files_from_path(local_recording_path, "", "Local")
     
     # Add files from USB storage if available
     usb_mount_point = find_usb_storage()
     if usb_mount_point:
-        usb_recording_path = os.path.join(usb_mount_point, 'encoderData', 'recordings', 'broadcast')
+        usb_recording_path = os.path.join(usb_mount_point, 'streamerData', 'recordings', 'broadcast')
         add_files_from_path(usb_recording_path, "[USB] ", "USB")
 
     if request.args.get('active_only') == '1':
@@ -516,7 +516,7 @@ def camera_viewer():
 import json
 
 def get_auth_creds():
-    auth_file = os.path.join(ENCODER_DATA_DIR, 'auth.json')
+    auth_file = os.path.join(STREAMER_DATA_DIR, 'auth.json')
     if os.path.exists(auth_file):
         try:
             with open(auth_file) as f:
@@ -608,8 +608,8 @@ def get_video_duration_mediainfo(path):
 def get_auth_and_wifi():
     auth = {}
     wifi = {}
-    auth_path = os.path.join(ENCODER_DATA_DIR, 'auth.json')
-    wifi_path = os.path.join(ENCODER_DATA_DIR, 'wifi.json')
+    auth_path = os.path.join(STREAMER_DATA_DIR, 'auth.json')
+    wifi_path = os.path.join(STREAMER_DATA_DIR, 'wifi.json')
     
     if os.path.exists(auth_path):
         try:
@@ -650,7 +650,7 @@ def system_settings_auth():
     if not username:
         return jsonify({'success': False, 'error': 'Username is required.'})
     
-    auth_path = os.path.join(ENCODER_DATA_DIR, 'auth.json')
+    auth_path = os.path.join(STREAMER_DATA_DIR, 'auth.json')
     with open(auth_path, 'w') as f:
         json.dump({'username': username, 'password': password}, f)
     
@@ -666,10 +666,11 @@ def system_settings_wifi():
     password = data.get('password', '').strip()
     if not ssid or not password:
         return jsonify({'success': False, 'error': 'SSID and password required.'})
-    wifi_path = os.path.join(ENCODER_DATA_DIR, 'wifi.json')
+    wifi_path = os.path.join(STREAMER_DATA_DIR, 'wifi.json')
     # Save to wifi.json for web UI
     with open(wifi_path, 'w') as f:
-        json.dump({'ssid': ssid, 'password': password}, f)    # Use NetworkManager for RPI5 with Bookworm (instead of wpa_supplicant/dhcpcd)
+        json.dump({'ssid': ssid, 'password': password}, f)
+    # Use NetworkManager for RPI5 with Bookworm (instead of wpa_supplicant/dhcpcd)
     try:
         # First, remove any existing connection with the same SSID
         subprocess.run(['sudo', 'nmcli', 'connection', 'delete', ssid], check=False)
@@ -694,9 +695,10 @@ def system_settings_wifi():
                 'connection.autoconnect', 'yes'
             ]
             subprocess.run(create_cmd, check=True)
-            
-            # Activate the connection
-            subprocess.run(['sudo', 'nmcli', 'connection', 'up', ssid], check=True)        # Ensure NetworkManager is enabled for auto-start on boot
+              # Activate the connection
+            subprocess.run(['sudo', 'nmcli', 'connection', 'up', ssid], check=True)
+        
+        # Ensure NetworkManager is enabled for auto-start on boot
         subprocess.run(['sudo', 'systemctl', 'enable', 'NetworkManager'], check=False)
         
         # Configure WiFi with lower priority - fallback when Ethernet unavailable
