@@ -115,8 +115,6 @@ def start(stream_name, record_to_disk=False):
                     print("Syncing data to USB drive...")
                     try:
                         subprocess.run(['sync'], check=True)
-                        # Additional flush for the specific mount point
-                        subprocess.run(['sync', usb_mount], check=False)
                         time.sleep(2)  # Give extra time for exFAT filesystem
                         print("USB sync completed successfully")
                     except Exception as e:
@@ -167,6 +165,14 @@ def stop(path=None):
                 print(f"Warning: webcam-ffmpeg-service process (PID {pid}) did not terminate in time.")
             clear_pidfile(lockfile)
             print("Stopped webcam-ffmpeg-service and all child processes.")
+            # Ensure all data is flushed to disk (USB drive)
+            print("Syncing all data to disk (including USB drives)...")
+            try:
+                subprocess.run(['sync'], check=True)
+                time.sleep(2)  # Give extra time for exFAT/USB
+                print("Sync completed. It is now safe to remove the USB drive.")
+            except Exception as e:
+                print(f"Warning: Final sync failed: {e}")
         except ProcessLookupError:
             print("webcam-ffmpeg-service not running, removing stale PID file.")
             clear_pidfile(lockfile)
