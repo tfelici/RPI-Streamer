@@ -549,7 +549,9 @@
             const listDiv = frame.querySelector('#active-recordings-list');
             listDiv.innerHTML = '';
             if (files && files.length > 0) {
-                files.forEach(file => {
+                let prevSize = null;
+                let prevTime = null;
+                files.forEach((file, idx) => {
                     const div = document.createElement('div');
                     div.style.marginBottom = '0.5em';
                     // Extract timestamp from filename (e.g., 1686071234.mp4)
@@ -565,10 +567,17 @@
                             durationStr = duration + 's';
                         }
                     }
-                    if (file.size && duration && duration > 0) {
-                        const bitrate = Math.round((file.size * 8) / duration / 1000);
-                        bitrateStr = `${bitrate} kbps`;
+                    // Calculate bitrate as increment in filesize / increment in duration
+                    if (prevSize !== null && prevTime !== null && duration !== null) {
+                        const sizeInc = file.size - prevSize;
+                        const timeInc = duration - prevTime;
+                        if (timeInc > 0 && sizeInc > 0) {
+                            const bitrate = Math.round((sizeInc * 8) / timeInc / 1000);
+                            bitrateStr = `${bitrate} kbps`;
+                        }
                     }
+                    prevSize = file.size;
+                    prevTime = duration;
                     div.innerHTML = `<label style="word-break:break-all;"><b>Active recording:</b> ${file.name}<br>Size: ${file.size_fmt || file.size}<br>Duration: ${durationStr}<br>Bitrate: ${bitrateStr}<br>Location: ${file.location}</label>`;
                     listDiv.appendChild(div);
                 });
