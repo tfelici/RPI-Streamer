@@ -96,6 +96,7 @@
                             <strong>Timestamp:</strong> {{ file.timestamp | datetimeformat }}<br>
                             <strong>Duration:</strong> {{ file.duration | durationformat }}<br>
                             <strong>Size:</strong> {{ file.size | filesizeformat }}<br>
+                            <strong>Bitrate:</strong> {% if file.duration and file.duration > 0 %}{{ ((file.size * 8) // file.duration // 1000) }} kbps{% else %}--{% endif %}<br>
                             <strong>Location:</strong> {{ file.location }}
                         </label>
                     </div>
@@ -551,7 +552,24 @@
                 files.forEach(file => {
                     const div = document.createElement('div');
                     div.style.marginBottom = '0.5em';
-                    div.innerHTML = `<label style="word-break:break-all;"><b>Active recording:</b> ${file.name}<br>Size: ${file.size_fmt || file.size}<br>Location: ${file.location}</label>`;
+                    // Extract timestamp from filename (e.g., 1686071234.mp4)
+                    let durationStr = '--';
+                    let bitrateStr = '--';
+                    let duration = null;
+                    const now = Math.floor(Date.now() / 1000);
+                    const match = file.name && file.name.match(/(\d+)\.mp4$/);
+                    if (match) {
+                        const timestamp = parseInt(match[1], 10);
+                        if (!isNaN(timestamp) && now > timestamp) {
+                            duration = now - timestamp;
+                            durationStr = duration + 's';
+                        }
+                    }
+                    if (file.size && duration && duration > 0) {
+                        const bitrate = Math.round((file.size * 8) / duration / 1000);
+                        bitrateStr = `${bitrate} kbps`;
+                    }
+                    div.innerHTML = `<label style="word-break:break-all;"><b>Active recording:</b> ${file.name}<br>Size: ${file.size_fmt || file.size}<br>Duration: ${durationStr}<br>Bitrate: ${bitrateStr}<br>Location: ${file.location}</label>`;
                     listDiv.appendChild(div);
                 });
             } else if (streaming) {

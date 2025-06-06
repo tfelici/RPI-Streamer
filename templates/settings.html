@@ -20,8 +20,8 @@
                 <label for="framerate">Frame Rate (fps)</label>
                 <input type="number" id="framerate" name="framerate" min="1" max="60" required>
 
-                <label for="crf">CRF (Quality, lower is better)</label>
-                <input type="number" id="crf" name="crf" min="10" max="51" required>
+                <label for="crf">CRF (Quality, lower is better, <em>leave blank to disable</em>)</label>
+                <input type="number" id="crf" name="crf" min="10" max="51" placeholder="(blank = disabled)">
 
                 <label for="gop">GOP (keyframe interval, lower gives higher Quality & larger file size)</label>
                 <input type="number" id="gop" name="gop" min="1" max="600" required>
@@ -89,7 +89,7 @@
             .then(data => {
                 document.getElementById('stream_url').value = data.stream_url || '';
                 document.getElementById('framerate').value = data.framerate || 5;
-                document.getElementById('crf').value = data.crf || 30;
+                document.getElementById('crf').value = (data.crf === undefined || data.crf === null || data.crf === "") ? "" : data.crf;
                 document.getElementById('gop').value = data.gop || 5;
                 document.getElementById('resolution').value = data.resolution || '1280x720';
                 document.getElementById('vbitrate').value = data.vbitrate || 1000;

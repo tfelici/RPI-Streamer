@@ -90,14 +90,14 @@ def start(stream_name, record_to_disk=False):
             
             print("Hardware encoders not supported, falling back to libx264")
             return 'libx264'
-
+        base_opts = []
         # Four cases: both present, only video, only audio, neither
-        if video_device and audio_device:
-            # Both present
+        if video_device and audio_device:            # Both present
             video_opts = [
                 '-f', 'v4l2',
                 '-framerate', str(framerate_val),
                 '-video_size', str(resolution_val),
+                '-use_wallclock_as_timestamps', '1',
                 '-i', video_device
             ]
             vcodec = probe_hardware_encoder(video_opts)
@@ -106,11 +106,12 @@ def start(stream_name, record_to_disk=False):
                 '-i', f'plug{audio_device}'
             ]
             map_opts = ['-map', '0:v:0', '-map', '1:a:0']
-            base_opts = [
+            if crf_val not in (None, '', 0, '0'):
+                base_opts += ['-crf', str(crf_val)]
+            base_opts += [
                 '-vcodec', vcodec,
                 '-preset', 'ultrafast',
                 '-pix_fmt', 'yuv420p',
-                '-crf', str(crf_val),
                 '-b:v', f'{vbitrate_val}k',
                 '-tune', 'zerolatency',
                 '-g', str(gop_val),
@@ -120,12 +121,12 @@ def start(stream_name, record_to_disk=False):
                 '-b:a', str(abitrate_val),
                 '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
             ] + map_opts
-        elif video_device and not audio_device:
-            # Only video, generate silent audio
+        elif video_device and not audio_device:            # Only video, generate silent audio
             video_opts = [
                 '-f', 'v4l2',
                 '-framerate', str(framerate_val),
                 '-video_size', str(resolution_val),
+                '-use_wallclock_as_timestamps', '1',
                 '-i', video_device
             ]
             vcodec = probe_hardware_encoder(video_opts)
@@ -134,12 +135,13 @@ def start(stream_name, record_to_disk=False):
                 '-i', f'anullsrc=r={ar_val}:cl=mono'
             ]
             map_opts = ['-map', '0:v:0', '-map', '1:a:0']
-            base_opts = [
+            if crf_val not in (None, '', 0, '0'):
+                base_opts += ['-crf', str(crf_val)]
+            base_opts += [
                 '-shortest',
                 '-vcodec', vcodec,
                 '-preset', 'ultrafast',
                 '-pix_fmt', 'yuv420p',
-                '-crf', str(crf_val),
                 '-b:v', f'{vbitrate_val}k',
                 '-tune', 'zerolatency',
                 '-g', str(gop_val),

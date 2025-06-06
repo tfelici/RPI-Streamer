@@ -272,7 +272,11 @@ def settings():
         if 'framerate' in data:
             settings['framerate'] = int(data['framerate'])
         if 'crf' in data:
-            settings['crf'] = int(data['crf'])
+            crf_val = data['crf']
+            if crf_val is None or crf_val == "":
+                settings['crf'] = ""  # or None, as your ffmpeg logic expects
+            else:
+                settings['crf'] = int(crf_val)
         if 'gop' in data:
             settings['gop'] = int(data['gop'])
         if 'resolution' in data:
