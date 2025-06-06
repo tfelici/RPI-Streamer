@@ -321,6 +321,26 @@ def audio_inputs():
 def video_inputs():
     return jsonify(list_video_inputs())
 
+@app.route('/video-resolutions')
+def video_resolutions():
+    """
+    Returns a list of supported video resolutions (width x height) for /dev/video0,
+    filtered to only those at or below 1920x1080.
+    """
+    try:
+        output = subprocess.check_output([
+            'v4l2-ctl', '--list-formats-ext', '-d', '/dev/video0'
+        ], text=True, stderr=subprocess.DEVNULL)
+        # Find all lines like: 'Size: Discrete 1920x1080'
+        resolutions = set(re.findall(r'Size: Discrete (\d+)x(\d+)', output))
+        # Format as '1920x1080' and filter
+        res_list = [f'{w}x{h}' for w, h in resolutions if int(w) <= 1920 and int(h) <= 1080]
+        # Sort by width descending, then height descending
+        res_list.sort(key=lambda s: (-int(s.split('x')[0]), -int(s.split('x')[1])))
+        return jsonify(res_list)
+    except Exception as e:
+        return jsonify([])
+
 @app.route('/stream-control', methods=['POST'])
 def stream_control():
     data = request.get_json()
