@@ -41,10 +41,10 @@ SETTINGS_FILE = os.path.join(STREAMER_DATA_DIR, 'settings.json')
 def load_settings():
     settings = {
         "stream_url": "",
-        "framerate": 5,
-        "crf": 30,
-        "resolution": "1280x720",
-        "vbitrate": 1000,
+        "framerate": 30,
+        "crf": 32,
+        "resolution": "1360x768",
+        "vbitrate": 256,
         "abitrate": "128k",
         "ar": 16000,
         "upload_url": "",
