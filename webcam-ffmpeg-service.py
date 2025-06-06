@@ -152,13 +152,15 @@ def start(stream_name, record_to_disk=False):
                 '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
             ] + map_opts
         elif audio_device and not video_device:
-            # Only audio device present: static image + real audio (efficient settings)
-            static_crf = 35      # Higher CRF for lower quality (saves CPU/bandwidth)
-            static_vbitrate = 32 # Lower video bitrate (kbps)
+            # Only audio device present: static image + real audio (minimum bitrate settings)
+            static_crf = 45      # Maximum CRF for lowest quality
+            static_vbitrate = 10 # Very low video bitrate (kbps)
             static_gop = 1       # All keyframes
+            static_framerate = 5  # Very low framerate
             video_opts = [
                 '-re',
                 '-stream_loop', '-1',
+                '-framerate', str(static_framerate),
                 '-i', static_img
             ]
             vcodec = probe_hardware_encoder(video_opts)
@@ -179,18 +181,20 @@ def start(stream_name, record_to_disk=False):
                 '-keyint_min', '1',
                 '-acodec', 'libopus',
                 '-ar', str(ar_val),
-                '-b:a', str(abitrate_val),
+                '-b:a', abitrate_val,
                 '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
             ] + map_opts
         elif not video_device and not audio_device:
-            # Neither present: static image + silent audio (efficient settings)
-            static_crf = 35      # Higher CRF for lower quality (saves CPU/bandwidth)
-            static_vbitrate = 64 # Lower video bitrate (kbps)
-            static_abitrate = '8k' # Lower audio bitrate
+            # Neither present: static image + silent audio (lowest possible bitrate)
+            static_crf = 51      # Maximum CRF for lowest quality
+            static_vbitrate = 10 # Very low video bitrate (kbps)
             static_gop = 1       # All keyframes
+            static_framerate = 1           # Very low framerate
+            static_abitrate = '8k' # Very low audio bitrate
             video_opts = [
                 '-re',
-                '-loop', '1',
+                '-stream_loop', '-1',
+                '-framerate', str(static_framerate),
                 '-i', static_img
             ]
             vcodec = probe_hardware_encoder(video_opts)
