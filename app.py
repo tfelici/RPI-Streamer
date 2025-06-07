@@ -310,7 +310,7 @@ def video_inputs():
 def video_resolutions():
     """
     Returns a list of supported video resolutions (width x height) for /dev/video0,
-    filtered to only those at or below 1920x1080.
+    filtered to only those at or below 1920x1080. Uses v4l2-ctl --try-fmt-video to check validity and ensures the Width/Height in the output match the requested values.
     """
     try:
         output = subprocess.check_output([
@@ -318,11 +318,23 @@ def video_resolutions():
         ], text=True, stderr=subprocess.DEVNULL)
         # Find all lines like: 'Size: Discrete 1920x1080'
         resolutions = set(re.findall(r'Size: Discrete (\d+)x(\d+)', output))
-        # Format as '1920x1080' and filter
-        res_list = [f'{w}x{h}' for w, h in resolutions if int(w) <= 1920 and int(h) <= 1080]
-        # Sort by width descending, then height descending
-        res_list.sort(key=lambda s: (-int(s.split('x')[0]), -int(s.split('x')[1])))
-        return jsonify(res_list)
+        valid_res_list = []
+        for w, h in resolutions:
+            if int(w) <= 1920 and int(h) <= 1080:
+                try:
+                    try_fmt_cmd = [
+                        'v4l2-ctl', '--device=/dev/video0', f'--try-fmt-video=width={w},height={h},pixelformat=MJPG'
+                    ]
+                    result = subprocess.run(try_fmt_cmd, capture_output=True, text=True, timeout=2)
+                    if result.returncode == 0:
+                        # Look for 'Width/Height      : WxH' in the output
+                        m = re.search(r'Width/Height\s*:\s*(\d+)/(\d+)', result.stdout)
+                        if m and m.group(1) == w and m.group(2) == h:
+                            valid_res_list.append(f'{w}x{h}')
+                except Exception:
+                    continue
+        valid_res_list.sort(key=lambda s: (-int(s.split('x')[0]), -int(s.split('x')[1])))
+        return jsonify(valid_res_list)
     except Exception as e:
         return jsonify([])
 
