@@ -549,36 +549,33 @@
             const listDiv = frame.querySelector('#active-recordings-list');
             listDiv.innerHTML = '';
             if (files && files.length > 0) {
-                let prevSize = null;
-                let prevTime = null;
                 files.forEach((file, idx) => {
                     const div = document.createElement('div');
                     div.style.marginBottom = '0.5em';
-                    // Extract timestamp from filename (e.g., 1686071234.mp4)
+                    // Use timestamp from file object directly
                     let durationStr = '--';
                     let bitrateStr = '--';
+                    let filesizeStr = '--';
+                    if (file.size) {
+                        filesizeStr = file.size + ' bytes';
+                        if (file.size >= 1024 * 1024) {
+                            filesizeStr = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+                        } else if (file.size >= 1024) {
+                            filesizeStr = (file.size / 1024).toFixed(2) + ' KB';
+                        }
+                    }
                     let duration = null;
                     const now = Math.floor(Date.now() / 1000);
-                    const match = file.name && file.name.match(/(\d+)\.mp4$/);
-                    if (match) {
-                        const timestamp = parseInt(match[1], 10);
-                        if (!isNaN(timestamp) && now > timestamp) {
-                            duration = now - timestamp;
-                            durationStr = duration + 's';
-                        }
+                    if (file.timestamp && now > file.timestamp) {
+                        duration = now - file.timestamp;
+                        durationStr = duration + 's';
                     }
-                    // Calculate bitrate as increment in filesize / increment in duration
-                    if (prevSize !== null && prevTime !== null && duration !== null) {
-                        const sizeInc = file.size - prevSize;
-                        const timeInc = duration - prevTime;
-                        if (timeInc > 0 && sizeInc > 0) {
-                            const bitrate = Math.round((sizeInc * 8) / timeInc / 1000);
-                            bitrateStr = `${bitrate} kbps`;
-                        }
+                    // Calculate bitrate as filesize / duration
+                    if (duration && duration > 0 && file.size) {
+                        const bitrate = Math.round((file.size * 8) / duration / 1000);
+                        bitrateStr = `${bitrate} kbps`;
                     }
-                    prevSize = file.size;
-                    prevTime = duration;
-                    div.innerHTML = `<label style="word-break:break-all;"><b>Active recording:</b> ${file.name}<br>Size: ${file.size_fmt || file.size}<br>Duration: ${durationStr}<br>Bitrate: ${bitrateStr}<br>Location: ${file.location}</label>`;
+                    div.innerHTML = `<label style="word-break:break-all;"><b>Active recording:</b> ${file.name}<br>Size: ${filesizeStr}<br>Duration: ${durationStr}<br>Bitrate: ${bitrateStr}<br>Location: ${file.location}</label>`;
                     listDiv.appendChild(div);
                 });
             } else if (streaming) {
@@ -589,54 +586,42 @@
             }
         }
 
-        let activeRecordingsInterval = null;
-        let lastActiveRecordings = [];
-
-        async function fetchAndUpdateActiveRecordings() {
-            try {
-                const resp = await fetch('/?active_only=1');
-                if (!resp.ok) return;
-                const data = await resp.json();
-                const files = data.files || [];
-                renderActiveRecordingsPanel(files);
-                lastActiveRecordings = files;
-                // If streaming is stopped and no active recordings, hide panel and stop interval
-                if (!streaming && files.length === 0) {
-                    if (activeRecordingsInterval) {
-                        clearInterval(activeRecordingsInterval);
-                        activeRecordingsInterval = null;
-                    }
-                    const frame = document.getElementById('active-recordings-frame');
-                    if (frame) frame.style.display = 'none'; // Hide instead of remove
-                    return;
-                }
-            } catch (e) { }
-        }
+        let activeRecordingsEventSource = null;
 
         function startActiveRecordingsRefresh() {
-            if (activeRecordingsInterval) {
-                clearInterval(activeRecordingsInterval);
+            // Use SSE for real-time updates
+            if (activeRecordingsEventSource) {
+                activeRecordingsEventSource.close();
             }
-            fetchAndUpdateActiveRecordings();
-            activeRecordingsInterval = setInterval(fetchAndUpdateActiveRecordings, 1000);
+            activeRecordingsEventSource = new EventSource('/active-recordings-sse');
+            activeRecordingsEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    const files = data.files || [];
+                    renderActiveRecordingsPanel(files);
+                } catch (e) { }
+            };
+            activeRecordingsEventSource.onerror = function() {
+                //SEE has terminated, stop the refresh
+                stopActiveRecordingsRefresh();
+                const frame = document.getElementById('active-recordings-frame');
+                if (frame) frame.style.display = 'none'; // Hide instead of remove
+                // Instead of reloading, update the upload recordings list dynamically
+                updateUploadRecordingsList();
+            };
         }
 
         function stopActiveRecordingsRefresh() {
-            if (activeRecordingsInterval) {
-                clearInterval(activeRecordingsInterval);
-                activeRecordingsInterval = null;
+            if (activeRecordingsEventSource) {
+                activeRecordingsEventSource.close();
+                activeRecordingsEventSource = null;
             }
         }
 
-        document.addEventListener('DOMContentLoaded', function () {
-            // Always start the active recordings refresh if there are active recordings or streaming is active
-            fetch('/?active_only=1').then(resp => resp.json()).then(data => {
-                const files = data.files || [];
-                if ((typeof streaming !== 'undefined' && streaming) || files.length > 0) {
-                    startActiveRecordingsRefresh();
-                }
-            });
-        });
+        // Always start the active recordings refresh if streaming is active
+        if (streaming) {
+            startActiveRecordingsRefresh();
+        }
 
         // Streaming control
         const streamBtn = document.getElementById('stream-btn');
@@ -684,22 +669,6 @@
                         if (activeFrame) activeFrame.style.display = '';
                         startActiveRecordingsRefresh();
                     } else {
-                        // After streaming stops, keep refreshing until all active recordings are gone
-                        if (lastActiveRecordings.length === 0) {
-                            stopActiveRecordingsRefresh();
-                            const frame = document.getElementById('active-recordings-frame');
-                            if (frame) frame.style.display = 'none'; // Hide instead of remove
-                            // Instead of reloading, update the upload recordings list dynamically
-                            updateUploadRecordingsList();
-                        } else {
-                            // If there are still active recordings, poll until they are gone, then update
-                            const waitForNoActive = setInterval(() => {
-                                if (lastActiveRecordings.length === 0) {
-                                    clearInterval(waitForNoActive);
-                                    updateUploadRecordingsList();
-                                }
-                            }, 1000);
-                        }
                     }
                 })
                 .catch(() => {

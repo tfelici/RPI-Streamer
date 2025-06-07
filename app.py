@@ -159,86 +159,71 @@ def get_app_version():
         return mtime_dt.strftime('%Y-%m-%d %H:%M')
     return ''
 
+def is_pid_running(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+def get_active_recording_info():
+    """Return (pid, file_path) if an active recording is in progress, else (None, None)"""
+    ACTIVE_PIDFILE = "/tmp/webcam-ffmpeg-service.pid"
+    if os.path.exists(ACTIVE_PIDFILE):
+        try:
+            with open(ACTIVE_PIDFILE, 'r') as f:
+                line = f.read().strip()
+                if line:
+                    pid_str, file_path = line.split(':', 1)
+                    pid = int(pid_str)
+                    if is_pid_running(pid):
+                        return pid, file_path
+        except Exception:
+            pass
+    return None, None
+
+def add_files_from_path(recording_files, path, source_label="", location="Local"):
+    """Helper function to add files from a given path. Appends to the passed-in recording_files list."""
+    active_pid, active_file = get_active_recording_info()
+    if os.path.isdir(path):
+        files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
+        files.sort(key=lambda f: os.path.getmtime(os.path.join(path, f)), reverse=True)
+        for f in files:
+            file_path = os.path.join(path, f)
+            file_size = os.path.getsize(file_path)
+            display_name = f"{source_label}{f}" if source_label else f
+            is_active = (active_file is not None and os.path.abspath(file_path) == os.path.abspath(active_file) and is_pid_running(active_pid))
+            # Add duration if file is not active
+            if is_active:
+                duration = None
+            else:
+                duration = get_video_duration_mediainfo(file_path)
+            # Extract timestamp from filename if possible
+            m = re.match(r'^(\d+)\.mp4$', f)
+            timestamp = int(m.group(1)) if m else None
+            recording_files.append({
+                'path': file_path,
+                'size': file_size,
+                'active': is_active,
+                'name': display_name,
+                'location': location,
+                'duration': duration,
+                'timestamp': timestamp
+            })
+
 @app.route('/')
 def home():
     streaming = is_streaming()
 
     # Gather recording files info
     recording_files = []
-    
-    import signal
-    def is_pid_running(pid):
-        try:
-            os.kill(pid, 0)
-            return True
-        except OSError:
-            return False
-
-    def get_active_recording_info():
-        """Return (pid, file_path) if an active recording is in progress, else (None, None)"""
-        ACTIVE_PIDFILE = "/tmp/webcam-ffmpeg-service.pid"
-        if os.path.exists(ACTIVE_PIDFILE):
-            try:
-                with open(ACTIVE_PIDFILE, 'r') as f:
-                    line = f.read().strip()
-                    if line:
-                        pid_str, file_path = line.split(':', 1)
-                        pid = int(pid_str)
-                        if is_pid_running(pid):
-                            return pid, file_path
-            except Exception:
-                pass
-        return None, None
-
-    def add_files_from_path(path, source_label="", location="Local"):
-        """Helper function to add files from a given path"""
-        active_pid, active_file = get_active_recording_info()
-        if os.path.isdir(path):
-            files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
-            files.sort(key=lambda f: os.path.getmtime(os.path.join(path, f)), reverse=True)
-            for f in files:
-                file_path = os.path.join(path, f)
-                file_size = os.path.getsize(file_path)
-                display_name = f"{source_label}{f}" if source_label else f
-                is_active = (active_file is not None and os.path.abspath(file_path) == os.path.abspath(active_file) and is_pid_running(active_pid))
-                # Add duration and timestamp if file is not active
-                if is_active:
-                    duration = None
-                else:
-                    duration = get_video_duration_mediainfo(file_path)
-                # Extract timestamp from filename if possible
-                m = re.match(r'^(\d+)\.mp4$', f)
-                timestamp = int(m.group(1)) if m else None
-                recording_files.append({
-                    'path': file_path,
-                    'size': file_size,
-                    'active': is_active,
-                    'name': display_name,
-                    'location': location,
-                    'duration': duration,
-                    'timestamp': timestamp
-                })
-      # Add files from local storage
     local_recording_path = os.path.join(STREAMER_DATA_DIR, 'recordings', 'broadcast')
-    add_files_from_path(local_recording_path, "", "Local")
-    
+    add_files_from_path(recording_files, local_recording_path, "", "Local")
     # Add files from USB storage if available
     usb_mount_point = find_usb_storage()
     if usb_mount_point:
         usb_recording_path = os.path.join(usb_mount_point, 'streamerData', 'recordings', 'broadcast')
-        add_files_from_path(usb_recording_path, "[USB] ", "USB")
-
-    if request.args.get('active_only') == '1':
-        active_files = [
-            {
-                'name': f['name'],
-                'size': f['size'],
-                'size_fmt': f"{f['size'] // 1024} KB" if f['size'] < 1024*1024 else f"{f['size'] / (1024*1024):.1f} MB",
-                'location': f['location']
-            }
-            for f in recording_files if f.get('active')
-        ]
-        return jsonify({'files': active_files})
+        add_files_from_path(recording_files, usb_recording_path, "[USB] ", "USB")
 
     return render_template('index.html', active_tab='home', streaming=streaming, recording_files=recording_files, app_version=get_app_version())
 
@@ -995,5 +980,27 @@ def get_connection_info():
     
     return connection_info
 
+@app.route('/active-recordings-sse')
+def active_recordings_sse():
+    import json
+    def event_stream():
+        last_active_files = None
+        while is_streaming() or last_active_files is None:
+            # Rebuild recording_files list (same as in home route)
+            recording_files = []
+            local_recording_path = os.path.join(STREAMER_DATA_DIR, 'recordings', 'broadcast')
+            add_files_from_path(recording_files, local_recording_path, "", "Local")
+            usb_mount_point = find_usb_storage()
+            if usb_mount_point:
+                usb_recording_path = os.path.join(usb_mount_point, 'streamerData', 'recordings', 'broadcast')
+                add_files_from_path(recording_files, usb_recording_path, "[USB] ", "USB")
+            active_files = [f for f in recording_files if f.get('active')]
+            # Only send if changed
+            if active_files != last_active_files:
+                yield f"data: {json.dumps({'files': active_files})}\n\n"
+                last_active_files = active_files
+            time.sleep(1)
+    return Response(event_stream(), mimetype='text/event-stream')
+# ...existing code...
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80, debug=False, threaded=True)
