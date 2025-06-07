@@ -32,6 +32,7 @@
                 </select>
     <script>
     // Dynamically populate the resolution dropdown with supported resolutions at or below Full HD
+    
     window.currentResolution = "{{ settings.resolution }}";
     fetch('/video-resolutions')
       .then(r => r.json())
@@ -44,6 +45,13 @@
           opt.textContent = res;
           select.appendChild(opt);
         });
+        // If no resolutions are available, add a "none available" option
+        if (resolutions.length === 0) {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = 'No resolutions available';
+          select.appendChild(opt);
+        }
         // Set the current value if available
         if (window.currentResolution) {
           select.value = window.currentResolution;
