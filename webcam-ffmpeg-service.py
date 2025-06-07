@@ -92,9 +92,11 @@ def start(stream_name, record_to_disk=False):
             return 'libx264'
         base_opts = []
         # Four cases: both present, only video, only audio, neither
-        if video_device and audio_device:            # Both present
+        if video_device and audio_device:
+            # Both present
             video_opts = [
                 '-f', 'v4l2',
+                '-input_format', 'mjpeg',# Use MJPEG for better compression
                 '-framerate', str(framerate_val),
                 '-video_size', str(resolution_val),
                 '-use_wallclock_as_timestamps', '1',
@@ -121,9 +123,11 @@ def start(stream_name, record_to_disk=False):
                 '-b:a', str(abitrate_val),
                 '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
             ] + map_opts
-        elif video_device and not audio_device:            # Only video, generate silent audio
+        elif video_device and not audio_device:
+            # Only video, generate silent audio
             video_opts = [
                 '-f', 'v4l2',
+                '-input_format', 'mjpeg', # Use MJPEG for better compression
                 '-framerate', str(framerate_val),
                 '-video_size', str(resolution_val),
                 '-use_wallclock_as_timestamps', '1',
