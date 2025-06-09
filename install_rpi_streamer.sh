@@ -28,6 +28,7 @@ fi
 sudo apt-get update -y
 sudo apt-get upgrade -y
 sudo apt-get install ffmpeg -y
+sudo apt-get install v4l-utils alsa-utils -y
 sudo apt-get install python3 python3-pip -y
 sudo apt-get install python3-flask -y
 sudo apt-get install python3-psutil -y
