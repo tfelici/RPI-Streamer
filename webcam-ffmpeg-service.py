@@ -238,10 +238,11 @@ def start(stream_name, record_to_disk=False):
             os.makedirs(record_dir, exist_ok=True)
             timestamp = int(time.time())
             recording_file = os.path.join(record_dir, f"{timestamp}.mp4")
-            tee_output = f"[f=rtsp]rtsp://localhost:8554/{stream_name}|[f=mp4]{recording_file}"
-            output_opts = ['-f', 'tee', tee_output]
+            output_opts = ['-f', 'tee', f"[f=mpegts]srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316|[f=mp4]{recording_file}"]
+            #output_opts = ['-f', 'tee', f"[f=rtsp]rtsp://localhost:8554/{stream_name}|[f=mp4]{recording_file}"]
         else:
-            output_opts = ['-f', 'rtsp', f'rtsp://localhost:8554/{stream_name}']
+            output_opts = ['-f', 'mpegts', f'srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316']
+            #output_opts = ['-f', 'rtsp', f'rtsp://localhost:8554/{stream_name}']
         cmd = ['ffmpeg'] + video_opts + audio_opts + base_opts + output_opts
         return cmd, recording_file
 
