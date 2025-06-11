@@ -241,7 +241,9 @@ def start(stream_name, record_to_disk=False):
                 '-f', 'mp4', recording_file
             ]
         else:
-            output_opts = ['-f', 'mpegts', f'srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316']
+            output_opts = [
+                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+                '-f', 'mpegts', f'srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316']
         cmd = ['ffmpeg'] + video_opts + audio_opts + base_opts + output_opts
         return cmd, recording_file
 
