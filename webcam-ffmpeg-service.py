@@ -107,7 +107,6 @@ def start(stream_name, record_to_disk=False):
                 '-f', 'alsa',
                 '-i', f'plug{audio_device}'
             ]
-            map_opts = ['-map', '0:v:0', '-map', '1:a:0']
             if crf_val not in (None, '', 0, '0'):
                 base_opts += ['-crf', str(crf_val)]
             base_opts += [
@@ -121,8 +120,7 @@ def start(stream_name, record_to_disk=False):
                 '-acodec', 'libopus',
                 '-ar', str(ar_val),
                 '-b:a', str(abitrate_val),
-                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
-            ] + map_opts
+            ]
         elif video_device and not audio_device:
             # Only video, generate silent audio
             video_opts = [
@@ -138,7 +136,6 @@ def start(stream_name, record_to_disk=False):
                 '-f', 'lavfi',
                 '-i', f'anullsrc=r={ar_val}:cl=mono'
             ]
-            map_opts = ['-map', '0:v:0', '-map', '1:a:0']
             if crf_val not in (None, '', 0, '0'):
                 base_opts += ['-crf', str(crf_val)]
             base_opts += [
@@ -153,8 +150,7 @@ def start(stream_name, record_to_disk=False):
                 '-acodec', 'libopus',
                 '-ar', str(ar_val),
                 '-b:a', str(abitrate_val),
-                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
-            ] + map_opts
+            ]
         elif audio_device and not video_device:
             # Only audio device present: static image + real audio (minimum bitrate settings)
             static_crf = 45      # Maximum CRF for lowest quality
@@ -172,7 +168,6 @@ def start(stream_name, record_to_disk=False):
                 '-f', 'alsa',
                 '-i', f'plug{audio_device}'
             ]
-            map_opts = ['-map', '0:v:0', '-map', '1:a:0']
             base_opts = [
                 '-shortest',
                 '-vcodec', vcodec,
@@ -186,8 +181,7 @@ def start(stream_name, record_to_disk=False):
                 '-acodec', 'libopus',
                 '-ar', str(ar_val),
                 '-b:a', abitrate_val,
-                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
-            ] + map_opts
+            ]
         elif not video_device and not audio_device:
             # Neither present: static image + silent audio (lowest possible bitrate)
             static_crf = 51      # Maximum CRF for lowest quality
@@ -206,7 +200,6 @@ def start(stream_name, record_to_disk=False):
                 '-f', 'lavfi',
                 '-i', f'anullsrc=r={ar_val}:cl=mono'
             ]
-            map_opts = ['-map', '0:v:0', '-map', '1:a:0']
             base_opts = [
                 '-shortest',
                 '-vcodec', vcodec,
@@ -220,8 +213,7 @@ def start(stream_name, record_to_disk=False):
                 '-acodec', 'libopus',
                 '-ar', str(ar_val),
                 '-b:a', static_abitrate,
-                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
-            ] + map_opts
+            ]
         recording_file = None
         if record_to_disk and stream_name:
             import time
@@ -229,20 +221,27 @@ def start(stream_name, record_to_disk=False):
             usb_mount = find_usb_storage()
             if usb_mount:
                 print(f"Recording to USB storage at {usb_mount}")
-                # Use USB mount path for recordings
                 record_dir = os.path.join(usb_mount, 'streamerData', 'recordings', stream_name)
             else:
                 print("No USB storage found, recording to local disk")
-                # Use local disk path for recordings
                 record_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'streamerData', 'recordings', stream_name))
             os.makedirs(record_dir, exist_ok=True)
             timestamp = int(time.time())
             recording_file = os.path.join(record_dir, f"{timestamp}.mp4")
-            output_opts = ['-f', 'tee', f"[f=mpegts]srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316|[f=mp4]{recording_file}"]
-            #output_opts = ['-f', 'tee', f"[f=rtsp]rtsp://localhost:8554/{stream_name}|[f=mp4]{recording_file}"]
+            # Move scale filter into filter_complex
+            output_opts = [
+                '-filter_complex', '[0:v:0]scale=trunc(iw/2)*2:trunc(ih/2)*2,split=2[v1][v2];[1:a:0]asplit=2[a1][a2]',
+                # SRT output
+                '-map', '[v1]', '-map', '[a1]'
+            ] + base_opts + [
+                '-f', 'mpegts', f'srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316',
+                # MP4 output
+                '-map', '[v2]', '-map', '[a2]'
+            ] + base_opts + [
+                '-f', 'mp4', recording_file
+            ]
         else:
             output_opts = ['-f', 'mpegts', f'srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316']
-            #output_opts = ['-f', 'rtsp', f'rtsp://localhost:8554/{stream_name}']
         cmd = ['ffmpeg'] + video_opts + audio_opts + base_opts + output_opts
         return cmd, recording_file
 
