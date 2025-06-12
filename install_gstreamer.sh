@@ -1,61 +1,70 @@
 #!/bin/bash
-set -euo pipefail
+set -e
 
-LOGFILE="$HOME/install-whipclientsink.log"
-BUILD_DIR="$HOME/gst-plugins-rs"
-INSTALL_STAGING="/tmp/gst-install"
-
-echo "📋 Logging to $LOGFILE"
-exec > >(tee "$LOGFILE") 2>&1
-
-function section {
-  echo ""
-  echo "🔷 $1"
-  echo "--------------------------------------------"
-}
-
-section "1. Installing system packages"
+echo ">>> Updating system..."
 sudo apt update
+sudo apt upgrade -y
+
+echo ">>> Installing base dependencies..."
 sudo apt install -y \
-  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+  build-essential \
+  git \
+  curl \
+  cmake \
+  ninja-build \
+  libssl-dev \
+  pkg-config \
+  libglib2.0-dev \
+  libgirepository1.0-dev \
+  libgstreamer1.0-dev \
   libgstreamer-plugins-bad1.0-dev \
-  gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-  gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
-  gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-alsa \
-  libssl-dev pkg-config curl git build-essential
+  libgstreamer-plugins-base1.0-dev \
+  gstreamer1.0-plugins-base \
+  gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad \
+  gstreamer1.0-plugins-ugly \
+  gstreamer1.0-libav \
+  gstreamer1.0-tools \
+  gstreamer1.0-alsa \
+  python3-pip \
+  pulseaudio
 
-section "2. Installing Rust and cargo-c"
-if ! command -v rustup &> /dev/null; then
-  curl https://sh.rustup.rs -sSf | sh -s -- -y
-  source "$HOME/.cargo/env"
+# Install libnice and related GStreamer NICE plugin separately to catch errors
+sudo apt install -y libnice10 libnice-dev gir1.2-nice-0.1
+sudo apt install -y gstreamer1.0-nice
+
+echo ">>> Installing Rust toolchain..."
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
+
+echo ">>> cleaning up previous builds..."
+rm -rf ~/gst-plugins-rs
+rm -rf ~/.cargo/git/checkouts/gstreamer-rs-*
+echo ">>> Cloning GStreamer Rust Plugins..."
+cd ~
+git clone https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs.git
+
+echo ">>> Building only rswebrtc plugin..."
+cd ~/gst-plugins-rs/net/webrtc
+cargo build --release
+
+echo ">>> Installing rswebrtc plugin..."
+sudo mkdir -p /usr/local/lib/gstreamer-1.0/
+sudo cp ~/gst-plugins-rs/target/release/libgstrswebrtc.so /usr/local/lib/gstreamer-1.0/
+sudo ldconfig
+
+echo ">>> Setting GST_PLUGIN_PATH for the current and future sessions..."
+export GST_PLUGIN_PATH=/usr/local/lib/gstreamer-1.0
+if ! grep -q 'GST_PLUGIN_PATH' ~/.bashrc; then
+  echo 'export GST_PLUGIN_PATH=/usr/local/lib/gstreamer-1.0' >> ~/.bashrc
 fi
 
-rustup default stable
-cargo install cargo-c
+echo "Cleaning up build files..."
 
-section "3. Cloning gst-plugins-rs"
-rm -rf "$BUILD_DIR"
-git clone https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs.git "$BUILD_DIR"
-cd "$BUILD_DIR"
+# Remove cloned repositories and temporary build files
+rm -rf ~/gst-plugins-rs
+rm -rf ~/.cargo/git/checkouts/gstreamer-rs-*
 
-section "4. Building and staging gst-plugin-webrtc"
-cargo cbuild -p gst-plugin-webrtc --release --prefix=/usr
-rm -rf "$INSTALL_STAGING"
-cargo cinstall -p gst-plugin-webrtc --prefix=/usr --destdir="$INSTALL_STAGING"
+echo "Cleanup complete."
 
-section "5. Installing plugin to /usr/lib"
-sudo cp -rv "$INSTALL_STAGING/usr/lib/"* /usr/lib/
-
-section "6. Cleaning up build and staging directories"
-rm -rf "$BUILD_DIR"
-rm -rf "$INSTALL_STAGING"
-
-section "7. Verifying installation"
-if gst-inspect-1.0 whipclientsink &>/dev/null; then
-  echo "✅ whipclientsink successfully installed!"
-else
-  echo "❌ Installation failed: whipclientsink not found."
-  exit 1
-fi
-
-echo "📝 Full log saved to: $LOGFILE"
+echo "✅ Installation complete. After rebooting, you can now use 'whipclientsink' in your GStreamer pipelines."
