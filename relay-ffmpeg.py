@@ -15,7 +15,8 @@ def main():
     if not stream_url:
         print("Error: 'stream_url' must be set in settings.json")
         sys.exit(1)
-    rtsp_url = f"rtsp://localhost:{rtsp_port}/{mtx_path}"
+    #rtsp_url = f"rtsp://localhost:{rtsp_port}/{mtx_path}"
+    rtsp_url = f"srt://localhost:8890?streamid=read:{mtx_path}"
 
     # Determine protocol for -f option
     protocol = None
