@@ -42,7 +42,7 @@ rm -rf ~/gst-plugins-rs
 rm -rf ~/.cargo/git/checkouts/gstreamer-rs-*
 echo ">>> Cloning GStreamer Rust Plugins..."
 cd ~
-git clone https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs.git
+git clone --depth 1 https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs.git
 
 echo ">>> Building only rswebrtc plugin..."
 cd ~/gst-plugins-rs/net/webrtc
