@@ -15,13 +15,14 @@
                 <input type="text" id="stream_url" name="stream_url" value="{{ settings.stream_url }}" placeholder="e.g. rtsp://..., rtmp://..., srt://..., udp://..., http://..., https://..., hls://...">
 
                 <label for="upload_url">Upload Recording Server URL</label>
-                <input type="text" id="upload_url" name="upload_url" value="{{ settings.upload_url }}" placeholder="e.g. https://gyropilots.org/ajaxservices.php?command=replacerecordings">
-
-                <label for="framerate">Frame Rate (fps)</label>
+                <input type="text" id="upload_url" name="upload_url" value="{{ settings.upload_url }}" placeholder="e.g. https://gyropilots.org/ajaxservices.php?command=replacerecordings">                <label for="framerate">Frame Rate (fps)</label>
                 <input type="number" id="framerate" name="framerate" min="1" max="60" required>
 
-                <label for="crf">CRF (Quality, lower is better, <em>leave blank to disable</em>)</label>
+                <label for="crf">CRF (Quality, lower is better, <em>leave blank to use Video Bitrate instead</em>)</label>
                 <input type="number" id="crf" name="crf" min="10" max="51" placeholder="(blank = disabled)">
+
+                <label for="vbitrate">Video Bitrate (kbps)</label>
+                <input type="number" id="vbitrate" name="vbitrate" min="50" max="5000" required>
 
                 <label for="gop">GOP (keyframe interval, lower gives higher Quality & larger file size)</label>
                 <input type="number" id="gop" name="gop" min="1" max="600" required>
@@ -55,12 +56,8 @@
         // Set the current value if available
         if (window.currentResolution) {
           select.value = window.currentResolution;
-        }
-      });
+        }      });
     </script>
-
-                <label for="vbitrate">Video Bitrate (kbps)</label>
-                <input type="number" id="vbitrate" name="vbitrate" min="50" max="5000" required>
 
                 <label for="abitrate">Audio Bitrate</label>
                 <select id="abitrate" name="abitrate" required>
