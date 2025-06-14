@@ -53,11 +53,13 @@ sudo mkdir -p /usr/local/lib/gstreamer-1.0/
 sudo cp ~/gst-plugins-rs/target/release/libgstrswebrtc.so /usr/local/lib/gstreamer-1.0/
 sudo ldconfig
 
-echo ">>> Setting GST_PLUGIN_PATH for the current and future sessions..."
+echo ">>> Setting GST_PLUGIN_PATH for the current session..."
 export GST_PLUGIN_PATH=/usr/local/lib/gstreamer-1.0
-if ! grep -q 'GST_PLUGIN_PATH' ~/.bashrc; then
-  echo 'export GST_PLUGIN_PATH=/usr/local/lib/gstreamer-1.0' >> ~/.bashrc
-fi
+echo ">>> Setting GST_PLUGIN_PATH permanently..."
+# Add GST_PLUGIN_PATH to /etc/environment for permanent setting
+LINE='GST_PLUGIN_PATH="/usr/local/lib/gstreamer-1.0"'
+FILE='/etc/environment'
+grep -qF -- "$LINE" "$FILE" || echo "$LINE" | sudo tee -a "$FILE"
 
 echo "Cleaning up build files..."
 
