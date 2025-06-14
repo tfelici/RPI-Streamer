@@ -41,11 +41,202 @@ def start(stream_name, record_to_disk=False):
         available_devices = list_video_inputs()
         for device in available_devices:
             if device['id'] == configured_device:
-                return configured_device
-        
+                return configured_device        
         # Device not found in available devices
         return None
     
+    def build_gstreamer_cmd(video_device, audio_device, framerate_val, resolution_val, crf_val, gop_val, vbitrate_val, ar_val, abitrate_val, volume_val, record_to_disk=False, stream_name=None):
+        # Switch to control output format: True for WHIP, False for SRT
+        usewhip = False
+
+        # Set hardware volume using amixer if audio_device and volume are set
+        if audio_device and volume_val is not None:
+            import re
+            m = re.search(r'(?:plug)?hw:(\d+)', str(audio_device))
+            if m:
+                cardnum = m.group(1)
+                try:
+                    subprocess.run([
+                        'amixer',
+                        '-c', str(cardnum),
+                        'sset', 'Mic', f'{volume_val}%'
+                    ], check=True)
+                except Exception as e:
+                    print(f"Warning: Failed to set mic volume with amixer: {e}")
+
+        def probe_hardware_encoder_pars(crf_val, gop_val, vbitrate_val):
+            # Try hardware encoders for RPi
+            hw_encoders = ['v4l2h264enc', 'omxh264enc']
+            for encoder in hw_encoders:
+                try:
+                    # Test if the encoder is available
+                    probe_cmd = ['gst-inspect-1.0', encoder]
+                    result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=5)
+                    if result.returncode == 0:
+                        print(f"Using hardware encoder: {encoder}")
+                        if encoder == 'v4l2h264enc':
+                            if crf_val not in (None, '', 0, '0'):
+                                # Use CRF mode if specified (quality-based encoding)
+                                return f'{encoder} extra-controls="encode,h264_profile=1,h264_level=10,h264_i_frame_period={gop_val},video_bitrate_mode=1,video_bitrate={int(crf_val) * 100000}"'
+                            else:
+                                # Use bitrate mode
+                                return f'{encoder} extra-controls="encode,h264_profile=1,h264_level=10,video_bitrate={vbitrate_val * 1000},h264_i_frame_period={gop_val}"'
+                        else:
+                            # omxh264enc supports keyframe-interval
+                            if crf_val not in (None, '', 0, '0'):
+                                # OMX doesn't have direct CRF support, use bitrate derived from CRF
+                                derived_bitrate = max(100, vbitrate_val * (1.0 - (int(crf_val) - 18) * 0.1))
+                                return f'{encoder} bitrate={int(derived_bitrate * 1000)} keyframe-interval={gop_val}'
+                            else:
+                                return f'{encoder} bitrate={vbitrate_val * 1000} keyframe-interval={gop_val}'
+                except Exception as e:
+                    print(f"{encoder} probe failed: {e}")
+            
+            print("Hardware encoders not supported, falling back to x264enc")
+            if crf_val not in (None, '', 0, '0'):
+                # Use CRF mode for x264enc
+                return f'x264enc tune=zerolatency quantizer={crf_val} speed-preset=ultrafast key-int-max={gop_val}'
+            else:
+                # Use bitrate mode for x264enc
+                return f'x264enc tune=zerolatency bitrate={vbitrate_val} speed-preset=ultrafast key-int-max={gop_val}'
+
+        # Setup recording file if needed
+        recording_file = None
+        if record_to_disk and stream_name:
+            import time
+            from utils import find_usb_storage
+            usb_mount = find_usb_storage()
+            if usb_mount:
+                print(f"Recording to USB storage at {usb_mount}")
+                record_dir = os.path.join(usb_mount, 'streamerData', 'recordings', stream_name)
+            else:
+                print("No USB storage found, recording to local disk")
+                record_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'streamerData', 'recordings', stream_name))
+            os.makedirs(record_dir, exist_ok=True)
+            timestamp = int(time.time())
+            recording_file = os.path.join(record_dir, f"{timestamp}.mp4")
+          # Build pipeline based on available devices
+        # Parse resolution
+        width, height = map(int, str(resolution_val).split('x'))
+        
+        if video_device and audio_device:
+            # Both video and audio available
+            encoder_pars = probe_hardware_encoder_pars(crf_val, gop_val, vbitrate_val)
+            if recording_file:
+                # Dual output: streaming + recording
+                video_input = f'v4l2src device={video_device} ! image/jpeg,width={width},height={height},framerate={framerate_val}/1 ! jpegdec ! videoconvert ! video/x-raw,format=I420 ! tee name=vt'
+                audio_input = f'alsasrc device=plug{audio_device} ! audioresample ! audio/x-raw,rate={ar_val} ! tee name=at'
+                
+                if usewhip:
+                    stream_video = f'vt. ! queue ! {encoder_pars} ! video/x-h264,profile=baseline ! queue ! sink.'
+                    stream_audio = f'at. ! queue ! opusenc bitrate={int(abitrate_val.rstrip("k")) * 1000} ! queue ! sink.'
+                    stream_output = f'whipclientsink name=sink signaller::whip-endpoint=http://localhost:8889/{stream_name}/whip stun-server=stun://stun.l.google.com:19302 congestion-control=disabled'
+                else:
+                    stream_video = f'vt. ! queue ! {encoder_pars} ! video/x-h264,profile=baseline ! mux1.'
+                    stream_audio = f'at. ! queue ! opusenc bitrate={int(abitrate_val.rstrip("k")) * 1000} ! mux1.'
+                    stream_output = f'mpegtsmux name=mux1 ! srtsink uri="srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316"'                
+                record_video = f'vt. ! queue ! {encoder_pars} ! video/x-h264,profile=baseline ! mux2.'
+                record_audio = f'at. ! queue ! opusenc bitrate={int(abitrate_val.rstrip("k")) * 1000} ! mux2.'
+                record_output = f'mp4mux name=mux2 faststart=true fragment-duration=2000 ! filesink location={recording_file}'
+                
+                pipeline = f'{video_input}   {audio_input}   {stream_video}   {stream_audio}   {stream_output}   {record_video}   {record_audio}   {record_output}'
+            else:
+                # Streaming only
+                if usewhip:
+                    video_part = f'v4l2src device={video_device} ! image/jpeg,width={width},height={height},framerate={framerate_val}/1 ! jpegdec ! videoconvert ! video/x-raw,format=I420 ! {encoder_pars} ! video/x-h264,profile=baseline ! queue ! sink.'
+                    audio_part = f'alsasrc device=plug{audio_device} ! audioresample ! audio/x-raw,rate={ar_val} ! opusenc bitrate={int(abitrate_val.rstrip("k")) * 1000} ! queue ! sink.'
+                    output_part = f'whipclientsink name=sink signaller::whip-endpoint=http://localhost:8889/{stream_name}/whip stun-server=stun://stun.l.google.com:19302 congestion-control=disabled'
+                else:
+                    video_part = f'v4l2src device={video_device} ! image/jpeg,width={width},height={height},framerate={framerate_val}/1 ! jpegdec ! videoconvert ! video/x-raw,format=I420 ! {encoder_pars} ! video/x-h264,profile=baseline ! mux.'
+                    audio_part = f'alsasrc device=plug{audio_device} ! audioresample ! audio/x-raw,rate={ar_val} ! opusenc bitrate={int(abitrate_val.rstrip("k")) * 1000} ! mux.'
+                    output_part = f'mpegtsmux name=mux ! srtsink uri="srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316"'
+                
+                pipeline = f'{video_part}   {audio_part}   {output_part}'
+        elif video_device and not audio_device:
+            # Video only - no audio
+            encoder_pars = probe_hardware_encoder_pars(crf_val, gop_val, vbitrate_val)
+            if recording_file:
+                # Dual output: streaming + recording
+                video_input = f'v4l2src device={video_device} ! image/jpeg,width={width},height={height},framerate={framerate_val}/1 ! jpegdec ! videoconvert ! video/x-raw,format=I420 ! tee name=vt'
+                
+                if usewhip:
+                    stream_video = f'vt. ! queue ! {encoder_pars} ! video/x-h264,profile=baseline ! whipclientsink signaller::whip-endpoint=http://localhost:8889/{stream_name}/whip stun-server=stun://stun.l.google.com:19302 congestion-control=disabled'
+                else:
+                    stream_video = f'vt. ! queue ! {encoder_pars} ! video/x-h264,profile=baseline ! mpegtsmux ! srtsink uri="srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316"'                
+                record_video = f'vt. ! queue ! {encoder_pars} ! video/x-h264,profile=baseline ! mp4mux faststart=true fragment-duration=2000 ! filesink location={recording_file}'
+                pipeline = f'{video_input}   {stream_video}   {record_video}'
+            else:
+                # Streaming only
+                if usewhip:
+                    pipeline = f'v4l2src device={video_device} ! image/jpeg,width={width},height={height},framerate={framerate_val}/1 ! jpegdec ! videoconvert ! video/x-raw,format=I420 ! {encoder_pars} ! video/x-h264,profile=baseline ! whipclientsink signaller::whip-endpoint=http://localhost:8889/{stream_name}/whip stun-server=stun://stun.l.google.com:19302 congestion-control=disabled'
+                else:
+                    pipeline = f'v4l2src device={video_device} ! image/jpeg,width={width},height={height},framerate={framerate_val}/1 ! jpegdec ! videoconvert ! video/x-raw,format=I420 ! {encoder_pars} ! video/x-h264,profile=baseline ! mpegtsmux ! srtsink uri="srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316"'
+        elif audio_device and not video_device:
+            # Audio with static image placeholder
+            encoder_pars = probe_hardware_encoder_pars(None, gop_val, 100)  # Use low bitrate for static image
+            if recording_file:
+                # Dual output: streaming + recording
+                video_input = f'multifilesrc location={static_img} loop=true ! pngdec ! imagefreeze ! videoscale ! video/x-raw,width={width},height={height} ! videorate ! video/x-raw,framerate={framerate_val}/1 ! videoconvert ! video/x-raw,format=I420 ! tee name=vt'
+                audio_input = f'alsasrc device=plug{audio_device} ! audioresample ! audio/x-raw,rate={ar_val} ! tee name=at'
+
+                if usewhip:
+                    stream_video = f'vt. ! queue ! {encoder_pars} ! video/x-h264,profile=baseline ! queue ! sink.'
+                    stream_audio = f'at. ! queue ! opusenc bitrate={int(abitrate_val.rstrip("k")) * 1000} ! queue ! sink.'
+                    stream_output = f'whipclientsink name=sink signaller::whip-endpoint=http://localhost:8889/{stream_name}/whip stun-server=stun://stun.l.google.com:19302 congestion-control=disabled'
+                else:
+                    stream_video = f'vt. ! queue ! {encoder_pars} ! video/x-h264,profile=baseline ! mux1.'
+                    stream_audio = f'at. ! queue ! opusenc bitrate={int(abitrate_val.rstrip("k")) * 1000} ! mux1.'
+                    stream_output = f'mpegtsmux name=mux1 ! srtsink uri="srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316"'
+                
+                record_video = f'vt. ! queue ! {encoder_pars} ! video/x-h264,profile=baseline ! mux2.'
+                record_audio = f'at. ! queue ! opusenc bitrate={int(abitrate_val.rstrip("k")) * 1000} ! mux2.'
+                record_output = f'mp4mux name=mux2 faststart=true fragment-duration=2000 ! filesink location={recording_file}'
+                pipeline = f'{video_input}   {audio_input}   {stream_video}   {stream_audio}   {stream_output}   {record_video}   {record_audio}   {record_output}'
+            else:
+                # Streaming only
+                if usewhip:
+                    video_part = f'multifilesrc location={static_img} loop=true ! pngdec ! imagefreeze ! videoscale ! video/x-raw,width={width},height={height} ! videorate ! video/x-raw,framerate={framerate_val}/1 ! videoconvert ! video/x-raw,format=I420 ! {encoder_pars} ! video/x-h264,profile=baseline ! queue ! sink.'
+                    audio_part = f'alsasrc device=plug{audio_device} ! audioresample ! audio/x-raw,rate={ar_val} ! opusenc bitrate={int(abitrate_val.rstrip("k")) * 1000} ! queue ! sink.'
+                    output_part = f'whipclientsink name=sink signaller::whip-endpoint=http://localhost:8889/{stream_name}/whip stun-server=stun://stun.l.google.com:19302 congestion-control=disabled'
+                else:
+                    video_part = f'multifilesrc location={static_img} loop=true ! pngdec ! imagefreeze ! videoscale ! video/x-raw,width={width},height={height} ! videorate ! video/x-raw,framerate={framerate_val}/1 ! videoconvert ! video/x-raw,format=I420 ! {encoder_pars} ! video/x-h264,profile=baseline ! mux.'
+                    audio_part = f'alsasrc device=plug{audio_device} ! audioresample ! audio/x-raw,rate={ar_val} ! opusenc bitrate={int(abitrate_val.rstrip("k")) * 1000} ! mux.'
+                    output_part = f'mpegtsmux name=mux ! srtsink uri="srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316"'
+                pipeline = f'{video_part}   {audio_part}   {output_part}'
+        else:
+            # Neither video nor audio - static image placeholder only
+            encoder_pars = probe_hardware_encoder_pars(None, gop_val, 100) # Use low bitrate for static image
+            if recording_file:
+                # Dual output: streaming + recording
+                video_input = f'multifilesrc location={static_img} loop=true ! pngdec ! imagefreeze ! videoscale ! video/x-raw,width={width},height={height} ! videorate ! video/x-raw,framerate={framerate_val}/1 ! videoconvert ! video/x-raw,format=I420 ! tee name=vt'
+                
+                if usewhip:
+                    stream_video = f'vt. ! queue ! {encoder_pars} ! video/x-h264,profile=baseline ! whipclientsink signaller::whip-endpoint=http://localhost:8889/{stream_name}/whip stun-server=stun://stun.l.google.com:19302 congestion-control=disabled'
+                else:
+                    stream_video = f'vt. ! queue ! {encoder_pars} ! video/x-h264,profile=baseline ! mpegtsmux ! srtsink uri="srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316"'
+                
+                record_video = f'vt. ! queue ! {encoder_pars} ! video/x-h264,profile=baseline ! mp4mux faststart=true fragment-duration=2000 ! filesink location={recording_file}'
+                
+                pipeline = f'{video_input}   {stream_video}   {record_video}'
+            else:
+                # Streaming only
+                if usewhip:
+                    pipeline = f'multifilesrc location={static_img} loop=true ! pngdec ! imagefreeze ! videoscale ! video/x-raw,width={width},height={height} ! videorate ! video/x-raw,framerate={framerate_val}/1 ! videoconvert ! video/x-raw,format=I420 ! {encoder_pars} ! video/x-h264,profile=baseline ! whipclientsink signaller::whip-endpoint=http://localhost:8889/{stream_name}/whip stun-server=stun://stun.l.google.com:19302 congestion-control=disabled'
+                else:
+                    pipeline = f'multifilesrc location={static_img} loop=true ! pngdec ! imagefreeze ! videoscale ! video/x-raw,width={width},height={height} ! videorate ! video/x-raw,framerate={framerate_val}/1 ! videoconvert ! video/x-raw,format=I420 ! {encoder_pars} ! video/x-h264,profile=baseline ! mpegtsmux ! srtsink uri="srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316"'
+        
+        # Clean up the pipeline string and split into arguments
+        pipeline_clean = ' '.join(pipeline.split())  # Remove extra whitespace and line breaks
+        
+        # Build final GStreamer command
+        cmd = ['gst-launch-1.0'] + pipeline_clean.split()
+        
+        # Set up environment for GStreamer with WHIP plugin path
+        env = os.environ.copy()
+        env['GST_PLUGIN_PATH'] = '/usr/local/lib/gstreamer-1.0'
+
+        return cmd, env, recording_file
+
     def build_ffmpeg_cmd(video_device, audio_device, framerate_val, resolution_val, crf_val, gop_val, vbitrate_val, ar_val, abitrate_val, volume_val, record_to_disk=False, stream_name=None):
         # Set hardware volume using amixer if audio_device and volume are set
         if audio_device and volume_val is not None:
@@ -245,7 +436,7 @@ def start(stream_name, record_to_disk=False):
                 '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
                 '-f', 'mpegts', f'srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316']
         cmd = ['ffmpeg'] + video_opts + audio_opts + base_opts + output_opts
-        return cmd, recording_file
+        return cmd, None, recording_file
 
     state = {'video': None, 'audio': None, 'proc': None, 'should_restart': False}
     check_interval = 2
@@ -324,14 +515,14 @@ def start(stream_name, record_to_disk=False):
         audio_device = find_usb_audio_device()
 
         # Build command with current settings
-        cmd, recording_file = build_ffmpeg_cmd(
+        cmd, env, recording_file = build_gstreamer_cmd(
             video_device, audio_device, current_framerate, current_resolution,
             current_crf, current_gop, current_vbitrate, current_ar,
             current_abitrate, current_volume, record_to_disk, stream_name
         )
-
+        
         print("Running:", ' '.join(str(x) for x in cmd))
-        proc = subprocess.Popen(cmd)
+        proc = subprocess.Popen(cmd, env=env)
         state['proc'] = proc
 
         # Write active PID file if recording to disk
