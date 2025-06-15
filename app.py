@@ -35,7 +35,7 @@ def add_no_cache_headers(response):
     return response
 
 STREAMER_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'streamerData'))
-STREAM_PIDFILE = "/tmp/webcam-ffmpeg.pid"
+STREAM_PIDFILE = "/tmp/relay-ffmpeg-webcam.pid"
 SETTINGS_FILE = os.path.join(STREAMER_DATA_DIR, 'settings.json')
 
 def load_settings():
@@ -122,20 +122,13 @@ def get_power_draw():
     return "N/A"
 
 def is_streaming():
-    """Return True if streaming is currently active (broadcast)."""
+    """Return True if streaming is currently active."""
     if os.path.exists(STREAM_PIDFILE):
         try:
             with open(STREAM_PIDFILE) as f:
-                content = f.read().strip()
-                if ':' in content:
-                    pid, running_stream = content.split(':', 1)
-                    pid = int(pid)
-                    running_stream = running_stream.strip()
-                else:
-                    pid = int(content)
-                    running_stream = None
-            if os.path.exists(f"/proc/{pid}") and running_stream and running_stream == 'broadcast':
-                return True
+                pid = int(f.read().strip())
+            # Check if the process is still running
+            return is_pid_running(pid)
         except Exception:
             pass
     return False
@@ -168,7 +161,7 @@ def is_pid_running(pid):
 
 def get_active_recording_info():
     """Return (pid, file_path) if an active recording is in progress, else (None, None)"""
-    ACTIVE_PIDFILE = "/tmp/webcam-ffmpeg-service.pid"
+    ACTIVE_PIDFILE = "/tmp/relay-ffmpeg-record-webcam.pid"
     if os.path.exists(ACTIVE_PIDFILE):
         try:
             with open(ACTIVE_PIDFILE, 'r') as f:
@@ -217,12 +210,12 @@ def home():
 
     # Gather recording files info
     recording_files = []
-    local_recording_path = os.path.join(STREAMER_DATA_DIR, 'recordings', 'broadcast')
+    local_recording_path = os.path.join(STREAMER_DATA_DIR, 'recordings', 'webcam')
     add_files_from_path(recording_files, local_recording_path, "", "Local")
     # Add files from USB storage if available
     usb_mount_point = find_usb_storage()
     if usb_mount_point:
-        usb_recording_path = os.path.join(usb_mount_point, 'streamerData', 'recordings', 'broadcast')
+        usb_recording_path = os.path.join(usb_mount_point, 'streamerData', 'recordings', 'webcam')
         add_files_from_path(recording_files, usb_recording_path, "[USB] ", "USB")
 
     return render_template('index.html', active_tab='home', streaming=streaming, recording_files=recording_files, app_version=get_app_version())
@@ -343,16 +336,42 @@ def stream_control():
     data = request.get_json()
     action = data.get('action')
     if action == 'start':
+        # Check if already streaming
+        if is_streaming():
+            return jsonify({'error': 'Streaming is already active.'}), 400
         settings = load_settings()
         stream_url = settings.get('stream_url', '').strip()
         if not stream_url:
             return jsonify({'error': 'Remote Streaming URL is not set. Please configure it in Settings.'}), 400
-        subprocess.run(['python', 'webcam-ffmpeg.py', 'stop'])
-        # Launch with recording enabled ("1" as extra argument)
-        subprocess.Popen(['python', 'webcam-ffmpeg.py', 'start', 'broadcast', '1'])
+        #start relay-ffmpeg.py asynchronously
+        subprocess.Popen(['python', 'relay-ffmpeg.py', 'webcam'])
+        #also start relay-ffmpeg-record.py asynchronously
+        subprocess.Popen(['python', 'relay-ffmpeg-record.py', 'webcam'])
         return jsonify({'status': 'started'})
     elif action == 'stop':
-        subprocess.run(['python', 'webcam-ffmpeg.py', 'stop'])
+        if is_streaming():
+            #stop both relay-ffmpeg.py and relay-ffmpeg-record.py processes
+            try:
+                with open(STREAM_PIDFILE, 'r') as f:
+                    pid = int(f.read().strip())
+                print(f"Stopping stream with PID {pid}")
+                if is_pid_running(pid):
+                    os.kill(pid, 15)  # SIGTERM
+                    # loop until process is no longer running
+                    while is_pid_running(pid):
+                        time.sleep(0.5)  # Give it a moment to terminate
+            except Exception as e:
+                print(f"Error stopping stream: {e}")
+            #also stop the recording process if it exists
+            active_pid, active_file = get_active_recording_info()
+            if active_pid and is_pid_running(active_pid):
+                print(f"Stopping recording with PID {active_pid}")
+                os.kill(active_pid, 15)  # SIGTERM
+                # loop until process is no longer running
+                while is_pid_running(active_pid):
+                    time.sleep(0.5)  # Give it a moment to terminate
+        else:
+            print("No active stream to stop.")
         return jsonify({'status': 'stopped'})
     else:
         return jsonify({'error': 'Invalid action'}), 400
@@ -997,14 +1016,14 @@ def active_recordings_sse():
     import json
     def event_stream():
         last_active_files = None
+        usb_mount_point = find_usb_storage()
         while is_streaming() or last_active_files is None:
             # Rebuild recording_files list (same as in home route)
             recording_files = []
-            local_recording_path = os.path.join(STREAMER_DATA_DIR, 'recordings', 'broadcast')
+            local_recording_path = os.path.join(STREAMER_DATA_DIR, 'recordings', 'webcam')
             add_files_from_path(recording_files, local_recording_path, "", "Local")
-            usb_mount_point = find_usb_storage()
             if usb_mount_point:
-                usb_recording_path = os.path.join(usb_mount_point, 'streamerData', 'recordings', 'broadcast')
+                usb_recording_path = os.path.join(usb_mount_point, 'streamerData', 'recordings', 'webcam')
                 add_files_from_path(recording_files, usb_recording_path, "[USB] ", "USB")
             active_files = [f for f in recording_files if f.get('active')]
             # Only send if changed

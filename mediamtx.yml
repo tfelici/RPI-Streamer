@@ -726,9 +726,4 @@ paths:
   # This path uses ffmpeg as the source and enables sourceOnDemand,
   # so ffmpeg only runs when a viewer connects.
   webcam:
-    runOnDemand: python ./webcam-ffmpeg.py start webcam
-    runOnUnDemand: python ./webcam-ffmpeg.py stop webcam
-  broadcast:
-    runOnReady: python ./relay-ffmpeg.py $RTSP_PORT $MTX_PATH
-    runOnReadyRestart: yes
-    
+    runOnDemand: python ./webcam-ffmpeg-service.py webcam

@@ -606,8 +606,6 @@
                 stopActiveRecordingsRefresh();
                 const frame = document.getElementById('active-recordings-frame');
                 if (frame) frame.style.display = 'none'; // Hide instead of remove
-                // Instead of reloading, update the upload recordings list dynamically
-                updateUploadRecordingsList();
             };
         }
 
@@ -669,6 +667,8 @@
                         if (activeFrame) activeFrame.style.display = '';
                         startActiveRecordingsRefresh();
                     } else {
+                        // update and show the upload recordings list
+                        updateUploadRecordingsList();
                     }
                 })
                 .catch(() => {

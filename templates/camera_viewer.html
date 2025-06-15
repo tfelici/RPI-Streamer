@@ -13,7 +13,7 @@
             <div class="camera-container">
                 <div class="camera-frame">
                     <iframe id="webcam-iframe" 
-                            src="{{ ('http://' + request.host + ':8889/broadcast?muted=1&controls=1') if streaming else ('http://' + request.host + ':8889/webcam?muted=1&controls=1') }}">
+                            src="{{ ('http://' + request.host + ':8889/webcam?muted=1&controls=1') }}">
                     </iframe>
                 </div>
             </div>
