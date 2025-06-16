@@ -38,7 +38,37 @@ sudo apt-get install gunicorn python3-gevent -y
 sudo apt-get install gunicorn python3-requests-toolbelt -y
 sudo apt-get install python3-pymediainfo -y
 sudo apt-get install mediainfo -y
-#create symbolic link for python3 to python if it doesn't exist
+
+# Install GStreamer with SRT streaming capabilities
+echo "Installing GStreamer with SRT streaming support..."
+sudo apt-get install gstreamer1.0-tools -y
+sudo apt-get install gstreamer1.0-plugins-base -y
+sudo apt-get install gstreamer1.0-plugins-good -y
+sudo apt-get install gstreamer1.0-plugins-bad -y
+sudo apt-get install gstreamer1.0-plugins-ugly -y
+sudo apt-get install gstreamer1.0-libav -y
+sudo apt-get install libgstreamer1.0-dev -y
+sudo apt-get install libgstreamer-plugins-base1.0-dev -y
+
+# Install SRT library and GStreamer SRT plugin
+sudo apt-get install libsrt1.4-gnutls -y
+sudo apt-get install gstreamer1.0-plugins-bad -y
+
+# Verify GStreamer installation
+echo "Verifying GStreamer installation..."
+if gst-inspect-1.0 --version >/dev/null 2>&1; then
+    echo "GStreamer installed successfully"
+    # Check if SRT plugin is available
+    if gst-inspect-1.0 srtsrc >/dev/null 2>&1; then
+        echo "GStreamer SRT plugin is available"
+    else
+        echo "Warning: GStreamer SRT plugin may not be available"
+    fi
+else
+    echo "Warning: GStreamer installation may have issues"
+fi
+
+# create symbolic link for python3 to python if it doesn't exist
 if [ ! -L /usr/bin/python ]; then
     echo "Creating symbolic link for python3 to python..."
     sudo ln -s /usr/bin/python3 /usr/bin/python
