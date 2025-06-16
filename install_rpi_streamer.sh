@@ -100,9 +100,9 @@ if [ ! -d "$HOME/executables" ]; then
 fi
 # Download the StreamerUploader executables for different platforms
 printf "Downloading StreamerUploader executables...\n"
-curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/windows/dist/StreamerUploader.exe" -o "$HOME/executables/Uploader-windows.exe"
-curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/macos/dist/StreamerUploader" -o "$HOME/executables/Uploader-macos"
-curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/linux/dist/StreamerUploader" -o "$HOME/executables/Uploader-linux"
+curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/windows/dist/StreamerUploader.exe?$(date +%s)" -o "$HOME/executables/Uploader-windows.exe"
+curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/macos/dist/StreamerUploader?$(date +%s)" -o "$HOME/executables/Uploader-macos"
+curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/linux/dist/StreamerUploader?$(date +%s)" -o "$HOME/executables/Uploader-linux"
 # if they exist, Make the downloaded linux and macos executables executable
 [ -f "$HOME/executables/Uploader-linux" ] && chmod +x "$HOME/executables/Uploader-linux"
 [ -f "$HOME/executables/Uploader-macos" ] && chmod +x "$HOME/executables/Uploader-macos"
