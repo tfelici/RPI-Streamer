@@ -42,7 +42,7 @@ def load_settings():
     settings = {
         "stream_url": "",
         "framerate": 30,
-        "crf": 32,
+        "crf": '',
         "resolution": "1360x768",
         "vbitrate": 256,
         "abitrate": "128k",
