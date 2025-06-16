@@ -40,7 +40,8 @@ sudo apt-get install python3-pymediainfo -y
 sudo apt-get install mediainfo -y
 
 #also add gstreamer dependencies
-sudo apt-get install gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav -y
+sudo apt install gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-alsa gstreamer1.0-pulseaudio -y
+
 #create symbolic link for python3 to python if it doesn't exist
 if [ ! -L /usr/bin/python ]; then
     echo "Creating symbolic link for python3 to python..."
