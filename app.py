@@ -44,7 +44,7 @@ def load_settings():
         "framerate": 30,
         "crf": '',
         "resolution": "1360x768",
-        "vbitrate": 256,
+        "vbitrate": 384,
         "abitrate": "128k",
         "ar": 16000,
         "upload_url": "",
