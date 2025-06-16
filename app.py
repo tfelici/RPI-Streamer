@@ -351,6 +351,7 @@ def stream_control():
     elif action == 'stop':
         if is_streaming():
             #stop both relay-ffmpeg.py and relay-ffmpeg-record.py processes
+            print("Stopping stream...")
             try:
                 with open(STREAM_PIDFILE, 'r') as f:
                     pid = int(f.read().strip())
@@ -370,6 +371,7 @@ def stream_control():
                 # loop until process is no longer running
                 while is_pid_running(active_pid):
                     time.sleep(0.5)  # Give it a moment to terminate
+            print("Stream and recording stopped successfully.")
         else:
             print("No active stream to stop.")
         return jsonify({'status': 'stopped'})
@@ -1031,6 +1033,7 @@ def active_recordings_sse():
                 yield f"data: {json.dumps({'files': active_files})}\n\n"
                 last_active_files = active_files
             time.sleep(1)
+        print("No active recordings, closing SSE stream")
     return Response(event_stream(), mimetype='text/event-stream')
 # ...existing code...
 if __name__ == '__main__':
