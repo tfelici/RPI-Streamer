@@ -351,7 +351,8 @@ def find_usb_storage():
                     if (device.startswith('/dev/sd') and 
                         device != '/dev/sda' and  # Exclude main SD card (if it exists)
                         not device.endswith('a') and  # Skip whole disks, only partitions
-                        fstype in ['vfat', 'exfat', 'ntfs', 'ext4', 'ext3', 'ext2']):
+                        fstype in ['vfat', 'exfat', 'ntfs', 'ext4', 'ext3', 'ext2'] and
+                        mount_point != '/'):  # Ignore root mount point
                         
                         # Verify the device still exists and mount point is accessible
                         if (os.path.exists(device) and 
