@@ -392,7 +392,6 @@ def start(stream_name):
     t = threading.Thread(target=monitor_devices, daemon=True)
     t.start()
 
-    ACTIVE_PIDFILE = "/tmp/webcam-ffmpeg-service.pid"
     while True:
         # Get current settings each iteration
         current_framerate = get_setting('framerate', 5)
