@@ -339,7 +339,7 @@ def start(stream_name):
         prev_audio_device = None
         prev_settings = {
             'framerate': get_setting('framerate', 5),
-            'resolution': get_setting('resolution', '1280x720'),
+            'resolution': get_setting('resolution', '1280x720') or '1280x720',
             'crf': get_setting('crf', 30),
             'gop': get_setting('gop', 5),
             'vbitrate': get_setting('vbitrate', 1000),
@@ -355,7 +355,7 @@ def start(stream_name):
             # Check for current settings
             current_settings = {
                 'framerate': get_setting('framerate', 5),
-                'resolution': get_setting('resolution', '1280x720'),
+                'resolution': get_setting('resolution', '1280x720') or '1280x720',
                 'crf': get_setting('crf', 30),
                 'gop': get_setting('gop', 5),
                 'vbitrate': get_setting('vbitrate', 1000),
@@ -396,7 +396,7 @@ def start(stream_name):
     while True:
         # Get current settings each iteration
         current_framerate = get_setting('framerate', 5)
-        current_resolution = get_setting('resolution', '1280x720')
+        current_resolution = get_setting('resolution', '1280x720') or '1280x720'
         current_crf = get_setting('crf', 30)
         current_gop = get_setting('gop', 5)
         current_vbitrate = get_setting('vbitrate', 1000)
