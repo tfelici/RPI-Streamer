@@ -149,7 +149,7 @@
             // Only validate if not empty
             if (stream_url) {
                 const validProtocols = [
-                    'rtsp://', 'rtsps://', 'rtmp://', 'rtmps://', 'srt://'
+                    'rtsp://', 'rtsps://', 'rtmp://', 'rtmps://', 'srt://', 'https://'
                 ];
                 const isValid = validProtocols.some(proto => stream_url.startsWith(proto));
                 if (!isValid) {

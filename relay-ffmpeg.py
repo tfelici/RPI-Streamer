@@ -28,6 +28,9 @@ def main():
     except Exception as e:
         print(f"Warning: Could not write active PID file: {e}")
 
+    # Get video bitrate from settings or use default
+    vbitrate = get_setting('vbitrate', 2000)
+
     # Determine protocol for -f option
     protocol = None
     if stream_url.startswith('rtsp://') or stream_url.startswith('rtsps://'):
@@ -52,12 +55,31 @@ def main():
         stream_url
     ]
     
+    # GStreamer command to re-encode for adaptive bitrate with congestion control enabled
+    gstreamer_whip_cmd = [
+        'gst-launch-1.0',
+        'srtsrc', f'uri={rtsp_url}', '!',
+        'tsdemux', 'name=demux',
+        'demux.video_0', '!', 'queue', '!', 'h264parse', '!', 'avdec_h264', '!', 'videoconvert', '!',
+        'x264enc', 'tune=zerolatency', f'bitrate={vbitrate}', 'speed-preset=ultrafast', '!', 'video/x-h264,profile=baseline', '!', 'queue', '!', 'sink.',
+        'demux.audio_0', '!', 'queue', '!', 'opusparse', '!', 'queue', '!', 'sink.',
+        'whipclientsink', 'name=sink', f'signaller::whip-endpoint={stream_url}', 'stun-server=stun://stun.l.google.com:19302'
+    ]
+    
+    # GStreamer command to relay SRT MPEG-TS stream
+    gstreamer_srt_cmd = [
+        'gst-launch-1.0',
+        '-e',
+        'srtsrc', f'uri={rtsp_url}', '!',
+        'srtsink', f'uri={stream_url}'
+    ]
+    
     proc = None  # Track the ffmpeg process
     def handle_exit(signum, frame):
         print(f"Received exit signal {signum}, cleaning up...")
-        # Terminate ffmpeg child process if running
+        # Terminate streaming child process if running
         if proc and proc.poll() is None:
-            print("killing ffmpeg child process...")
+            print("killing streaming child process...")
             proc.kill()
             # Wait for the process to exit
             for _ in range(20):  # wait up to 2 seconds
@@ -77,10 +99,17 @@ def main():
     signal.signal(signal.SIGTERM, handle_exit)
 
     while True:
-        print("Running:", ' '.join(ffmpeg_cmd))
-        proc = subprocess.Popen(ffmpeg_cmd)
+        if stream_url.startswith('https://') and '/whip' in stream_url:
+            import copy
+            env = copy.deepcopy(os.environ)
+            env['GST_PLUGIN_PATH'] = '/usr/local/lib/gstreamer-1.0'
+            print("Running:", ' '.join(gstreamer_whip_cmd))
+            proc = subprocess.Popen(gstreamer_whip_cmd, env=env)
+        else:
+            print("Running:", ' '.join(gstreamer_srt_cmd))
+            proc = subprocess.Popen(gstreamer_srt_cmd)
         proc.wait()
-        print("ffmpeg exited, restarting in 1 second...")
+        print("Process exited, restarting in 1 second...")
         import time
         time.sleep(1)
 
