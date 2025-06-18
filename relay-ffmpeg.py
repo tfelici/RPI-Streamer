@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 import json
-import subprocess
 import sys
 import os
 import signal
 from utils import get_setting
+import gi
+import threading
+import psutil
+
+gi.require_version('Gst', '1.0')
+from gi.repository import Gst, GObject
+
+Gst.init(None)
 
 def main():
     if len(sys.argv) < 2:
@@ -39,54 +46,149 @@ def main():
         protocol = 'flv'
     elif stream_url.startswith('srt://') or stream_url.startswith('udp://'):
         protocol = 'mpegts'
-    elif stream_url.startswith('http://') or stream_url.startswith('https://'):
-        protocol = 'mpegts'  # for HLS push, but may need to be customized
     elif stream_url.startswith('hls://'):
         protocol = 'hls'
     else:
         print(f"Error: Unsupported protocol in stream_url: {stream_url}")
         sys.exit(1)
 
-    ffmpeg_cmd = [
-        'ffmpeg',
-        '-i', rtsp_url,
-        '-c', 'copy',
-        '-f', protocol,
-        stream_url
-    ]
-    
-    # GStreamer command to re-encode for adaptive bitrate with congestion control enabled
-    gstreamer_whip_cmd = [
-        'gst-launch-1.0',
-        'srtsrc', f'uri={rtsp_url}', '!',
-        'tsdemux', 'name=demux',
-        'demux.video_0', '!', 'queue', '!', 'h264parse', '!', 'avdec_h264', '!', 'videoconvert', '!',
-        'x264enc', 'tune=zerolatency', f'bitrate={vbitrate}', 'speed-preset=ultrafast', '!', 'video/x-h264,profile=baseline', '!', 'queue', '!', 'sink.',
-        'demux.audio_0', '!', 'queue', '!', 'opusparse', '!', 'queue', '!', 'sink.',
-        'whipclientsink', 'name=sink', f'signaller::whip-endpoint={stream_url}', 'stun-server=stun://stun.l.google.com:19302'
-    ]
-    
-    # GStreamer command to relay SRT MPEG-TS stream
-    gstreamer_srt_cmd = [
-        'gst-launch-1.0',
-        '-e',
-        'srtsrc', f'uri={rtsp_url}', '!',
-        'srtsink', f'uri={stream_url}'
-    ]
-    
-    proc = None  # Track the ffmpeg process
+    def get_active_network_interface():
+        # Prefer ethernet if up, else wifi
+        candidates = ['eth0', 'en0', 'enp1s0', 'enp2s0', 'wlan0', 'wlp2s0', 'wlp3s0']
+        stats = psutil.net_if_stats()
+        for iface in candidates:
+            if iface in stats and stats[iface].isup:
+                return iface
+        # Fallback: pick the first non-loopback interface that is up
+        for iface, stat in stats.items():
+            if stat.isup and not iface.startswith('lo'):
+                return iface
+        return None
+
+    def monitor_network_and_adjust_bitrate(pipeline, x264enc, vbitrate, min_bitrate=256, max_bitrate=4096, interval=5):
+        """
+        Monitors network usage and adjusts the x264enc bitrate property dynamically.
+        This is a simple simulation: in production, replace with real bandwidth/packet loss monitoring.
+        """
+        interface = get_active_network_interface()
+        if not interface:
+            print("No active network interface found. Bitrate will not be adjusted.")
+            return
+        print(f"Monitoring network interface: {interface}")
+        current_bitrate = vbitrate
+        stats1 = psutil.net_io_counters(pernic=True)[interface]
+        bytes_sent1 = stats1.bytes_sent
+        import time
+        while True:
+            time.sleep(interval)
+            stats2 = psutil.net_io_counters(pernic=True)[interface]
+            bytes_sent2 = stats2.bytes_sent
+            measured_bitrate = (bytes_sent2 - bytes_sent1) * 8 // interval // 1000  # kbps
+            print(f"[Network] Measured outgoing bitrate: {measured_bitrate} kbps")
+            bytes_sent1 = bytes_sent2
+            # Example logic: if measured bitrate is much lower than target, lower vbitrate
+            if measured_bitrate < current_bitrate * 0.7 and current_bitrate > min_bitrate:
+                current_bitrate = max(min_bitrate, current_bitrate // 2)
+                print(f"[Bitrate] Lowering encoder bitrate to {current_bitrate} kbps")
+            elif measured_bitrate > current_bitrate * 1.2 and current_bitrate < max_bitrate:
+                current_bitrate = min(max_bitrate, current_bitrate + 256)
+                print(f"[Bitrate] Increasing encoder bitrate to {current_bitrate} kbps")
+            if x264enc:
+                x264enc.set_property('bitrate', current_bitrate)
+
+    def run_gstreamer_pipeline_dynamic(rtsp_url, stream_url, vbitrate):
+        # Build pipeline elements
+        pipeline = Gst.Pipeline.new("relay-pipeline")
+        srtsrc = Gst.ElementFactory.make("srtsrc", None)
+        srtsrc.set_property("uri", rtsp_url)
+        demux = Gst.ElementFactory.make("tsdemux", "demux")
+        video_queue = Gst.ElementFactory.make("queue", None)
+        h264parse = Gst.ElementFactory.make("h264parse", None)
+        avdec_h264 = Gst.ElementFactory.make("avdec_h264", None)
+        videoconvert = Gst.ElementFactory.make("videoconvert", None)
+        x264enc = Gst.ElementFactory.make("x264enc", None)
+        x264enc.set_property("tune", "zerolatency")
+        x264enc.set_property("bitrate", vbitrate)
+        x264enc.set_property("speed-preset", "ultrafast")
+        h264_caps = Gst.Caps.from_string("video/x-h264,profile=baseline")
+        video_capsfilter = Gst.ElementFactory.make("capsfilter", None)
+        video_capsfilter.set_property("caps", h264_caps)
+        video_queue2 = Gst.ElementFactory.make("queue", None)
+        audio_queue = Gst.ElementFactory.make("queue", None)
+        opusparse = Gst.ElementFactory.make("opusparse", None)
+        audio_queue2 = Gst.ElementFactory.make("queue", None)
+        mux = Gst.ElementFactory.make("mpegtsmux", "mux")
+        srtsink = Gst.ElementFactory.make("srtsink", None)
+        srtsink.set_property("uri", stream_url)
+
+        # Add elements to pipeline
+        for elem in [srtsrc, demux, video_queue, h264parse, avdec_h264, videoconvert, x264enc, video_capsfilter, video_queue2, audio_queue, opusparse, audio_queue2, mux, srtsink]:
+            pipeline.add(elem)
+
+        # Link static parts
+        srtsrc.link(demux)
+        mux.link(srtsink)
+
+        # Dynamic pad linking
+        def on_pad_added(demux, pad):
+            string = pad.query_caps(None).to_string()
+            if string.startswith("video/"):
+                print("Linking video pad:", string)
+                pad.link(video_queue.get_static_pad("sink"))
+                video_queue.link(h264parse)
+                h264parse.link(avdec_h264)
+                avdec_h264.link(videoconvert)
+                videoconvert.link(x264enc)
+                x264enc.link(video_capsfilter)
+                video_capsfilter.link(video_queue2)
+                video_queue2.link(mux)
+            elif string.startswith("audio/x-opus"):
+                print("Linking audio pad:", string)
+                pad.link(audio_queue.get_static_pad("sink"))
+                audio_queue.link(opusparse)
+                opusparse.link(audio_queue2)
+                audio_queue2.link(mux)
+            else:
+                print("Unknown pad type:", string)
+        demux.connect("pad-added", on_pad_added)
+
+        pipeline.set_state(Gst.State.PLAYING)
+        bus = pipeline.get_bus()
+        monitor_thread = threading.Thread(target=monitor_network_and_adjust_bitrate, args=(pipeline, x264enc, vbitrate), daemon=True)
+        monitor_thread.start()
+        while True:
+            msg = bus.timed_pop_filtered(100 * Gst.MSECOND, Gst.MessageType.ERROR | Gst.MessageType.EOS)
+            if msg:
+                if msg.type == Gst.MessageType.ERROR:
+                    err, debug = msg.parse_error()
+                    print(f"GStreamer Error: {err}, {debug}")
+                    break
+                elif msg.type == Gst.MessageType.EOS:
+                    print("GStreamer End of stream")
+                    break
+        pipeline.set_state(Gst.State.NULL)
+
+    def run_gstreamer_pipeline_static(rtsp_url, stream_url):
+        pipeline_str = f"srtsrc uri={rtsp_url} ! srtsink uri={stream_url}"
+        pipeline = Gst.parse_launch(pipeline_str)
+        pipeline.set_state(Gst.State.PLAYING)
+        bus = pipeline.get_bus()
+        while True:
+            msg = bus.timed_pop_filtered(100 * Gst.MSECOND, Gst.MessageType.ERROR | Gst.MessageType.EOS)
+            if msg:
+                if msg.type == Gst.MessageType.ERROR:
+                    err, debug = msg.parse_error()
+                    print(f"GStreamer Error: {err}, {debug}")
+                    break
+                elif msg.type == Gst.MessageType.EOS:
+                    print("GStreamer End of stream")
+                    break
+        pipeline.set_state(Gst.State.NULL)
+
+    dynamicBitrate = get_setting('dynamicBitrate', True)
+
     def handle_exit(signum, frame):
         print(f"Received exit signal {signum}, cleaning up...")
-        # Terminate streaming child process if running
-        if proc and proc.poll() is None:
-            print("killing streaming child process...")
-            proc.kill()
-            # Wait for the process to exit
-            for _ in range(20):  # wait up to 2 seconds
-                if proc.poll() is not None:
-                    break
-                import time
-                time.sleep(0.1)
         # Remove PID file
         try:
             if os.path.exists(ACTIVE_PIDFILE):
@@ -100,15 +202,14 @@ def main():
 
     while True:
         if stream_url.startswith('https://') and '/whip' in stream_url:
-            import copy
-            env = copy.deepcopy(os.environ)
-            env['GST_PLUGIN_PATH'] = '/usr/local/lib/gstreamer-1.0'
-            print("Running:", ' '.join(gstreamer_whip_cmd))
-            proc = subprocess.Popen(gstreamer_whip_cmd, env=env)
+            print("WHIP streaming is not supported in this version. Exiting.")
+            break
+        elif not dynamicBitrate:
+            print("Running SRT passthrough pipeline (no dynamic bitrate)")
+            run_gstreamer_pipeline_static(rtsp_url, stream_url)
         else:
-            print("Running:", ' '.join(gstreamer_srt_cmd))
-            proc = subprocess.Popen(gstreamer_srt_cmd)
-        proc.wait()
+            print("Running GStreamer pipeline with dynamic pad linking (video+audio)")
+            run_gstreamer_pipeline_dynamic(rtsp_url, stream_url, vbitrate)
         print("Process exited, restarting in 1 second...")
         import time
         time.sleep(1)

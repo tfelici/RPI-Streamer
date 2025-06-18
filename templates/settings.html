@@ -99,6 +99,13 @@
 
                 <label for="volume">Audio Input Volume: <span id="volume-display">{{ settings.volume or 100 }}%</span></label>
                 <input type="range" id="volume" name="volume" min="0" max="150" value="{{ settings.volume or 100 }}" step="1" required>
+
+                <label for="dynamicBitrate">Dynamic Bitrate</label>
+                <select id="dynamicBitrate" name="dynamicBitrate">
+                    <option value="true" {% if settings.dynamicBitrate %}selected{% endif %}>Enabled (adaptive)</option>
+                    <option value="false" {% if not settings.dynamicBitrate %}selected{% endif %}>Disabled (passthrough)</option>
+                </select>
+                
                 <button type="submit" class="btn btn-primary">Save Settings</button>
                 <div id="msg" class="status-message" style="display: none;"></div>
             </form>
@@ -121,6 +128,7 @@
                 document.getElementById('audio_input').value = data.audio_input || '';
                 document.getElementById('video_input').value = data.video_input || '';
                 document.getElementById('volume').value = data.volume || 100;
+                document.getElementById('dynamicBitrate').value = data.dynamicBitrate === true ? 'true' : 'false';
                 // Update volume display on page load
                 document.getElementById('volume-display').textContent = (data.volume || 100) + '%';
             });
@@ -145,6 +153,7 @@
             const audio_input = document.getElementById('audio_input').value;
             const video_input = document.getElementById('video_input').value;
             const volume = document.getElementById('volume').value;
+            const dynamicBitrate = document.getElementById('dynamicBitrate').value === 'true';
             
             // Only validate if not empty
             if (stream_url) {
@@ -166,7 +175,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         stream_url, framerate, crf, gop, resolution, 
-                        vbitrate, abitrate, ar, upload_url, audio_input, video_input, volume
+                        vbitrate, abitrate, ar, upload_url, audio_input, video_input, volume, dynamicBitrate
                     })
                 });
                 

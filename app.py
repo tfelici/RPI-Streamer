@@ -49,7 +49,8 @@ def load_settings():
         "ar": 16000,
         "upload_url": "",
         "volume": 100,
-        "gop": 30
+        "gop": 30,
+        "dynamicBitrate": True
     }
     if os.path.exists(SETTINGS_FILE):
         try:
@@ -273,6 +274,13 @@ def settings():
             settings['video_input'] = data['video_input']
         if 'volume' in data:
             settings['volume'] = int(data['volume'])
+        if 'dynamicBitrate' in data:
+            # Accept both boolean and string values from the form
+            val = data['dynamicBitrate']
+            if isinstance(val, bool):
+                settings['dynamicBitrate'] = val
+            elif isinstance(val, str):
+                settings['dynamicBitrate'] = val.lower() == 'true'
         save_settings(settings)
         return '', 204
     else:
