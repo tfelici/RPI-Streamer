@@ -58,26 +58,58 @@ def main():
         stats = psutil.net_if_stats()
         for iface in candidates:
             if iface in stats and stats[iface].isup:
-                return iface
-        # Fallback: pick the first non-loopback interface that is up
+                return iface        # Fallback: pick the first non-loopback interface that is up
         for iface, stat in stats.items():
             if stat.isup and not iface.startswith('lo'):
                 return iface
         return None
 
-    def monitor_network_and_adjust_bitrate(pipeline, x264enc, vbitrate, min_bitrate=256, max_bitrate=4096, interval=5, probe_interval=4):
+    def monitor_network_and_adjust_bitrate(pipeline, x264enc, vbitrate, min_bitrate=256, max_bitrate=4096, interval=5, base_probe_interval=4):
         """
         Monitors stream-specific bitrate using GStreamer pipeline statistics and adjusts encoder bitrate dynamically.
-        Periodically probes higher bitrates to maximize quality, and only reduces bitrate if congestion is detected.
+        Uses adaptive probing strategy with exponential backoff, network stability awareness, and intelligent success criteria.
         """
-        print("Starting stream-specific bitrate monitoring using GStreamer pipeline stats")
+        print("Starting enhanced stream-specific bitrate monitoring with adaptive probing")
         current_bitrate = vbitrate
         import time
+        from collections import deque
+        
+        # Enhanced state tracking
         probe_counter = 0
         last_bytes_out = 0
-        last_timestamp = time.time()
+        last_timestamp = time.time()        
+        # Adaptive probing state
+        failed_probes = 0
+        last_successful_probe = time.time()
+        stable_measurements = 0
+        unstable_measurements = 0
+        recent_bitrates = deque(maxlen=10)  # Track recent measurements for variance
+        probe_interval = base_probe_interval
+        next_probe_counter = base_probe_interval
         
-        # Get reference to the srtsink element for statistics
+        # Network stability thresholds
+        stability_threshold = 0.15  # 15% variance threshold
+        min_stable_count = 3
+        max_unstable_count = 2
+        
+        def calculate_bitrate_variance(bitrates):
+            """Calculate coefficient of variation for bitrate stability"""
+            if len(bitrates) < 3:
+                return 0
+            avg = sum(bitrates) / len(bitrates)
+            if avg == 0:
+                return 0
+            variance = sum((x - avg) ** 2 for x in bitrates) / len(bitrates)
+            std_dev = variance ** 0.5
+            return std_dev / avg  # Coefficient of variation
+        
+        def is_network_stable():
+            """Determine if network conditions are stable enough for probing"""
+            if len(recent_bitrates) < min_stable_count:
+                return False
+            variance = calculate_bitrate_variance(recent_bitrates)
+            return variance < stability_threshold
+          # Get reference to the srtsink element for statistics
         srtsink = pipeline.get_by_name("srtsink") or pipeline.get_child_by_name("srtsink")
         if not srtsink:
             # Try to find srtsink by iterating through elements
@@ -100,7 +132,8 @@ def main():
             time.sleep(interval)
             current_timestamp = time.time()
             time_diff = current_timestamp - last_timestamp
-              # Get SRT statistics from the sink
+            
+            # Get SRT statistics from the sink
             try:
                 # Get bytes sent from SRT sink statistics
                 stats = srtsink.get_property("stats")
@@ -136,23 +169,56 @@ def main():
                 else:
                     measured_bitrate = 0
                     
-                print(f"[Stream] Measured stream bitrate: {measured_bitrate} kbps (encoder: {current_bitrate} kbps)")
+                # Track recent bitrates for stability analysis
+                if measured_bitrate > 0:
+                    recent_bitrates.append(measured_bitrate)
+                    
+                    # Update stability counters
+                    if is_network_stable():
+                        stable_measurements += 1
+                        unstable_measurements = 0
+                    else:
+                        unstable_measurements += 1
+                        stable_measurements = 0
+                        
+                # Adaptive probe interval based on network stability
+                if stable_measurements >= min_stable_count:
+                    probe_interval = max(2, base_probe_interval - 1)  # Probe more frequently when stable
+                elif unstable_measurements >= max_unstable_count:
+                    probe_interval = min(10, base_probe_interval * 2)  # Probe less when unstable
+                else:
+                    probe_interval = base_probe_interval
+                    
+                print(f"[Stream] Measured: {measured_bitrate} kbps, Encoder: {current_bitrate} kbps, Stability: {'stable' if stable_measurements >= min_stable_count else 'unstable'}")
                 
                 last_bytes_out = bytes_out
                 last_timestamp = current_timestamp
                 
             except Exception as e:
                 print(f"Warning: Could not get stream statistics: {e}")
-                measured_bitrate = 0
-            
+                measured_bitrate = 0            
             probe_counter += 1
-            # Periodically try to increase bitrate (probe up)
-            if probe_counter % probe_interval == 0 and current_bitrate < max_bitrate:
-                test_bitrate = min(max_bitrate, current_bitrate + 256)
-                print(f"[Bitrate] Probing higher encoder bitrate: {test_bitrate} kbps")
+            
+            # Enhanced adaptive probing logic
+            time_since_last_successful_probe = time.time() - last_successful_probe
+            should_probe = (
+                probe_counter >= next_probe_counter and 
+                current_bitrate < max_bitrate and
+                is_network_stable() and
+                time_since_last_successful_probe >= (probe_interval * interval)
+            )
+            
+            if should_probe:
+                # Exponential probe step based on current bitrate
+                probe_step = max(128, int(current_bitrate * 0.15))  # 15% increase, minimum 128 kbps
+                test_bitrate = min(max_bitrate, current_bitrate + probe_step)
+                
+                print(f"[Bitrate] Probing higher encoder bitrate: {test_bitrate} kbps (step: +{probe_step} kbps, stability: {calculate_bitrate_variance(recent_bitrates):.3f})")
+                
                 if x264enc:
                     x264enc.set_property('bitrate', test_bitrate)
                     print(f"[Debug] Encoder bitrate set to: {x264enc.get_property('bitrate')} kbps")                
+                
                 # Measure for probe period
                 time.sleep(interval)
                 probe_timestamp = time.time()
@@ -180,11 +246,25 @@ def main():
                         
                     print(f"[Probe] Measured stream bitrate after probe: {probe_bitrate} kbps")
                     
-                    if probe_bitrate > measured_bitrate * 1.1:
+                    # Enhanced success criteria
+                    probe_success = (
+                        probe_bitrate > measured_bitrate * 1.1 and  # Throughput improved by 10%
+                        probe_bitrate > current_bitrate * 0.85 and   # No significant drop from encoder setting
+                        probe_time_diff > interval * 0.8            # Sufficient measurement time
+                    )
+                    
+                    if probe_success:
                         current_bitrate = test_bitrate
+                        failed_probes = 0
+                        last_successful_probe = time.time()
+                        next_probe_counter = probe_counter + probe_interval  # Reset probe counter
                         print(f"[Bitrate] Probe successful, keeping increased bitrate: {current_bitrate} kbps")
                     else:
-                        print(f"[Bitrate] Probe failed, reverting to previous bitrate: {current_bitrate} kbps")
+                        failed_probes += 1
+                        # Exponential backoff: wait longer after failures
+                        backoff_multiplier = min(2 ** failed_probes, 8)  # Max 8x backoff
+                        next_probe_counter = probe_counter + (probe_interval * backoff_multiplier)
+                        print(f"[Bitrate] Probe failed (attempt {failed_probes}), reverting to {current_bitrate} kbps, next probe in {probe_interval * backoff_multiplier} cycles")
                         if x264enc:
                             x264enc.set_property('bitrate', current_bitrate)
                     
@@ -194,16 +274,25 @@ def main():
                     
                 except Exception as e:
                     print(f"Warning: Could not get probe statistics: {e}")
+                    failed_probes += 1
                     # Revert to previous bitrate on error
                     if x264enc:
-                        x264enc.set_property('bitrate', current_bitrate)
+                        x264enc.set_property('bitrate', current_bitrate)            
+            # Enhanced congestion detection with multiple criteria
+            congestion_detected = (
+                measured_bitrate > 0 and 
+                measured_bitrate < current_bitrate * 0.7 and  # Significant throughput drop
+                current_bitrate > min_bitrate and
+                unstable_measurements >= max_unstable_count  # Only reduce if network is unstable
+            )
             
-            # Only lower bitrate if measured bitrate is much lower than encoder bitrate (possible congestion)
-            # Use more conservative reduction (25% instead of 50%)
-            if measured_bitrate > 0 and measured_bitrate < current_bitrate * 0.7 and current_bitrate > min_bitrate:
-                new_bitrate = max(min_bitrate, int(current_bitrate * 0.75))  # Reduce by 25%
-                print(f"[Bitrate] Lowering encoder bitrate to {new_bitrate} kbps due to stream congestion")
+            if congestion_detected:
+                # More conservative reduction with minimum step
+                reduction_factor = 0.8 if failed_probes > 2 else 0.85  # More aggressive if many probe failures
+                new_bitrate = max(min_bitrate, int(current_bitrate * reduction_factor))
+                print(f"[Bitrate] Congestion detected (measured: {measured_bitrate}, encoder: {current_bitrate}), reducing to {new_bitrate} kbps")
                 current_bitrate = new_bitrate
+                failed_probes = 0  # Reset probe failures after congestion response
                 if x264enc:
                     x264enc.set_property('bitrate', current_bitrate)
 
