@@ -65,10 +65,10 @@ def main():
                 return iface
         return None
 
-    def monitor_network_and_adjust_bitrate(pipeline, x264enc, vbitrate, min_bitrate=256, max_bitrate=4096, interval=5):
+    def monitor_network_and_adjust_bitrate(pipeline, x264enc, vbitrate, min_bitrate=256, max_bitrate=4096, interval=5, probe_interval=4):
         """
         Monitors network usage and adjusts the x264enc bitrate property dynamically.
-        This is a simple simulation: in production, replace with real bandwidth/packet loss monitoring.
+        Periodically probes higher bitrates to maximize quality, and only reduces bitrate if congestion is detected.
         """
         interface = get_active_network_interface()
         if not interface:
@@ -79,22 +79,43 @@ def main():
         stats1 = psutil.net_io_counters(pernic=True)[interface]
         bytes_sent1 = stats1.bytes_sent
         import time
+        probe_counter = 0
+        last_measured_bitrate = 0
         while True:
             time.sleep(interval)
             stats2 = psutil.net_io_counters(pernic=True)[interface]
             bytes_sent2 = stats2.bytes_sent
             measured_bitrate = (bytes_sent2 - bytes_sent1) * 8 // interval // 1000  # kbps
-            print(f"[Network] Measured outgoing bitrate: {measured_bitrate} kbps")
+            print(f"[Network] Measured outgoing bitrate: {measured_bitrate} kbps (encoder: {current_bitrate} kbps)")
             bytes_sent1 = bytes_sent2
-            # Example logic: if measured bitrate is much lower than target, lower vbitrate
+            probe_counter += 1
+            # Periodically try to increase bitrate (probe up)
+            if probe_counter % probe_interval == 0 and current_bitrate < max_bitrate:
+                test_bitrate = min(max_bitrate, current_bitrate + 256)
+                print(f"[Bitrate] Probing higher encoder bitrate: {test_bitrate} kbps")
+                if x264enc:
+                    x264enc.set_property('bitrate', test_bitrate)
+                time.sleep(interval)
+                stats_probe = psutil.net_io_counters(pernic=True)[interface]
+                probe_bitrate = (stats_probe.bytes_sent - bytes_sent2) * 8 // interval // 1000
+                print(f"[Probe] Measured bitrate after probe: {probe_bitrate} kbps")
+                if probe_bitrate > measured_bitrate * 1.1:
+                    current_bitrate = test_bitrate
+                    print(f"[Bitrate] Probe successful, keeping increased bitrate: {current_bitrate} kbps")
+                else:
+                    print(f"[Bitrate] Probe failed, reverting to previous bitrate: {current_bitrate} kbps")
+                    if x264enc:
+                        x264enc.set_property('bitrate', current_bitrate)
+                bytes_sent1 = stats_probe.bytes_sent
+                continue
+            # Only lower bitrate if measured bitrate is much lower than encoder bitrate (possible congestion)
             if measured_bitrate < current_bitrate * 0.7 and current_bitrate > min_bitrate:
-                current_bitrate = max(min_bitrate, current_bitrate // 2)
-                print(f"[Bitrate] Lowering encoder bitrate to {current_bitrate} kbps")
-            elif measured_bitrate > current_bitrate * 1.2 and current_bitrate < max_bitrate:
-                current_bitrate = min(max_bitrate, current_bitrate + 256)
-                print(f"[Bitrate] Increasing encoder bitrate to {current_bitrate} kbps")
-            if x264enc:
-                x264enc.set_property('bitrate', current_bitrate)
+                new_bitrate = max(min_bitrate, current_bitrate // 2)
+                print(f"[Bitrate] Lowering encoder bitrate to {new_bitrate} kbps due to possible congestion")
+                current_bitrate = new_bitrate
+                if x264enc:
+                    x264enc.set_property('bitrate', current_bitrate)
+            last_measured_bitrate = measured_bitrate
 
     def run_gstreamer_pipeline_dynamic(rtsp_url, stream_url, vbitrate):
         # Build pipeline elements
