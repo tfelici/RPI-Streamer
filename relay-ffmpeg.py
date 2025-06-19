@@ -85,7 +85,7 @@ def main():
             time.sleep(interval)
             stats2 = psutil.net_io_counters(pernic=True)[interface]
             bytes_sent2 = stats2.bytes_sent
-            measured_bitrate = (bytes_sent2 - bytes_sent1) * 8 // interval // 1000  # kbps
+            measured_bitrate = (bytes_sent2 - bytes_sent1) * 8 // interval // 1024  # kbps
             print(f"[Network] Measured outgoing bitrate: {measured_bitrate} kbps (encoder: {current_bitrate} kbps)")
             bytes_sent1 = bytes_sent2
             probe_counter += 1
@@ -97,7 +97,7 @@ def main():
                     x264enc.set_property('bitrate', test_bitrate)
                 time.sleep(interval)
                 stats_probe = psutil.net_io_counters(pernic=True)[interface]
-                probe_bitrate = (stats_probe.bytes_sent - bytes_sent2) * 8 // interval // 1000
+                probe_bitrate = (stats_probe.bytes_sent - bytes_sent2) * 8 // interval // 1024
                 print(f"[Probe] Measured bitrate after probe: {probe_bitrate} kbps")
                 if probe_bitrate > measured_bitrate * 1.1:
                     current_bitrate = test_bitrate
@@ -117,9 +117,13 @@ def main():
                     x264enc.set_property('bitrate', current_bitrate)
             last_measured_bitrate = measured_bitrate
 
+    # Global pipeline reference for cleanup
+    global_pipeline = {'pipeline': None}
+
     def run_gstreamer_pipeline_dynamic(rtsp_url, stream_url, vbitrate):
         # Build pipeline elements
         pipeline = Gst.Pipeline.new("relay-pipeline")
+        global_pipeline['pipeline'] = pipeline
         srtsrc = Gst.ElementFactory.make("srtsrc", None)
         srtsrc.set_property("uri", rtsp_url)
         demux = Gst.ElementFactory.make("tsdemux", "demux")
@@ -192,6 +196,7 @@ def main():
     def run_gstreamer_pipeline_static(rtsp_url, stream_url):
         pipeline_str = f"srtsrc uri={rtsp_url} ! srtsink uri={stream_url}"
         pipeline = Gst.parse_launch(pipeline_str)
+        global_pipeline['pipeline'] = pipeline
         pipeline.set_state(Gst.State.PLAYING)
         bus = pipeline.get_bus()
         while True:
@@ -210,6 +215,13 @@ def main():
 
     def handle_exit(signum, frame):
         print(f"Received exit signal {signum}, cleaning up...")
+        # Set pipeline to NULL for clean shutdown
+        try:
+            if global_pipeline['pipeline'] is not None:
+                print("Setting pipeline state to NULL for cleanup...")
+                global_pipeline['pipeline'].set_state(Gst.State.NULL)
+        except Exception as e:
+            print(f"Warning: Could not set pipeline to NULL on exit: {e}")
         # Remove PID file
         try:
             if os.path.exists(ACTIVE_PIDFILE):
