@@ -67,27 +67,84 @@ def main():
 
     def monitor_network_and_adjust_bitrate(pipeline, x264enc, vbitrate, min_bitrate=256, max_bitrate=4096, interval=5, probe_interval=4):
         """
-        Monitors network usage and adjusts the x264enc bitrate property dynamically.
+        Monitors stream-specific bitrate using GStreamer pipeline statistics and adjusts encoder bitrate dynamically.
         Periodically probes higher bitrates to maximize quality, and only reduces bitrate if congestion is detected.
         """
-        interface = get_active_network_interface()
-        if not interface:
-            print("No active network interface found. Bitrate will not be adjusted.")
-            return
-        print(f"Monitoring network interface: {interface}")
+        print("Starting stream-specific bitrate monitoring using GStreamer pipeline stats")
         current_bitrate = vbitrate
-        stats1 = psutil.net_io_counters(pernic=True)[interface]
-        bytes_sent1 = stats1.bytes_sent
         import time
         probe_counter = 0
-        last_measured_bitrate = 0
+        last_bytes_out = 0
+        last_timestamp = time.time()
+        
+        # Get reference to the srtsink element for statistics
+        srtsink = pipeline.get_by_name("srtsink") or pipeline.get_child_by_name("srtsink")
+        if not srtsink:
+            # Try to find srtsink by iterating through elements
+            iterator = pipeline.iterate_elements()
+            while True:
+                result, element = iterator.next()
+                if result != Gst.IteratorResult.OK:
+                    break
+                if element.get_factory().get_name() == "srtsink":
+                    srtsink = element
+                    break
+        
+        if not srtsink:
+            print("Warning: Could not find srtsink element for statistics. Bitrate adjustment disabled.")
+            return
+            
+        print("Found srtsink element for stream monitoring")
+        
         while True:
             time.sleep(interval)
-            stats2 = psutil.net_io_counters(pernic=True)[interface]
-            bytes_sent2 = stats2.bytes_sent
-            measured_bitrate = (bytes_sent2 - bytes_sent1) * 8 // interval // 1024  # kbps
-            print(f"[Network] Measured outgoing bitrate: {measured_bitrate} kbps (encoder: {current_bitrate} kbps)")
-            bytes_sent1 = bytes_sent2
+            current_timestamp = time.time()
+            time_diff = current_timestamp - last_timestamp
+              # Get SRT statistics from the sink
+            try:
+                # Get bytes sent from SRT sink statistics
+                stats = srtsink.get_property("stats")
+                if stats:
+                    if stats.has_field("bytes-sent-total"):
+                        success, bytes_out = stats.get_uint64("bytes-sent-total")
+                        bytes_out = bytes_out if success else 0
+                    elif stats.has_field("bytes-sent"):
+                        success, bytes_out = stats.get_uint64("bytes-sent")
+                        bytes_out = bytes_out if success else 0
+                    else:
+                        bytes_out = 0
+                else:
+                    # Fallback: try to get statistics from pad
+                    sink_pad = srtsink.get_static_pad("sink")
+                    if sink_pad:
+                        query = Gst.Query.new_stats(Gst.PadDirection.SINK)
+                        if sink_pad.query(query):
+                            stats = query.parse_stats()
+                            if stats and stats.has_field("bytes"):
+                                success, bytes_out = stats.get_uint64("bytes")
+                                bytes_out = bytes_out if success else 0
+                            else:
+                                bytes_out = 0
+                        else:
+                            bytes_out = 0
+                    else:
+                        bytes_out = 0
+                
+                if last_bytes_out > 0 and bytes_out > last_bytes_out:
+                    bytes_diff = bytes_out - last_bytes_out
+                    measured_bitrate = (bytes_diff * 8) // (time_diff * 1024)  # kbps
+                else:
+                    measured_bitrate = 0
+                    
+                print(f"[Stream] Measured stream bitrate: {measured_bitrate} kbps (encoder: {current_bitrate} kbps)")
+                
+                last_bytes_out = bytes_out
+                last_timestamp = current_timestamp
+                
+            except Exception as e:
+                print(f"Warning: Could not get stream statistics: {e}")
+                measured_bitrate = 0
+            
             probe_counter += 1
             # Periodically try to increase bitrate (probe up)
             if probe_counter % probe_interval == 0 and current_bitrate < max_bitrate:
@@ -95,27 +152,60 @@ def main():
                 print(f"[Bitrate] Probing higher encoder bitrate: {test_bitrate} kbps")
                 if x264enc:
                     x264enc.set_property('bitrate', test_bitrate)
+                    print(f"[Debug] Encoder bitrate set to: {x264enc.get_property('bitrate')} kbps")                
+                # Measure for probe period
                 time.sleep(interval)
-                stats_probe = psutil.net_io_counters(pernic=True)[interface]
-                probe_bitrate = (stats_probe.bytes_sent - bytes_sent2) * 8 // interval // 1024
-                print(f"[Probe] Measured bitrate after probe: {probe_bitrate} kbps")
-                if probe_bitrate > measured_bitrate * 1.1:
-                    current_bitrate = test_bitrate
-                    print(f"[Bitrate] Probe successful, keeping increased bitrate: {current_bitrate} kbps")
-                else:
-                    print(f"[Bitrate] Probe failed, reverting to previous bitrate: {current_bitrate} kbps")
+                probe_timestamp = time.time()
+                probe_time_diff = probe_timestamp - current_timestamp
+                
+                try:
+                    stats = srtsink.get_property("stats")
+                    if stats:
+                        if stats.has_field("bytes-sent-total"):
+                            success, probe_bytes_out = stats.get_uint64("bytes-sent-total")
+                            probe_bytes_out = probe_bytes_out if success else 0
+                        elif stats.has_field("bytes-sent"):
+                            success, probe_bytes_out = stats.get_uint64("bytes-sent")
+                            probe_bytes_out = probe_bytes_out if success else 0
+                        else:
+                            probe_bytes_out = 0
+                    else:
+                        probe_bytes_out = 0
+                        
+                    if probe_bytes_out > bytes_out:
+                        probe_bytes_diff = probe_bytes_out - bytes_out
+                        probe_bitrate = (probe_bytes_diff * 8) // (probe_time_diff * 1024)
+                    else:
+                        probe_bitrate = 0
+                        
+                    print(f"[Probe] Measured stream bitrate after probe: {probe_bitrate} kbps")
+                    
+                    if probe_bitrate > measured_bitrate * 1.1:
+                        current_bitrate = test_bitrate
+                        print(f"[Bitrate] Probe successful, keeping increased bitrate: {current_bitrate} kbps")
+                    else:
+                        print(f"[Bitrate] Probe failed, reverting to previous bitrate: {current_bitrate} kbps")
+                        if x264enc:
+                            x264enc.set_property('bitrate', current_bitrate)
+                    
+                    last_bytes_out = probe_bytes_out
+                    last_timestamp = probe_timestamp
+                    continue
+                    
+                except Exception as e:
+                    print(f"Warning: Could not get probe statistics: {e}")
+                    # Revert to previous bitrate on error
                     if x264enc:
                         x264enc.set_property('bitrate', current_bitrate)
-                bytes_sent1 = stats_probe.bytes_sent
-                continue
+            
             # Only lower bitrate if measured bitrate is much lower than encoder bitrate (possible congestion)
-            if measured_bitrate < current_bitrate * 0.7 and current_bitrate > min_bitrate:
-                new_bitrate = max(min_bitrate, current_bitrate // 2)
-                print(f"[Bitrate] Lowering encoder bitrate to {new_bitrate} kbps due to possible congestion")
+            # Use more conservative reduction (25% instead of 50%)
+            if measured_bitrate > 0 and measured_bitrate < current_bitrate * 0.7 and current_bitrate > min_bitrate:
+                new_bitrate = max(min_bitrate, int(current_bitrate * 0.75))  # Reduce by 25%
+                print(f"[Bitrate] Lowering encoder bitrate to {new_bitrate} kbps due to stream congestion")
                 current_bitrate = new_bitrate
                 if x264enc:
                     x264enc.set_property('bitrate', current_bitrate)
-            last_measured_bitrate = measured_bitrate
 
     # Global pipeline reference for cleanup
     global_pipeline = {'pipeline': None}
@@ -143,7 +233,7 @@ def main():
         opusparse = Gst.ElementFactory.make("opusparse", None)
         audio_queue2 = Gst.ElementFactory.make("queue", None)
         mux = Gst.ElementFactory.make("mpegtsmux", "mux")
-        srtsink = Gst.ElementFactory.make("srtsink", None)
+        srtsink = Gst.ElementFactory.make("srtsink", "srtsink")
         srtsink.set_property("uri", stream_url)
 
         # Add elements to pipeline
