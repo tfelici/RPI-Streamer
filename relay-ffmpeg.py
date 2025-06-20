@@ -35,9 +35,6 @@ def main():
     except Exception as e:
         print(f"Warning: Could not write active PID file: {e}")
 
-    # Get video bitrate from settings or use default
-    vbitrate = get_setting('vbitrate', 2000)
-
     # Determine protocol for -f option
     protocol = None
     if stream_url.startswith('rtsp://') or stream_url.startswith('rtsps://'):
@@ -51,18 +48,6 @@ def main():
     else:
         print(f"Error: Unsupported protocol in stream_url: {stream_url}")
         sys.exit(1)
-
-    def get_active_network_interface():
-        # Prefer ethernet if up, else wifi
-        candidates = ['eth0', 'en0', 'enp1s0', 'enp2s0', 'wlan0', 'wlp2s0', 'wlp3s0']
-        stats = psutil.net_if_stats()
-        for iface in candidates:
-            if iface in stats and stats[iface].isup:
-                return iface        # Fallback: pick the first non-loopback interface that is up
-        for iface, stat in stats.items():
-            if stat.isup and not iface.startswith('lo'):
-                return iface
-        return None
 
     def monitor_network_and_adjust_bitrate(pipeline, x264enc, vbitrate, min_bitrate=256, max_bitrate=4096, interval=5, base_probe_interval=4):
         """
@@ -413,6 +398,10 @@ def main():
     signal.signal(signal.SIGTERM, handle_exit)
 
     while True:
+        # Get video bitrate from settings or use default
+        #do it in this loop to capture changes in the settings
+        vbitrate = get_setting('vbitrate', 2000)
+
         if stream_url.startswith('https://') and '/whip' in stream_url:
             print("WHIP streaming is not supported in this version. Exiting.")
             break
