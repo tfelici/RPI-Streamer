@@ -215,13 +215,14 @@ def main():
                 elif unstable_measurements >= max_unstable_count:
                     probe_interval = min(10, base_probe_interval * 2)  # Probe less when unstable
                 else:
-                    probe_interval = base_probe_interval                #print this information to a status file which can be read by the web interface
+                    probe_interval = base_probe_interval
                 
                 # Calculate network stability status
                 network_status = "stable" if stable_measurements >= min_stable_count else "unstable"
                 if unstable_measurements >= max_unstable_count:
                     network_status = "congested"
                 
+                #print this information to a status file which can be read by the web interface
                 status_info = {
                     'bitrate': f"{current_bitrate}",
                     'measured_bitrate': measured_bitrate,
@@ -285,8 +286,8 @@ def main():
                     
                     # Enhanced success criteria
                     probe_success = (
-                        probe_bitrate > measured_bitrate * 1.1 and  # Throughput improved by 10%
-                        probe_bitrate > current_bitrate * 0.85 and   # No significant drop from encoder setting
+                        probe_bitrate > measured_bitrate * 1.05 and  # Throughput improved by 5%
+                        #probe_bitrate > current_bitrate * 0.85 and   # No significant drop from encoder setting
                         probe_time_diff > interval * 0.8            # Sufficient measurement time
                     )
                     
