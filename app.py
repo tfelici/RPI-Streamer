@@ -370,15 +370,14 @@ def stream_control():
                     while is_pid_running(pid):
                         time.sleep(0.5)  # Give it a moment to terminate
             except Exception as e:
-                print(f"Error stopping stream: {e}")
-            #also stop the recording process if it exists
+                print(f"Error stopping stream: {e}")            #also stop the recording process if it exists
             active_pid, active_file = get_active_recording_info()
             if active_pid and is_pid_running(active_pid):
                 print(f"Stopping recording with PID {active_pid}")
-                os.kill(active_pid, 15)  # SIGTERM
-                # loop until process is no longer running
+                os.kill(active_pid, 15)  # SIGTERM                # loop until process is no longer running
                 while is_pid_running(active_pid):
                     time.sleep(0.5)  # Give it a moment to terminate
+            
             print("Stream and recording stopped successfully.")
         else:
             print("No active stream to stop.")
@@ -1020,6 +1019,53 @@ def get_connection_info():
         connection_info["error"] = str(e)
     
     return connection_info
+
+#sse entry point to return relay_status_webcam data
+@app.route('/relay-status-sse')
+def relay_status_sse():
+    from flask import Response
+    import json, time
+    def event_stream():
+        last_status = None
+        connection_timeout = 0
+        while True:
+            # Exit if streaming is stopped and we've been disconnected for a while
+            if not is_streaming():
+                connection_timeout += 1
+                if connection_timeout > 3:  # Exit after 3 seconds of no streaming
+                    break
+            else:
+                connection_timeout = 0
+                
+            try:
+                # Read the relay status file
+                with open('/tmp/relay_status_webcam.json', 'r') as f:
+                    status = f.read().strip()
+                
+                if status != last_status:
+                    yield f"data: {json.dumps({'status': status})}\n\n"
+                    last_status = status
+                
+                time.sleep(1)  # Update every second
+            except FileNotFoundError:
+                # File doesn't exist yet, send basic status if streaming
+                if is_streaming():
+                    fallback_status = json.dumps({
+                        'bitrate': 'initializing',
+                        'network_status': 'starting',
+                        'pipeline_status': 'starting',
+                        'stream_health': 'initializing'
+                    })
+                    if fallback_status != last_status:
+                        yield f"data: {json.dumps({'status': fallback_status})}\n\n"
+                        last_status = fallback_status
+                time.sleep(2)  # Check less frequently when file doesn't exist
+            except Exception as e:
+                print(f"Error reading relay status: {e}")
+                time.sleep(2)
+                break
+        print("Closing SSE stream for relay status")
+    return Response(event_stream(), mimetype='text/event-stream')
 
 @app.route('/active-recordings-sse')
 def active_recordings_sse():

@@ -72,6 +72,29 @@
             </div>
             <div id="stream-status" class="status-message" style="display: none;"></div>
 
+            <!-- Streaming Information Panel -->
+            <div id="streaming-info-panel" style="margin-top: 1rem; display: {{ 'block' if streaming else 'none' }};">
+                <h3>Streaming Information</h3>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-value" id="stream-bitrate">--</span>
+                        <div class="stat-label">Bitrate (kbps)</div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="stream-measured-bitrate">--</span>
+                        <div class="stat-label">Measured Bitrate (kbps)</div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value connection-status" id="stream-network-status">--</span>
+                        <div class="stat-label">Network Status</div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value connection-status" id="stream-health">--</span>
+                        <div class="stat-label">Stream Health</div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Active Recordings Panel -->
             <div id="active-recordings-frame" style="margin-top: 2rem; display: none;">
                 <h2>Active Recordings</h2>
@@ -585,8 +608,8 @@
                 listDiv.appendChild(div);
             }
         }
-
         let activeRecordingsEventSource = null;
+        let streamingStatusEventSource = null;
 
         function startActiveRecordingsRefresh() {
             // Use SSE for real-time updates
@@ -615,10 +638,104 @@
                 activeRecordingsEventSource = null;
             }
         }
-
+        
         // Always start the active recordings refresh if streaming is active
         if (streaming) {
             startActiveRecordingsRefresh();
+            startStreamingStatusRefresh();
+        }        // Streaming status functionality
+        function updateStreamStatusWithRelayInfo(relayData) {
+            try {
+                // Update bitrate
+                const bitrateEl = document.getElementById('stream-bitrate');
+                if (bitrateEl) {
+                    if (relayData.bitrate === 'passthrough') {
+                        bitrateEl.textContent = 'Passthrough';
+                    } else if (relayData.bitrate === 'initializing') {
+                        bitrateEl.textContent = 'Initializing...';
+                    } else {
+                        bitrateEl.textContent = relayData.bitrate || '--';
+                    }
+                }
+
+                // Update measured bitrate
+                const measuredBitrateEl = document.getElementById('stream-measured-bitrate');
+                if (measuredBitrateEl) {
+                    if (relayData.measured_bitrate !== undefined && relayData.measured_bitrate > 0) {
+                        measuredBitrateEl.textContent = relayData.measured_bitrate;
+                    } else {
+                        measuredBitrateEl.textContent = '--';
+                    }
+                }
+
+                // Update network status
+                const networkStatusEl = document.getElementById('stream-network-status');
+                if (networkStatusEl) {
+                    const status = relayData.network_status || 'unknown';
+                    networkStatusEl.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+                    // Apply appropriate styling based on status
+                    networkStatusEl.className = 'stat-value connection-status';
+                    if (status === 'stable') {
+                        networkStatusEl.style.color = '#5cb85c'; // green
+                    } else if (status === 'unstable') {
+                        networkStatusEl.style.color = '#f0ad4e'; // orange
+                    } else if (status === 'congested') {
+                        networkStatusEl.style.color = '#d9534f'; // red
+                    } else {
+                        networkStatusEl.style.color = '';
+                    }
+                }
+
+                // Update stream health
+                const streamHealthEl = document.getElementById('stream-health');
+                if (streamHealthEl) {
+                    const health = relayData.stream_health || 'unknown';
+                    streamHealthEl.textContent = health.charAt(0).toUpperCase() + health.slice(1);
+                    // Apply appropriate styling based on health
+                    streamHealthEl.className = 'stat-value connection-status';
+                    if (health === 'good' || health === 'passthrough') {
+                        streamHealthEl.style.color = '#5cb85c'; // green
+                    } else if (health === 'degraded') {
+                        streamHealthEl.style.color = '#f0ad4e'; // orange
+                    } else if (health === 'initializing') {
+                        streamHealthEl.style.color = '#5bc0de'; // blue
+                    } else {
+                        streamHealthEl.style.color = '';
+                    }
+                }
+            } catch (e) {
+                console.error('Error updating stream status:', e);
+            }
+        }
+
+        function startStreamingStatusRefresh() {
+            // Use SSE for real-time streaming status updates
+            if (streamingStatusEventSource) {
+                streamingStatusEventSource.close();
+            }
+            streamingStatusEventSource = new EventSource('/relay-status-sse');
+            streamingStatusEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.status) {
+                        const relayData = JSON.parse(data.status);
+                        updateStreamStatusWithRelayInfo(relayData);
+                    }
+                } catch (e) {
+                    console.error('Error parsing relay status:', e);
+                }
+            };
+            streamingStatusEventSource.onerror = function() {
+                // SSE has terminated, stop the refresh
+                stopStreamingStatusRefresh();
+            };
+        }
+
+        function stopStreamingStatusRefresh() {
+            if (streamingStatusEventSource) {
+                streamingStatusEventSource.close();
+                streamingStatusEventSource = null;
+            }
         }
 
         // Streaming control
@@ -661,12 +778,22 @@
                     streamStatus.style.borderRadius = '';
                     streamStatus.style.fontWeight = '';
                     streamBtn.disabled = false;
+
+                    // Show/hide streaming info panel
+                    const streamingInfoPanel = document.getElementById('streaming-info-panel');
+                    if (streamingInfoPanel) {
+                        streamingInfoPanel.style.display = streaming ? 'block' : 'none';
+                    }
+
                     if (streaming) {
                         // Ensure the active recordings panel is visible again
                         const activeFrame = document.getElementById('active-recordings-frame');
                         if (activeFrame) activeFrame.style.display = '';
                         startActiveRecordingsRefresh();
+                        startStreamingStatusRefresh();
                     } else {
+                        // Stop SSE connections
+                        stopStreamingStatusRefresh();
                         // update and show the upload recordings list
                         updateUploadRecordingsList();
                     }
