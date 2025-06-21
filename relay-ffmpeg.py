@@ -159,12 +159,22 @@ def main():
             
         print("Found srtsink element for stream monitoring")
         
+        vbitrate = get_setting('vbitrate', 2000)
+        current_bitrate = vbitrate
         while True:
-            current_bitrate = get_setting('vbitrate', 2000)
             if stop_event is not None and stop_event.is_set():
                 print("Monitor thread received stop event, exiting.")
                 break
-                
+            #if vbitrate setting has changed, update current_bitrate
+            new_vbitrate = get_setting('vbitrate', 2000)
+            if new_vbitrate != vbitrate:
+                print(f"vbitrate setting changed from {vbitrate} to {new_vbitrate} - updating encoder bitrate...")
+                vbitrate = new_vbitrate
+                current_bitrate = vbitrate
+                if x264enc:
+                    x264enc.set_property('bitrate', current_bitrate)
+                    print(f"[Debug] Encoder bitrate updated to: {x264enc.get_property('bitrate')} kbps")
+
             # Check for dynamicBitrate setting changes
             new_dynamic_setting = get_setting('dynamicBitrate', True)
             if new_dynamic_setting != current_dynamic_setting:
@@ -322,6 +332,7 @@ def main():
                 failed_probes = 0  # Reset probe failures after congestion response
                 if x264enc:
                     x264enc.set_property('bitrate', current_bitrate)    # Global pipeline and monitor thread references for cleanup
+    
     global_pipeline = {'pipeline': None}  # type: dict
     global_monitor = {'thread': None, 'stop_event': None}  # type: dict
 
