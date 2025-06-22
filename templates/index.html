@@ -3,9 +3,202 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>System Stats - RPI Streamer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">    <title>System Stats - RPI Streamer</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='responsive.css') }}">
+    <style>
+        .collapsible-header {
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            margin: 0;
+        }
+        
+        .collapsible-header:hover {
+            opacity: 0.8;
+        }
+        
+        .collapse-icon {
+            margin-right: 0.5rem;
+            transition: transform 0.3s ease;
+            font-size: 0.8em;
+        }
+        
+        .collapsible-content {
+            transition: max-height 0.3s ease, opacity 0.3s ease;
+            overflow: hidden;
+        }
+        
+        .collapsible-content.collapsed {
+            max-height: 0;
+            opacity: 0;
+        }
+        
+        .collapsible-content:not(.collapsed) {
+            max-height: 1000px;
+            opacity: 1;
+        }
+          .collapsed + .collapsible-content .collapse-icon {
+            transform: rotate(-90deg);
+        }
+        
+        /* System Diagnostics Styles */
+        .diagnostics-status {
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+        
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+        
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #808080;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-dot.healthy {
+            background-color: #28a745;
+        }
+        
+        .status-dot.warning {
+            background-color: #ffc107;
+        }
+        
+        .status-dot.critical {
+            background-color: #dc3545;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .diagnostics-alerts {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .diagnostics-alerts.critical {
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+        }
+        
+        .alert-section h4 {
+            margin: 0 0 0.5rem 0;
+            color: #856404;
+            font-size: 1em;
+        }
+        
+        .diagnostics-alerts.critical .alert-section h4 {
+            color: #721c24;
+        }
+        
+        .alert-section ul {
+            margin: 0;
+            padding-left: 1.2rem;
+        }
+        
+        .alert-section li {
+            margin: 0.25rem 0;
+            color: #856404;
+        }
+        
+        .diagnostics-alerts.critical .alert-section li {
+            color: #721c24;
+        }
+        
+        .diagnostics-details {
+            margin-top: 1rem;
+        }
+        
+        .details-toggle {
+            margin: 0 0 1rem 0;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #007bff;
+            font-size: 1em;
+            transition: color 0.2s;
+        }
+        
+        .details-toggle:hover {
+            color: #0056b3;
+        }
+        
+        .details-toggle .collapse-icon {
+            transition: transform 0.3s ease;
+        }
+        
+        .details-toggle.expanded .collapse-icon {
+            transform: rotate(90deg);
+        }
+        
+        .detailed-content {
+            transition: all 0.3s ease;
+            overflow: hidden;
+        }
+        
+        .diagnostics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+        }
+        
+        .diag-category {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        
+        .diag-category h5 {
+            margin: 0 0 0.75rem 0;
+            color: #495057;
+            font-size: 1em;
+            border-bottom: 1px solid #dee2e6;
+            padding-bottom: 0.5rem;
+        }
+        
+        .diag-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.25rem 0;
+            font-size: 0.9em;
+        }
+        
+        .diag-label {
+            color: #6c757d;
+            font-weight: 500;
+        }
+        
+        .diag-value {
+            font-family: 'Courier New', monospace;
+            color: #495057;
+            font-weight: bold;
+        }
+        
+        .diag-value.error {
+            color: #dc3545;
+        }
+        
+        .diag-value.warning {
+            color: #ffc107;
+        }
+    </style>
 </head>
 
 <body>
@@ -15,49 +208,176 @@
     {% endif %}
 
     <div class="container">
-        {% if not uploadrecordingsonly %}
-        <!-- System Stats -->
+        {% if not uploadrecordingsonly %}        <!-- System Stats -->
         <div class="frame">
-            <h2>System Statistics</h2>
-            <div class="stats-grid">
-                <div class="stat-item">
-                    <span class="stat-value" id="cpu">--</span>
-                    <div class="stat-label">CPU Usage (%)</div>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-value" id="mem">--</span>
-                    <div class="stat-label">Memory Usage (%)</div>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-value" id="temp">--</span>
-                    <div class="stat-label">Temperature</div>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-value" id="power">--</span>
-                    <div class="stat-label">Power Draw</div>
+            <h2 class="collapsible-header" data-target="system-stats-content">
+                <span class="collapse-icon">▼</span>
+                System Statistics
+            </h2>
+            <div id="system-stats-content" class="collapsible-content">
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-value" id="cpu">--</span>
+                        <div class="stat-label">CPU Usage (%)</div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="mem">--</span>
+                        <div class="stat-label">Memory Usage (%)</div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="temp">--</span>
+                        <div class="stat-label">Temperature</div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="power">--</span>
+                        <div class="stat-label">Power Draw</div>
+                    </div>
                 </div>
             </div>
         </div>
 
         <!-- Network Connection -->
         <div class="frame">
-            <h2>Network Connection</h2>
-            <div class="stats-grid">
-                <div class="stat-item">
-                    <span class="stat-value connection-status" id="ethernet">--</span>
-                    <div class="stat-label">Ethernet</div>
+            <h2 class="collapsible-header" data-target="network-content">
+                <span class="collapse-icon">▼</span>
+                Network Connection
+            </h2>
+            <div id="network-content" class="collapsible-content">
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-value connection-status" id="ethernet">--</span>
+                        <div class="stat-label">Ethernet</div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value connection-status" id="wifi">--</span>
+                        <div class="stat-label">WiFi</div>
+                    </div>
                 </div>
-                <div class="stat-item">
-                    <span class="stat-value connection-status" id="wifi">--</span>
-                    <div class="stat-label">WiFi</div>
-                </div>
-            </div>
 
-            <!-- IP Addresses Section -->
-            <div id="ip-addresses" style="margin-top: 1rem; display: none;">
-                <h3>IP Addresses</h3>
-                <div id="ip-list" class="ip-list">
-                    <!-- IP addresses will be populated here -->
+                <!-- IP Addresses Section -->
+                <div id="ip-addresses" style="margin-top: 1rem; display: none;">
+                    <h3>IP Addresses</h3>
+                    <div id="ip-list" class="ip-list">
+                        <!-- IP addresses will be populated here -->
+                    </div>
+                </div>
+            </div>        </div>
+
+        <!-- System Diagnostics -->
+        <div class="frame">
+            <h2 class="collapsible-header" data-target="diagnostics-content">
+                <span class="collapse-icon">▼</span>
+                System Diagnostics
+            </h2>
+            <div id="diagnostics-content" class="collapsible-content">
+                <div class="diagnostics-status" id="diagnostics-status">
+                    <div class="status-indicator" id="diagnostics-health">
+                        <span class="status-dot"></span>
+                        <span id="health-text">Checking...</span>
+                    </div>
+                </div>
+                
+                <!-- Throttling/Undervoltage Alerts -->
+                <div id="diagnostics-alerts" class="diagnostics-alerts" style="display: none;">
+                    <div class="alert-section">
+                        <h4>Current Issues</h4>
+                        <ul id="current-issues"></ul>
+                    </div>
+                    <div class="alert-section">
+                        <h4>Past Issues</h4>
+                        <ul id="past-issues"></ul>
+                    </div>
+                </div>
+
+                <!-- Detailed Diagnostics (collapsible) -->
+                <div class="diagnostics-details">
+                    <h4 class="details-toggle" id="details-toggle">
+                        <span class="collapse-icon">▶</span>
+                        Detailed Information
+                    </h4>
+                    <div id="detailed-diagnostics" class="detailed-content" style="display: none;">
+                        <div class="diagnostics-grid">
+                            <!-- Temperature & Voltages -->
+                            <div class="diag-category">
+                                <h5>Temperature & Voltages</h5>
+                                <div class="diag-item">
+                                    <span class="diag-label">Temperature:</span>
+                                    <span class="diag-value" id="diag-temperature">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Core Voltage:</span>
+                                    <span class="diag-value" id="diag-voltage-core">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">SDRAM C Voltage:</span>
+                                    <span class="diag-value" id="diag-voltage-sdram-c">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">SDRAM I Voltage:</span>
+                                    <span class="diag-value" id="diag-voltage-sdram-i">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">SDRAM P Voltage:</span>
+                                    <span class="diag-value" id="diag-voltage-sdram-p">--</span>
+                                </div>
+                            </div>
+
+                            <!-- Clock Frequencies -->
+                            <div class="diag-category">
+                                <h5>Clock Frequencies</h5>
+                                <div class="diag-item">
+                                    <span class="diag-label">ARM:</span>
+                                    <span class="diag-value" id="diag-clock-arm">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Core:</span>
+                                    <span class="diag-value" id="diag-clock-core">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">H264:</span>
+                                    <span class="diag-value" id="diag-clock-h264">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">ISP:</span>
+                                    <span class="diag-value" id="diag-clock-isp">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">V3D:</span>
+                                    <span class="diag-value" id="diag-clock-v3d">--</span>
+                                </div>
+                            </div>
+
+                            <!-- Memory Split -->
+                            <div class="diag-category">
+                                <h5>Memory Split</h5>
+                                <div class="diag-item">
+                                    <span class="diag-label">ARM Memory:</span>
+                                    <span class="diag-value" id="diag-mem-arm">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">GPU Memory:</span>
+                                    <span class="diag-value" id="diag-mem-gpu">--</span>
+                                </div>
+                            </div>
+
+                            <!-- Codecs -->
+                            <div class="diag-category">
+                                <h5>Hardware Codecs</h5>
+                                <div class="diag-item">
+                                    <span class="diag-label">H264:</span>
+                                    <span class="diag-value" id="diag-codec-h264">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">MPG2:</span>
+                                    <span class="diag-value" id="diag-codec-mpg2">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">WVC1:</span>
+                                    <span class="diag-value" id="diag-codec-wvc1">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -507,10 +827,236 @@
                 }
             })();
         });
-    </script>
-
-    {% if not uploadrecordingsonly %}
+    </script>    {% if not uploadrecordingsonly %}
     <script>
+        // Collapsible panels functionality
+        function initializeCollapsiblePanels() {
+            const headers = document.querySelectorAll('.collapsible-header');
+            
+            headers.forEach(header => {
+                const targetId = header.getAttribute('data-target');
+                const content = document.getElementById(targetId);
+                const icon = header.querySelector('.collapse-icon');
+                
+                if (!content) return;
+                
+                // Get saved state from localStorage (default to collapsed)
+                const savedState = localStorage.getItem(`panel-${targetId}`);
+                const isCollapsed = savedState === null ? true : savedState === 'collapsed';
+                
+                // Apply initial state
+                if (isCollapsed) {
+                    content.classList.add('collapsed');
+                    icon.style.transform = 'rotate(-90deg)';
+                } else {
+                    content.classList.remove('collapsed');
+                    icon.style.transform = 'rotate(0deg)';
+                }
+                
+                // Add click handler
+                header.addEventListener('click', function() {
+                    const isCurrentlyCollapsed = content.classList.contains('collapsed');
+                    
+                    if (isCurrentlyCollapsed) {
+                        content.classList.remove('collapsed');
+                        icon.style.transform = 'rotate(0deg)';
+                        localStorage.setItem(`panel-${targetId}`, 'expanded');
+                    } else {
+                        content.classList.add('collapsed');
+                        icon.style.transform = 'rotate(-90deg)';
+                        localStorage.setItem(`panel-${targetId}`, 'collapsed');
+                    }
+                });
+            });
+        }
+          // Initialize collapsible panels when DOM is ready
+        document.addEventListener('DOMContentLoaded', initializeCollapsiblePanels);
+        
+        // System Diagnostics functionality
+        let diagnosticsEventSource = null;
+        
+        function initializeDiagnostics() {
+            // Handle detailed diagnostics toggle
+            const detailsToggle = document.getElementById('details-toggle');
+            const detailedDiagnostics = document.getElementById('detailed-diagnostics');
+            
+            if (detailsToggle && detailedDiagnostics) {
+                detailsToggle.addEventListener('click', function() {
+                    const isExpanded = detailedDiagnostics.style.display !== 'none';
+                    
+                    if (isExpanded) {
+                        detailedDiagnostics.style.display = 'none';
+                        detailsToggle.classList.remove('expanded');
+                    } else {
+                        detailedDiagnostics.style.display = 'block';
+                        detailsToggle.classList.add('expanded');
+                    }
+                });
+            }
+            
+            // Start SSE connection for diagnostics
+            startDiagnosticsRefresh();
+        }
+        
+        function startDiagnosticsRefresh() {
+            if (diagnosticsEventSource) {
+                diagnosticsEventSource.close();
+            }
+            
+            diagnosticsEventSource = new EventSource('/diagnostics-sse');
+            
+            diagnosticsEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    updateDiagnosticsDisplay(data);
+                } catch (e) {
+                    console.error('Error parsing diagnostics data:', e);
+                }
+            };
+            
+            diagnosticsEventSource.onerror = function() {
+                console.error('Diagnostics SSE connection error');
+                // Try to reconnect after 5 seconds
+                setTimeout(() => {
+                    if (diagnosticsEventSource.readyState === EventSource.CLOSED) {
+                        startDiagnosticsRefresh();
+                    }
+                }, 5000);
+            };
+        }
+        
+        function stopDiagnosticsRefresh() {
+            if (diagnosticsEventSource) {
+                diagnosticsEventSource.close();
+                diagnosticsEventSource = null;
+            }
+        }
+        
+        function updateDiagnosticsDisplay(data) {
+            // Update health status
+            const healthText = document.getElementById('health-text');
+            const statusDot = document.querySelector('.status-dot');
+            const alertsDiv = document.getElementById('diagnostics-alerts');
+            const currentIssuesList = document.getElementById('current-issues');
+            const pastIssuesList = document.getElementById('past-issues');
+            
+            if (data.error) {
+                if (healthText) healthText.textContent = `Error: ${data.error}`;
+                if (statusDot) {
+                    statusDot.className = 'status-dot critical';
+                }
+                return;
+            }
+            
+            // Parse throttled status
+            const throttledInfo = data.throttled_parsed || {};
+            const hasIssues = throttledInfo.has_issues || false;
+            const currentIssues = throttledInfo.current_issues || [];
+            const pastIssues = throttledInfo.past_issues || [];
+            
+            // Update health indicator
+            if (healthText && statusDot) {
+                if (currentIssues.length > 0) {
+                    healthText.textContent = 'Critical Issues Detected';
+                    statusDot.className = 'status-dot critical';
+                } else if (pastIssues.length > 0) {
+                    healthText.textContent = 'Past Issues Detected';
+                    statusDot.className = 'status-dot warning';
+                } else {
+                    healthText.textContent = 'System Healthy';
+                    statusDot.className = 'status-dot healthy';
+                }
+            }
+            
+            // Update alerts section
+            if (alertsDiv && currentIssuesList && pastIssuesList) {
+                if (currentIssues.length > 0 || pastIssues.length > 0) {
+                    alertsDiv.style.display = 'block';
+                    alertsDiv.className = currentIssues.length > 0 ? 'diagnostics-alerts critical' : 'diagnostics-alerts';
+                    
+                    // Update current issues
+                    currentIssuesList.innerHTML = '';
+                    if (currentIssues.length > 0) {
+                        currentIssues.forEach(issue => {
+                            const li = document.createElement('li');
+                            li.textContent = issue;
+                            currentIssuesList.appendChild(li);
+                        });
+                    } else {
+                        const li = document.createElement('li');
+                        li.textContent = 'None';
+                        li.style.fontStyle = 'italic';
+                        currentIssuesList.appendChild(li);
+                    }
+                    
+                    // Update past issues
+                    pastIssuesList.innerHTML = '';
+                    if (pastIssues.length > 0) {
+                        pastIssues.forEach(issue => {
+                            const li = document.createElement('li');
+                            li.textContent = issue;
+                            pastIssuesList.appendChild(li);
+                        });
+                    } else {
+                        const li = document.createElement('li');
+                        li.textContent = 'None';
+                        li.style.fontStyle = 'italic';
+                        pastIssuesList.appendChild(li);
+                    }
+                } else {
+                    alertsDiv.style.display = 'none';
+                }
+            }
+            
+            // Update detailed diagnostics
+            updateDetailedDiagnostics(data);
+        }
+        
+        function updateDetailedDiagnostics(data) {
+            // Temperature & Voltages
+            updateDiagValue('diag-temperature', data.temperature);
+            updateDiagValue('diag-voltage-core', data.voltage_core);
+            updateDiagValue('diag-voltage-sdram-c', data.voltage_sdram_c);
+            updateDiagValue('diag-voltage-sdram-i', data.voltage_sdram_i);
+            updateDiagValue('diag-voltage-sdram-p', data.voltage_sdram_p);
+            
+            // Clock Frequencies
+            updateDiagValue('diag-clock-arm', data.clock_arm);
+            updateDiagValue('diag-clock-core', data.clock_core);
+            updateDiagValue('diag-clock-h264', data.clock_h264);
+            updateDiagValue('diag-clock-isp', data.clock_isp);
+            updateDiagValue('diag-clock-v3d', data.clock_v3d);
+            
+            // Memory Split
+            updateDiagValue('diag-mem-arm', data.mem_arm);
+            updateDiagValue('diag-mem-gpu', data.mem_gpu);
+            
+            // Codecs
+            updateDiagValue('diag-codec-h264', data.codec_h264);
+            updateDiagValue('diag-codec-mpg2', data.codec_mpg2);
+            updateDiagValue('diag-codec-wvc1', data.codec_wvc1);
+        }
+        
+        function updateDiagValue(elementId, value) {
+            const element = document.getElementById(elementId);
+            if (element) {
+                element.textContent = value || '--';
+                
+                // Add styling based on content
+                element.className = 'diag-value';
+                if (typeof value === 'string') {
+                    if (value.includes('Error') || value.includes('not found') || value.includes('Timeout')) {
+                        element.classList.add('error');
+                    } else if (value.includes('disabled') || value === 'N/A') {
+                        element.classList.add('warning');
+                    }
+                }
+            }
+        }
+        
+        // Initialize diagnostics when DOM is ready
+        document.addEventListener('DOMContentLoaded', initializeDiagnostics);
+        
         const cpu = document.getElementById('cpu');
         const mem = document.getElementById('mem');
         const temp = document.getElementById('temp');

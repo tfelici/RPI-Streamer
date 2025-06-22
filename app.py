@@ -1089,6 +1089,133 @@ def active_recordings_sse():
             time.sleep(1)
         print("No active recordings, closing SSE stream")
     return Response(event_stream(), mimetype='text/event-stream')
-# ...existing code...
+
+@app.route('/diagnostics-sse')
+def diagnostics_sse():
+    """SSE endpoint for system diagnostics updates."""
+    import json
+    def event_stream():
+        last_diagnostics = None
+        while True:
+            try:
+                diagnostics = get_system_diagnostics()
+                
+                # Only send if changed (to reduce bandwidth)
+                if diagnostics != last_diagnostics:
+                    yield f"data: {json.dumps(diagnostics)}\n\n"
+                    last_diagnostics = diagnostics
+                    
+                time.sleep(2)  # Update every 2 seconds
+            except Exception as e:
+                error_data = {'error': str(e)}
+                yield f"data: {json.dumps(error_data)}\n\n"
+                time.sleep(5)  # Wait longer on error
+    return Response(event_stream(), mimetype='text/event-stream')
+
+def get_system_diagnostics():
+    """
+    Get comprehensive system diagnostics using vcgencmd.
+    Returns a dictionary with all available diagnostic information.
+    """
+    diagnostics = {}
+    
+    # List of vcgencmd commands to run
+    commands = {
+        'temperature': ['measure_temp'],
+        'voltage_core': ['measure_volts', 'core'],
+        'voltage_sdram_c': ['measure_volts', 'sdram_c'],
+        'voltage_sdram_i': ['measure_volts', 'sdram_i'],
+        'voltage_sdram_p': ['measure_volts', 'sdram_p'],
+        'clock_arm': ['measure_clock', 'arm'],
+        'clock_core': ['measure_clock', 'core'],
+        'clock_h264': ['measure_clock', 'h264'],
+        'clock_isp': ['measure_clock', 'isp'],
+        'clock_v3d': ['measure_clock', 'v3d'],
+        'clock_uart': ['measure_clock', 'uart'],
+        'clock_pwm': ['measure_clock', 'pwm'],
+        'clock_emmc': ['measure_clock', 'emmc'],
+        'clock_pixel': ['measure_clock', 'pixel'],
+        'clock_vec': ['measure_clock', 'vec'],
+        'clock_hdmi': ['measure_clock', 'hdmi'],
+        'clock_dpi': ['measure_clock', 'dpi'],
+        'throttled': ['get_throttled'],
+        'mem_arm': ['get_mem', 'arm'],
+        'mem_gpu': ['get_mem', 'gpu'],
+        'codec_h264': ['codec_enabled', 'H264'],
+        'codec_mpg2': ['codec_enabled', 'MPG2'],
+        'codec_wvc1': ['codec_enabled', 'WVC1'],
+        'codec_mpg4': ['codec_enabled', 'MPG4'],
+        'codec_mjpg': ['codec_enabled', 'MJPG'],
+        'config_int': ['get_config', 'int'],
+        'config_str': ['get_config', 'str'],
+    }
+    
+    for key, cmd_args in commands.items():
+        try:
+            result = subprocess.run(['vcgencmd'] + cmd_args, capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                output = result.stdout.strip()
+                diagnostics[key] = output
+            else:
+                diagnostics[key] = f"Error: {result.stderr.strip()}" if result.stderr.strip() else "N/A"
+        except subprocess.TimeoutExpired:
+            diagnostics[key] = "Timeout"
+        except FileNotFoundError:
+            diagnostics[key] = "vcgencmd not found"
+        except Exception as e:
+            diagnostics[key] = f"Error: {str(e)}"
+    
+    # Parse throttled status for special highlighting
+    throttled_raw = diagnostics.get('throttled', '')
+    throttled_info = parse_throttled_status(throttled_raw)
+    diagnostics['throttled_parsed'] = throttled_info
+    
+    return diagnostics
+
+def parse_throttled_status(throttled_output):
+    """
+    Parse the throttled status from vcgencmd get_throttled output.
+    Returns a dict with parsed information about undervoltage and throttling.
+    """
+    info = {
+        'raw': throttled_output,
+        'has_issues': False,
+        'current_issues': [],
+        'past_issues': [],
+        'hex_value': None
+    }
+    
+    try:
+        # Extract hex value from output like "throttled=0x50000"
+        match = re.search(r'throttled=0x([0-9a-fA-F]+)', throttled_output)
+        if match:
+            hex_value = int(match.group(1), 16)
+            info['hex_value'] = hex_value
+            
+            # Bit meanings for throttled status
+            bit_meanings = {
+                0: 'Under-voltage detected',
+                1: 'Arm frequency capped',
+                2: 'Currently throttled',
+                3: 'Soft temperature limit active',
+                16: 'Under-voltage has occurred',
+                17: 'Arm frequency capping has occurred', 
+                18: 'Throttling has occurred',
+                19: 'Soft temperature limit has occurred'
+            }
+            
+            for bit, meaning in bit_meanings.items():
+                if hex_value & (1 << bit):
+                    info['has_issues'] = True
+                    if bit < 16:
+                        info['current_issues'].append(meaning)
+                    else:
+                        info['past_issues'].append(meaning)
+                        
+    except Exception as e:
+        info['parse_error'] = str(e)
+    
+    return info
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80, debug=False, threaded=True)
