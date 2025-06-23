@@ -399,7 +399,7 @@ def start(stream_name):
         audio_device = find_usb_audio_device()
 
         # Build command with current settings
-        cmd, env = build_streamer_cmd(
+        cmd, env = build_gstreamer_cmd(
             video_device, audio_device, current_framerate, current_resolution,
             current_crf, current_gop, current_vbitrate, current_ar,
             current_abitrate, current_volume, stream_name
