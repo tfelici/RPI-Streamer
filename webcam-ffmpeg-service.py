@@ -65,34 +65,26 @@ def start(stream_name):
                     print(f"Warning: Failed to set mic volume with amixer: {e}")
 
         def probe_hardware_encoder_pars(crf_val, gop_val, vbitrate_val):
-            # Try hardware encoders for RPi
-            hw_encoders = ['v4l2h264enc', 'omxh264enc']
-            for encoder in hw_encoders:
-                try:
-                    # Test if the encoder is available
-                    probe_cmd = ['gst-inspect-1.0', encoder]
-                    result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=5)
-                    if result.returncode == 0:
-                        print(f"Using hardware encoder: {encoder}")
-                        if encoder == 'v4l2h264enc':
-                            if crf_val not in (None, '', 0, '0'):
-                                # Use CRF mode if specified (quality-based encoding)
-                                return f'{encoder} extra-controls="encode,h264_profile=1,h264_level=10,h264_i_frame_period={gop_val},video_bitrate_mode=1,video_bitrate={int(crf_val) * 100000}"'
-                            else:
-                                # Use bitrate mode
-                                return f'{encoder} extra-controls="encode,h264_profile=1,h264_level=10,video_bitrate={vbitrate_val * 1000},h264_i_frame_period={gop_val}"'
-                        else:
-                            # omxh264enc supports keyframe-interval
-                            if crf_val not in (None, '', 0, '0'):
-                                # OMX doesn't have direct CRF support, use bitrate derived from CRF
-                                derived_bitrate = max(100, vbitrate_val * (1.0 - (int(crf_val) - 18) * 0.1))
-                                return f'{encoder} bitrate={int(derived_bitrate * 1000)} keyframe-interval={gop_val}'
-                            else:
-                                return f'{encoder} bitrate={vbitrate_val * 1000} keyframe-interval={gop_val}'
-                except Exception as e:
-                    print(f"{encoder} probe failed: {e}")
-            
-            print("Hardware encoders not supported, falling back to x264enc")
+            # Actually test v4l2h264enc by running a minimal pipeline with simplified controls
+            encoder = 'v4l2h264enc'
+            test_cmd = [
+                'gst-launch-1.0',
+                'videotestsrc', 'num-buffers=10', '!',
+                'video/x-raw,width=320,height=240,framerate=5/1', '!',
+                f'{encoder}', '!',
+                'video/x-h264,profile=baseline', '!',
+                'fakesink'
+            ]
+            try:
+                result = subprocess.run(test_cmd, capture_output=True, text=True, timeout=10)
+                if result.returncode == 0:
+                    print(f"Hardware encoder {encoder} test succeeded, using it.")
+                    return f'{encoder}'
+                else:
+                    print(f"Hardware encoder {encoder} test failed, return code {result.returncode}.")
+            except Exception as e:
+                print(f"{encoder} test pipeline failed: {e}")
+            print("Hardware encoder not supported or failed, falling back to x264enc")
             if crf_val not in (None, '', 0, '0'):
                 # Use CRF mode for x264enc
                 return f'x264enc tune=zerolatency quantizer={crf_val} speed-preset=ultrafast key-int-max={gop_val}'
@@ -407,7 +399,7 @@ def start(stream_name):
         audio_device = find_usb_audio_device()
 
         # Build command with current settings
-        cmd, env = build_gstreamer_cmd(
+        cmd, env = build_ffmpeg_cmd(
             video_device, audio_device, current_framerate, current_resolution,
             current_crf, current_gop, current_vbitrate, current_ar,
             current_abitrate, current_volume, stream_name
