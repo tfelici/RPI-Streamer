@@ -91,7 +91,7 @@ def main():
         print(f"Error: Unsupported protocol in stream_url: {stream_url}")
         sys.exit(1)
 
-    def monitor_network_and_adjust_bitrate(pipeline, x264enc, min_bitrate=256, max_bitrate=4096, interval=5, base_probe_interval=4, stop_event=None):
+    def monitor_network_and_adjust_bitrate(pipeline, x264enc, min_bitrate=256, interval=5, base_probe_interval=4, stop_event=None):
         """
         Monitors stream-specific bitrate using GStreamer pipeline statistics and adjusts encoder bitrate dynamically.
         Uses adaptive probing strategy with exponential backoff, network stability awareness, and intelligent success criteria.
@@ -160,7 +160,7 @@ def main():
         print("Found srtsink element for stream monitoring")
         
         vbitrate = get_setting('vbitrate', 2000)
-        current_bitrate = vbitrate
+        max_bitrate = current_bitrate = vbitrate
         while True:
             if stop_event is not None and stop_event.is_set():
                 print("Monitor thread received stop event, exiting.")
@@ -170,7 +170,7 @@ def main():
             if new_vbitrate != vbitrate:
                 print(f"vbitrate setting changed from {vbitrate} to {new_vbitrate} - updating encoder bitrate...")
                 vbitrate = new_vbitrate
-                current_bitrate = vbitrate
+                max_bitrate = vbitrate
                 if x264enc:
                     x264enc.set_property('bitrate', current_bitrate)
                     print(f"[Debug] Encoder bitrate updated to: {x264enc.get_property('bitrate')} kbps")
