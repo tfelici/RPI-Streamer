@@ -579,6 +579,7 @@ def main():
                 os.remove(ACTIVE_STATUSFILE)
         except Exception as e:
             print(f"Warning: Could not remove active status file on exit: {e}")
+        print("Cleanup complete, exiting.")
         sys.exit(0)
 
     signal.signal(signal.SIGINT, handle_exit)

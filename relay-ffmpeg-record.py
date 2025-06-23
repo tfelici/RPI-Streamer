@@ -45,6 +45,7 @@ def main():
                     break
                 time.sleep(0.1)
         cleanup_pidfile()
+        print("Exiting gracefully...")
         sys.exit(0)
 
     signal.signal(signal.SIGINT, handle_exit)

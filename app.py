@@ -370,11 +370,13 @@ def stream_control():
                     while is_pid_running(pid):
                         time.sleep(0.5)  # Give it a moment to terminate
             except Exception as e:
-                print(f"Error stopping stream: {e}")            #also stop the recording process if it exists
+                print(f"Error stopping stream: {e}")
+            #also stop the recording process if it exists
             active_pid, active_file = get_active_recording_info()
             if active_pid and is_pid_running(active_pid):
                 print(f"Stopping recording with PID {active_pid}")
-                os.kill(active_pid, 15)  # SIGTERM                # loop until process is no longer running
+                os.kill(active_pid, 15)  # SIGTERM
+                # loop until process is no longer running
                 while is_pid_running(active_pid):
                     time.sleep(0.5)  # Give it a moment to terminate
             
