@@ -200,7 +200,8 @@ Wants=network-online.target
 [Service]
 User=$USER
 Type=oneshot
-ExecStart=/bin/bash $HOME/flask_app/install_rpi_streamer.sh 
+ExecStart=/usr/bin/curl -H "Cache-Control: no-cache" -L -o $HOME/flask_app/install_rpi_streamer.sh "https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh?$(date +%s)"
+ExecStartPost=/bin/bash -e $HOME/flask_app/install_rpi_streamer.sh
 RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
