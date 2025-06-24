@@ -154,10 +154,16 @@ def get_app_version():
     return ''
 
 def is_pid_running(pid):
+    """
+    Check if a process with the given PID is actually running using psutil.
+    Returns False for non-existent, zombie, or dead processes.
+    """
     try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
+        process = psutil.Process(pid)
+        # Check if process is running (not zombie/dead)
+        status = process.status()
+        return status not in [psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD]
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
         return False
 
 def get_active_recording_info():
@@ -367,17 +373,18 @@ def stream_control():
                 if is_pid_running(pid):
                     os.kill(pid, 15)  # SIGTERM
                 #also stop the recording process if it exists
-                active_pid, active_file = get_active_recording_info()
+                active_pid, _ = get_active_recording_info()
                 if active_pid and is_pid_running(active_pid):
                     print(f"Stopping recording with PID {active_pid}")
                     os.kill(active_pid, 15)  # SIGTERM
                 # loop until both processes are no longer running
                 while active_pid and is_pid_running(active_pid) or pid and is_pid_running(pid):
+                    #print status
+                    print(f"Waiting for stream and recording to stop... (stream PID: {pid}={is_pid_running(pid)}, recording PID: {active_pid}={is_pid_running(active_pid)})")
                     time.sleep(0.5)  # Give it a moment to terminate
+                print("Stream and recording stopped successfully.")
             except Exception as e:
                 print(f"Error stopping stream: {e}")
-            
-            print("Stream and recording stopped successfully.")
         else:
             print("No active stream to stop.")
         return jsonify({'status': 'stopped'})
