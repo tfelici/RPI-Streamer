@@ -352,7 +352,7 @@ def stream_control():
     if action == 'start':
         # Check if already streaming
         if is_streaming():
-            return jsonify({'error': 'Streaming is already active.'}), 400
+            return jsonify({'status': 'Streaming is already active.'})
         settings = load_settings()
         stream_url = settings.get('stream_url', '').strip()
         if not stream_url:
