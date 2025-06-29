@@ -4,6 +4,8 @@ A Flask-based web app and streaming server for Raspberry Pi, with easy installat
 
 ## Installation
 
+### Standard Installation
+
 Run the following commands in your home directory (do **not** use superuser/root):
 
 ```sh
@@ -11,16 +13,76 @@ curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/R
 bash install_rpi_streamer.sh --tailscale
 ```
 
+### UPS Management (Optional)
+
+If you have a UPS hardware HAT installed, you can optionally install the UPS management system first:
+
+```sh
+curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_ups_management.sh?$(date +%s)
+bash install_ups_management.sh
+```
+
+Then proceed with the standard installation above. The UPS management system provides:
+
+- **Real-time UPS monitoring** in the system diagnostics panel
+- **Automatic safe shutdown** on power loss with configurable grace period
+- **Battery status tracking** (voltage, capacity, health status)
+- **AC power state detection** (plugged in/unplugged)
+- **Systemd service integration** for continuous monitoring
+
 ## Features
 
 - Simple web UI for streaming and settings
 - Systemd service setup
 - MediaMTX streaming server
 - Audio/video device selection
+- **System diagnostics panel** with real-time hardware monitoring
+- **UPS monitoring and management** (optional, requires UPS HAT)
 - **Automatic USB storage detection and mounting**
 - **Recording segments saved to USB when available**
 - **Auto-restart webcam service when settings change**
 - Easy update and maintenance
+
+## UPS Management (Optional)
+
+The RPI Streamer includes optional UPS (Uninterruptible Power Supply) monitoring and management capabilities for systems with compatible UPS HATs:
+
+### Supported Hardware
+- **X1200 UPS HAT** and compatible I2C-based UPS devices
+- **GPIO-based power detection** (PLD pin for AC power state)
+- **I2C communication** at address 0x36 for battery monitoring
+
+### Features
+- **Real-time monitoring**: Battery voltage, capacity, and health status
+- **AC power detection**: Automatic detection of power loss/restoration
+- **Safe shutdown**: Configurable grace period before shutdown on power loss
+- **System integration**: UPS status displayed in the web diagnostics panel
+- **Automatic service**: Runs as systemd service for continuous monitoring
+
+### Installation
+Install UPS management **before** the main RPI Streamer installation:
+
+```sh
+curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_ups_management.sh?$(date +%s)
+bash install_ups_management.sh
+```
+
+### Configuration
+- **Grace period**: Default 60 seconds before shutdown (configurable)
+- **Critical thresholds**: Battery < 20% or voltage < 3.2V triggers shutdown
+- **Service management**: Use `sudo systemctl status ups-monitor` to check status
+
+### Troubleshooting
+```sh
+# Check UPS detection
+sudo i2cdetect -y 1
+
+# View UPS service logs
+sudo journalctl -u ups-monitor -f
+
+# Test UPS integration
+python3 -c "from utils import get_ups_status; print(get_ups_status())"
+```
 
 ## USB Storage Support
 
