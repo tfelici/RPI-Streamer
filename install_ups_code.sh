@@ -115,6 +115,15 @@ if ! grep -q "^i2c-dev" "$MODULES_FILE"; then
   echo "i2c-dev" | sudo tee -a "$MODULES_FILE" > /dev/null
 fi
 
+# Clone x120x repo
+REPO_DIR="$HOME/x120x"
+echo "?? Cloning x120x GitHub repo..."
+if [ -d "$REPO_DIR" ]; then
+  echo "?? Removing existing x120x directory..."
+  rm -rf "$REPO_DIR"
+fi
+git clone https://github.com/suptronics/x120x.git "$REPO_DIR"
+
 # Install and configure power monitor script
 echo "?? Setting up power monitoring service..."
 POWER_MONITOR_SCRIPT="/usr/local/bin/power_monitor.py"

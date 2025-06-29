@@ -548,8 +548,9 @@ def get_ups_status():
     
     try:
         bus = smbus2.SMBus(1)
-        voltage = read_voltage(bus)
-        capacity = read_capacity(bus)
+        address = 0x36
+        voltage = read_voltage(bus, address)
+        capacity = read_capacity(bus, address)
         battery_status = get_battery_status(voltage)
         ac_power_connected = get_ac_power_state()
         
@@ -559,10 +560,10 @@ def get_ups_status():
             'battery_status': battery_status,
             'ac_power_connected': ac_power_connected
         }
-    except Exception:
+    except Exception as e:
         return {
             'voltage': None,
             'capacity': None,
-            'battery_status': 'Error',
+            'battery_status': f'Error: {str(e)}',
             'ac_power_connected': None
         }
