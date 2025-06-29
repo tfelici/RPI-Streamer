@@ -322,6 +322,27 @@
                                 </div>
                             </div>
 
+                            <!-- UPS Status -->
+                            <div class="diag-category">
+                                <h5>UPS Status</h5>
+                                <div class="diag-item">
+                                    <span class="diag-label">UPS Voltage:</span>
+                                    <span class="diag-value" id="diag-ups-voltage">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Battery Capacity:</span>
+                                    <span class="diag-value" id="diag-ups-capacity">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Battery Status:</span>
+                                    <span class="diag-value" id="diag-ups-battery-status">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">AC Power:</span>
+                                    <span class="diag-value" id="diag-ups-ac-power">--</span>
+                                </div>
+                            </div>
+
                             <!-- Clock Frequencies -->
                             <div class="diag-category">
                                 <h5>Clock Frequencies</h5>
@@ -1019,6 +1040,12 @@
             updateDiagValue('diag-voltage-sdram-c', data.voltage_sdram_c);
             updateDiagValue('diag-voltage-sdram-i', data.voltage_sdram_i);
             updateDiagValue('diag-voltage-sdram-p', data.voltage_sdram_p);
+            
+            // UPS Status
+            updateDiagValue('diag-ups-voltage', data.ups_voltage ? data.ups_voltage.toFixed(2) + 'V' : null);
+            updateDiagValue('diag-ups-capacity', data.ups_capacity ? data.ups_capacity.toFixed(1) + '%' : null);
+            updateDiagValue('diag-ups-battery-status', data.ups_battery_status);
+            updateDiagValue('diag-ups-ac-power', data.ups_ac_power !== null ? (data.ups_ac_power ? 'Plugged In' : 'Unplugged') : null);
             
             // Clock Frequencies
             updateDiagValue('diag-clock-arm', data.clock_arm);

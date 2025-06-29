@@ -11,7 +11,7 @@ import requests
 from datetime import datetime
 from functools import wraps
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, get_ups_status
 
 # Use pymediainfo for fast video duration extraction
 try:
@@ -1170,6 +1170,19 @@ def get_system_diagnostics():
             diagnostics[key] = "vcgencmd not found"
         except Exception as e:
             diagnostics[key] = f"Error: {str(e)}"
+    
+    # Add UPS status information
+    try:
+        ups_status = get_ups_status()
+        diagnostics['ups_voltage'] = ups_status['voltage']
+        diagnostics['ups_capacity'] = ups_status['capacity'] 
+        diagnostics['ups_battery_status'] = ups_status['battery_status']
+        diagnostics['ups_ac_power'] = ups_status['ac_power_connected']
+    except Exception as e:
+        diagnostics['ups_voltage'] = None
+        diagnostics['ups_capacity'] = None
+        diagnostics['ups_battery_status'] = f"Error: {str(e)}"
+        diagnostics['ups_ac_power'] = None
     
     # Parse throttled status for special highlighting
     throttled_raw = diagnostics.get('throttled', '')
