@@ -254,6 +254,25 @@
                     </div>
                 </div>
 
+                <!-- WiFi Details Section -->
+                <div id="wifi-details" style="margin-top: 1rem; display: none;">
+                    <h3>WiFi Details</h3>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <span class="stat-value" id="wifi-signal">--</span>
+                            <div class="stat-label">Signal Strength</div>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value" id="wifi-tx-bitrate">--</span>
+                            <div class="stat-label">TX Bitrate</div>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value" id="wifi-rx-bitrate">--</span>
+                            <div class="stat-label">RX Bitrate</div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- IP Addresses Section -->
                 <div id="ip-addresses" style="margin-top: 1rem; display: none;">
                     <h3>IP Addresses</h3>
@@ -1092,6 +1111,10 @@
         const wifi = document.getElementById('wifi');
         const ipAddressesDiv = document.getElementById('ip-addresses');
         const ipList = document.getElementById('ip-list');
+        const wifiDetailsDiv = document.getElementById('wifi-details');
+        const wifiSignal = document.getElementById('wifi-signal');
+        const wifiTxBitrate = document.getElementById('wifi-tx-bitrate');
+        const wifiRxBitrate = document.getElementById('wifi-rx-bitrate');
 
         const evtSource = new EventSource('/stats');
         evtSource.onmessage = function (event) {
@@ -1109,6 +1132,53 @@
                     // Update ethernet and wifi status
                     ethernet.textContent = connection.ethernet || 'Disconnected';
                     wifi.textContent = connection.wifi || 'Disconnected';
+
+                    // Update WiFi details if available
+                    // Show panel if WiFi is connected, even if details are temporarily unavailable
+                    const isWifiConnected = connection.wifi && connection.wifi !== 'Disconnected' && !connection.wifi.includes('Error');
+                    
+                    if (isWifiConnected) {
+                        wifiDetailsDiv.style.display = 'block';
+                        
+                        // Signal strength
+                        if (connection.wifi_details && connection.wifi_details.signal_percent !== undefined) {
+                            const signalPercent = connection.wifi_details.signal_percent;
+                            const signalDbm = connection.wifi_details.signal_dbm || '';
+                            wifiSignal.textContent = `${signalPercent}%${signalDbm ? ` (${signalDbm} dBm)` : ''}`;
+                            
+                            // Color code signal strength
+                            if (signalPercent >= 70) {
+                                wifiSignal.style.color = '#28a745'; // green
+                            } else if (signalPercent >= 40) {
+                                wifiSignal.style.color = '#ffc107'; // yellow
+                            } else {
+                                wifiSignal.style.color = '#dc3545'; // red
+                            }
+                        } else {
+                            wifiSignal.textContent = '--';
+                            wifiSignal.style.color = '';
+                        }
+                        
+                        // TX Bitrate
+                        if (connection.wifi_details && connection.wifi_details.tx_bitrate !== undefined) {
+                            wifiTxBitrate.textContent = `${connection.wifi_details.tx_bitrate} Mbps`;
+                        } else {
+                            wifiTxBitrate.textContent = '--';
+                        }
+                        
+                        // RX Bitrate
+                        if (connection.wifi_details && connection.wifi_details.rx_bitrate !== undefined) {
+                            wifiRxBitrate.textContent = `${connection.wifi_details.rx_bitrate} Mbps`;
+                        } else {
+                            wifiRxBitrate.textContent = '--';
+                        }
+                    } else {
+                        wifiDetailsDiv.style.display = 'none';
+                        wifiSignal.textContent = '--';
+                        wifiTxBitrate.textContent = '--';
+                        wifiRxBitrate.textContent = '--';
+                        wifiSignal.style.color = '';
+                    }
 
                     // Update IP addresses
                     if (connection.ip_addresses && connection.ip_addresses.length > 0) {
@@ -1128,6 +1198,7 @@
                     console.error('Error parsing connection data:', e);
                     ethernet.textContent = 'Error';
                     wifi.textContent = 'Error';
+                    wifiDetailsDiv.style.display = 'none';
                 }
             }
         };

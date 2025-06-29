@@ -991,9 +991,11 @@ def get_connection_info():
                                             connection_info["wifi"] = "Connected"
         except Exception:
             pass
-              # Try to get WiFi SSID if connected
+              # Try to get WiFi SSID, signal strength, and bitrates if connected
         try:
             if connection_info["wifi"] == "Connected":
+                wifi_details = {}
+                
                 if platform.system() == "Windows":
                     # Try netsh on Windows to get WiFi SSID
                     result = subprocess.run(['netsh', 'wlan', 'show', 'profiles'], capture_output=True, text=True, timeout=3)
@@ -1005,10 +1007,11 @@ def get_connection_info():
                                 if 'SSID' in line and ':' in line:
                                     ssid = line.split(':', 1)[1].strip()
                                     if ssid and ssid != '':
-                                        connection_info["wifi"] = f"Connected ({ssid})"
+                                        wifi_details['ssid'] = ssid
                                         break
                 else:
-                    # Try nmcli first (NetworkManager) on Linux/Unix
+                    # Linux/Unix - Get SSID and detailed WiFi info
+                    # Try nmcli first (NetworkManager) for SSID
                     result = subprocess.run(['nmcli', '-t', '-f', 'active,ssid', 'dev', 'wifi'], capture_output=True, text=True, timeout=2)
                     if result.returncode == 0:
                         lines = result.stdout.strip().split('\n')
@@ -1016,8 +1019,74 @@ def get_connection_info():
                             if line.startswith('yes:'):
                                 ssid = line.split(':', 1)[1]
                                 if ssid:
-                                    connection_info["wifi"] = f"Connected ({ssid})"
+                                    wifi_details['ssid'] = ssid
                                     break
+                    
+                    # Get detailed WiFi information using iw command
+                    # Try different interface names, including dynamic detection
+                    wifi_interfaces = ['wlan0', 'wlp2s0', 'wlp3s0', 'wlo1']
+                    
+                    # Try to detect available wireless interfaces dynamically
+                    try:
+                        iw_dev_result = subprocess.run(['iw', 'dev'], capture_output=True, text=True, timeout=2)
+                        if iw_dev_result.returncode == 0:
+                            # Parse output to find wireless interfaces
+                            for line in iw_dev_result.stdout.split('\n'):
+                                if 'Interface' in line:
+                                    iface_match = re.search(r'Interface\s+(\w+)', line)
+                                    if iface_match:
+                                        iface = iface_match.group(1)
+                                        if iface not in wifi_interfaces:
+                                            wifi_interfaces.append(iface)
+                    except Exception:
+                        pass  # Fall back to default list
+                    
+                    for iface in wifi_interfaces:
+                        try:
+                            iw_result = subprocess.run(['iw', 'dev', iface, 'link'], capture_output=True, text=True, timeout=5)
+                            if iw_result.returncode == 0 and ('Connected to' in iw_result.stdout or 'SSID:' in iw_result.stdout):
+                                lines = iw_result.stdout.split('\n')
+                                interface_found = True
+                                for line in lines:
+                                    line = line.strip()
+                                    # Parse signal strength
+                                    if 'signal:' in line:
+                                        # Extract signal strength (e.g., "signal: -45 dBm")
+                                        signal_match = re.search(r'signal:\s*(-?\d+)\s*dBm', line)
+                                        if signal_match:
+                                            signal_dbm = int(signal_match.group(1))
+                                            wifi_details['signal_dbm'] = signal_dbm
+                                            # Convert to percentage (rough estimation)
+                                            # -30 dBm = 100%, -90 dBm = 0%
+                                            signal_percent = max(0, min(100, (signal_dbm + 90) * 100 / 60))
+                                            wifi_details['signal_percent'] = int(signal_percent)
+                                    # Parse TX bitrate
+                                    elif 'tx bitrate:' in line:
+                                        # Extract TX bitrate (e.g., "tx bitrate: 72.2 MBit/s")
+                                        tx_match = re.search(r'tx bitrate:\s*([\d.]+)\s*MBit/s', line)
+                                        if tx_match:
+                                            wifi_details['tx_bitrate'] = float(tx_match.group(1))
+                                    # Parse RX bitrate
+                                    elif 'rx bitrate:' in line:
+                                        # Extract RX bitrate (e.g., "rx bitrate: 65.0 MBit/s")
+                                        rx_match = re.search(r'rx bitrate:\s*([\d.]+)\s*MBit/s', line)
+                                        if rx_match:
+                                            wifi_details['rx_bitrate'] = float(rx_match.group(1))
+                                break  # Found working interface, stop trying others
+                        except Exception as e:
+                            # Log the error for debugging but continue trying other interfaces
+                            continue
+                
+                # Update connection_info with detailed WiFi information
+                if wifi_details:
+                    connection_info['wifi_details'] = wifi_details
+                    # Update main wifi status with SSID if available
+                    if 'ssid' in wifi_details:
+                        wifi_status = f"Connected ({wifi_details['ssid']})"
+                        # Add signal strength if available
+                        if 'signal_percent' in wifi_details:
+                            wifi_status += f" - {wifi_details['signal_percent']}%"
+                        connection_info["wifi"] = wifi_status
         except Exception:
             pass
             
