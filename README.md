@@ -15,14 +15,14 @@ bash install_rpi_streamer.sh --tailscale
 
 ### UPS Management (Optional)
 
-If you have a UPS hardware HAT installed, you can optionally install the UPS management system first:
+If you have a UPS hardware HAT installed, you can optionally install the UPS management system:
 
 ```sh
 curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_ups_management.sh?$(date +%s)
 bash install_ups_management.sh
 ```
 
-Then proceed with the standard installation above. The UPS management system provides:
+The UPS management system provides:
 
 - **Real-time UPS monitoring** in the system diagnostics panel
 - **Automatic safe shutdown** on power loss with configurable grace period
