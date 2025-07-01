@@ -34,8 +34,7 @@ sudo apt-get install python3-flask -y
 sudo apt-get install python3-psutil -y
 sudo apt-get install python3-requests -y
 sudo apt-get install python3-werkzeug -y
-sudo apt-get install gunicorn python3-gevent -y
-sudo apt-get install gunicorn python3-requests-toolbelt -y
+sudo apt-get install gunicorn python3-gevent python3-requests-toolbelt -y
 sudo apt-get install python3-pymediainfo -y
 sudo apt-get install mediainfo -y
 
