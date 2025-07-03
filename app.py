@@ -1,3 +1,11 @@
+# Monkey patch for gevent compatibility (must be at the very top)
+try:
+    from gevent import monkey
+    monkey.patch_all()
+except ImportError:
+    print("Warning: gevent not installed. Install with 'pip install gevent' for better async performance.")
+    pass
+
 from flask import Flask, render_template, Response, jsonify, request
 import psutil
 import threading
