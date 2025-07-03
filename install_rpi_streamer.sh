@@ -167,8 +167,9 @@ After=network.target
 [Service]
 User=root
 WorkingDirectory=$HOME/flask_app
-#ExecStart=/usr/bin/python3 app.py $USER:$USER
-ExecStart=/usr/bin/gunicorn -w 4 -k gevent --graceful-timeout 1 -b 0.0.0.0:80 app:app -- $USER:$USER
+Environment="OWNER=$USER:$USER"
+#ExecStart=/usr/bin/python3 app.py
+ExecStart=/usr/bin/gunicorn -w 4 -k gevent --graceful-timeout 1 -b 0.0.0.0:80 app:app
 Restart=always
 [Install]
 WantedBy=multi-user.target
