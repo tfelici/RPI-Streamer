@@ -168,7 +168,7 @@ After=network.target
 User=root
 WorkingDirectory=$HOME/flask_app
 #ExecStart=/usr/bin/python3 app.py $USER:$USER
-ExecStart=/usr/bin/gunicorn -w 1 -k gevent --threads 4 -b 0.0.0.0:80 app:app
+ExecStart=/usr/bin/gunicorn -w 4 -k gevent -b 0.0.0.0:80 app:app
 Restart=always
 [Install]
 WantedBy=multi-user.target
