@@ -574,3 +574,101 @@ def get_ups_status():
             'battery_status': f'Error: {str(e)}',
             'ac_power_connected': None
         }
+
+def copy_settings_and_executables_to_usb(usb_path):
+    """
+    Copy settings.json and executables to USB drive if they don't exist or are outdated.
+    
+    Args:
+        usb_path: Path to the USB mount point
+    
+    Returns:
+        dict with information about what was copied: {
+            'settings_copied': bool,
+            'executables_copied': int,
+            'errors': list
+        }
+    """
+    import shutil
+    
+    # Determine the parent directory containing streamerData and executables
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.dirname(script_dir)
+    
+    result = {
+        'settings_copied': False,
+        'executables_copied': 0,
+        'errors': []
+    }
+    
+    try:
+        # Copy settings.json if it doesn't exist or is outdated
+        print("Checking settings.json on USB drive...")
+        src_settings = os.path.join(parent_dir, 'streamerData', 'settings.json')
+        dst_streamerData = os.path.join(usb_path, 'streamerData')
+        dst_settings = os.path.join(dst_streamerData, 'settings.json')
+        os.makedirs(dst_streamerData, exist_ok=True)
+        
+        if os.path.exists(src_settings):
+            # Check if USB settings file is missing or outdated
+            copy_settings = False
+            if not os.path.exists(dst_settings):
+                copy_settings = True
+                print("Settings file not found on USB, copying...")
+            else:
+                # Compare modification times
+                src_mtime = os.path.getmtime(src_settings)
+                dst_mtime = os.path.getmtime(dst_settings)
+                if src_mtime > dst_mtime:
+                    copy_settings = True
+                    print("Local settings file is newer, updating USB...")
+            
+            if copy_settings:
+                shutil.copy2(src_settings, dst_settings)
+                size_kb = os.path.getsize(dst_settings) / 1024
+                print(f"Copied settings.json ({size_kb:.2f} KB) to USB: {dst_settings}")
+                result['settings_copied'] = True
+            else:
+                print("USB settings.json is up to date")
+        else:
+            print(f"Warning: {src_settings} not found, skipping settings.json copy.")
+            result['errors'].append(f"Settings file not found: {src_settings}")
+        
+        # Copy executables if they don't exist or are outdated
+        print("Checking executables on USB drive...")
+        src_exec_dir = os.path.join(parent_dir, 'executables')
+        if os.path.isdir(src_exec_dir):
+            for fname in os.listdir(src_exec_dir):
+                src_f = os.path.join(src_exec_dir, fname)
+                dst_f = os.path.join(usb_path, fname)
+                if os.path.isfile(src_f):
+                    # Check if executable is missing or outdated
+                    copy_exec = False
+                    if not os.path.exists(dst_f):
+                        copy_exec = True
+                        print(f"Executable {fname} not found on USB, copying...")
+                    else:
+                        # Compare modification times
+                        src_mtime = os.path.getmtime(src_f)
+                        dst_mtime = os.path.getmtime(dst_f)
+                        if src_mtime > dst_mtime:
+                            copy_exec = True
+                            print(f"Local executable {fname} is newer, updating USB...")
+                    
+                    if copy_exec:
+                        shutil.copy2(src_f, dst_f)
+                        size_mb = os.path.getsize(dst_f) / (1024 * 1024)
+                        print(f"Copied executable {fname} ({size_mb:.2f} MB) to USB: {dst_f}")
+                        result['executables_copied'] += 1
+                    else:
+                        print(f"USB executable {fname} is up to date")
+        else:
+            print(f"Warning: {src_exec_dir} not found, skipping executables copy.")
+            result['errors'].append(f"Executables directory not found: {src_exec_dir}")
+        
+    except Exception as e:
+        error_msg = f"Error copying files to USB: {str(e)}"
+        print(error_msg)
+        result['errors'].append(error_msg)
+    
+    return result

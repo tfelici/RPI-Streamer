@@ -4,7 +4,7 @@ import subprocess
 import sys
 import time
 import signal
-from utils import get_setting, find_usb_storage
+from utils import get_setting, find_usb_storage, copy_settings_and_executables_to_usb
 
 def main():
     if len(sys.argv) < 2:
@@ -53,38 +53,11 @@ def main():
 
     usb_mount = find_usb_storage()
     if usb_mount:
-        import shutil
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        parent_dir = os.path.dirname(script_dir)
         print(f"Recording to USB storage at {usb_mount}")
         record_dir = os.path.join(usb_mount, 'streamerData', 'recordings', stream_name)
-        # Copy settings.json
-        print("Copying settings.json to USB drive...")
-        src_settings = os.path.join(parent_dir, 'streamerData', 'settings.json')
-        dst_streamerData = os.path.join(usb_mount, 'streamerData')
-        dst_settings = os.path.join(dst_streamerData, 'settings.json')
-        os.makedirs(dst_streamerData, exist_ok=True)
-        if os.path.exists(src_settings):
-            shutil.copy2(src_settings, dst_settings)
-            #print final size of the copied file in KB
-            size_kb = os.path.getsize(dst_settings) / 1024
-            print(f"Copied settings.json ({size_kb:.2f} KB) to USB: {dst_settings}")
-        else:
-            print(f"Warning: {src_settings} not found, skipping settings.json copy.")
-        # Copy executables
-        print("Copying executables to USB drive...")
-        src_exec_dir = os.path.join(parent_dir, 'executables')
-        if os.path.isdir(src_exec_dir):
-            for fname in os.listdir(src_exec_dir):
-                src_f = os.path.join(src_exec_dir, fname)
-                dst_f = os.path.join(usb_mount, fname)
-                if os.path.isfile(src_f):
-                    shutil.copy2(src_f, dst_f)
-                    #print final size of the copied file in MB
-                    size_mb = os.path.getsize(dst_f) / (1024 * 1024)
-                    print(f"Copied executable {fname} ({size_mb:.2f} MB) to USB: {dst_f}")
-        else:
-            print(f"Warning: {src_exec_dir} not found, skipping executables copy.")
+        
+        # Copy settings and executables to USB
+        copy_result = copy_settings_and_executables_to_usb(usb_mount)
         
         # Force sync all data to USB drive
         print("Syncing data to USB drive...")
