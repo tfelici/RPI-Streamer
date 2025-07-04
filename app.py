@@ -1396,22 +1396,19 @@ def move_to_usb():
         else:
             print(f"Warning: {src_exec_dir} not found, skipping executables copy.")
         
-        # Force sync data to USB drive only if files were copied
-        if settings_copied or executables_copied > 0:
-            print("Syncing updated files to USB drive...")
+        # Move the file to USB
+        result = move_file_to_usb(file_path, usb_path)
+        
+        if result['success']:
+            # Always sync the USB drive after moving a recording for data integrity
+            print("Syncing recording file to USB drive...")
             try:
                 subprocess.run(['sync'], check=True)
                 time.sleep(1)  # Give time for filesystem sync
                 print("USB sync completed successfully")
             except Exception as e:
                 print(f"Warning: USB sync failed: {e}")
-        else:
-            print("No files needed updating, skipping sync")
-        
-        # Move the file to USB
-        result = move_file_to_usb(file_path, usb_path)
-        
-        if result['success']:
+            
             # Create detailed message about what was copied
             message_parts = ['Successfully moved to USB drive']
             if settings_copied:
