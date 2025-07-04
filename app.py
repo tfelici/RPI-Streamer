@@ -19,7 +19,7 @@ import requests
 from datetime import datetime
 from functools import wraps
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, get_ups_status
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, get_ups_status, move_file_to_usb
 
 # Use pymediainfo for fast video duration extraction
 try:
@@ -1311,6 +1311,132 @@ def parse_throttled_status(throttled_output):
         info['parse_error'] = str(e)
     
     return info
+
+@app.route('/move-to-usb', methods=['POST'])
+def move_to_usb():
+    data = request.get_json()
+    file_path = data.get('file_path')
+    
+    if not file_path or not os.path.isfile(file_path):
+        return jsonify({'error': 'Recording file not found.'}), 400
+    
+    try:
+        # Find USB storage
+        usb_path = find_usb_storage()
+        if not usb_path:
+            return jsonify({'error': 'USB storage not found or not accessible. Please ensure a USB drive is connected and properly mounted.'}), 400
+        
+        import shutil
+        
+        # Copy settings and executables to USB (reusing code from relay-ffmpeg-record.py)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        parent_dir = os.path.dirname(script_dir)
+        
+        # Copy settings.json if it doesn't exist or is outdated
+        print("Checking settings.json on USB drive...")
+        src_settings = os.path.join(parent_dir, 'streamerData', 'settings.json')
+        dst_streamerData = os.path.join(usb_path, 'streamerData')
+        dst_settings = os.path.join(dst_streamerData, 'settings.json')
+        os.makedirs(dst_streamerData, exist_ok=True)
+        
+        settings_copied = False
+        if os.path.exists(src_settings):
+            # Check if USB settings file is missing or outdated
+            copy_settings = False
+            if not os.path.exists(dst_settings):
+                copy_settings = True
+                print("Settings file not found on USB, copying...")
+            else:
+                # Compare modification times
+                src_mtime = os.path.getmtime(src_settings)
+                dst_mtime = os.path.getmtime(dst_settings)
+                if src_mtime > dst_mtime:
+                    copy_settings = True
+                    print("Local settings file is newer, updating USB...")
+            
+            if copy_settings:
+                shutil.copy2(src_settings, dst_settings)
+                size_kb = os.path.getsize(dst_settings) / 1024
+                print(f"Copied settings.json ({size_kb:.2f} KB) to USB: {dst_settings}")
+                settings_copied = True
+            else:
+                print("USB settings.json is up to date")
+        else:
+            print(f"Warning: {src_settings} not found, skipping settings.json copy.")
+        
+        # Copy executables if they don't exist or are outdated
+        print("Checking executables on USB drive...")
+        src_exec_dir = os.path.join(parent_dir, 'executables')
+        executables_copied = 0
+        if os.path.isdir(src_exec_dir):
+            for fname in os.listdir(src_exec_dir):
+                src_f = os.path.join(src_exec_dir, fname)
+                dst_f = os.path.join(usb_path, fname)
+                if os.path.isfile(src_f):
+                    # Check if executable is missing or outdated
+                    copy_exec = False
+                    if not os.path.exists(dst_f):
+                        copy_exec = True
+                        print(f"Executable {fname} not found on USB, copying...")
+                    else:
+                        # Compare modification times
+                        src_mtime = os.path.getmtime(src_f)
+                        dst_mtime = os.path.getmtime(dst_f)
+                        if src_mtime > dst_mtime:
+                            copy_exec = True
+                            print(f"Local executable {fname} is newer, updating USB...")
+                    
+                    if copy_exec:
+                        shutil.copy2(src_f, dst_f)
+                        size_mb = os.path.getsize(dst_f) / (1024 * 1024)
+                        print(f"Copied executable {fname} ({size_mb:.2f} MB) to USB: {dst_f}")
+                        executables_copied += 1
+                    else:
+                        print(f"USB executable {fname} is up to date")
+        else:
+            print(f"Warning: {src_exec_dir} not found, skipping executables copy.")
+        
+        # Force sync data to USB drive only if files were copied
+        if settings_copied or executables_copied > 0:
+            print("Syncing updated files to USB drive...")
+            try:
+                subprocess.run(['sync'], check=True)
+                time.sleep(1)  # Give time for filesystem sync
+                print("USB sync completed successfully")
+            except Exception as e:
+                print(f"Warning: USB sync failed: {e}")
+        else:
+            print("No files needed updating, skipping sync")
+        
+        # Move the file to USB
+        result = move_file_to_usb(file_path, usb_path)
+        
+        if result['success']:
+            # Create detailed message about what was copied
+            message_parts = ['Successfully moved to USB drive']
+            if settings_copied:
+                message_parts.append('settings updated')
+            if executables_copied > 0:
+                message_parts.append(f'{executables_copied} executable(s) updated')
+            
+            message = message_parts[0]
+            if len(message_parts) > 1:
+                message += ' with ' + ' and '.join(message_parts[1:])
+            
+            return jsonify({
+                'success': True,
+                'destination': result['destination'],
+                'message': message,
+                'files_copied': {
+                    'settings': settings_copied,
+                    'executables': executables_copied
+                }
+            })
+        else:
+            return jsonify({'error': result['error']}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'Failed to move to USB: {e}'}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80, debug=False, threaded=True)

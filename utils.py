@@ -422,36 +422,43 @@ def find_usb_storage():
     log_message("Failed to mount any USB storage devices")
     return None
 
-# Global variable to track mounted USB device for cleanup
-_mounted_usb_device = None
 
-def cleanup_usb_mount():
+def move_file_to_usb(file_path, usb_path):
     """
-    Cleanup function to unmount USB device on script exit.
+    Move a file to the USB storage device.
+    Returns a dict with success status and destination path or error message.
     """
-    global _mounted_usb_device
-    if _mounted_usb_device:
-        try:
-            log_message(f"Unmounting USB device: {_mounted_usb_device}")
-            subprocess.run(['sudo', 'umount', _mounted_usb_device], 
-                          capture_output=True, text=True, timeout=10)
-        except Exception as e:
-            log_message(f"Warning: Failed to unmount USB device {_mounted_usb_device}: {e}")
-
-def set_mounted_usb_device(mount_point):
-    """
-    Set the mounted USB device path for cleanup tracking.
-    Call this function when you successfully mount a USB device.
-    """
-    global _mounted_usb_device
-    _mounted_usb_device = mount_point
-
-def register_usb_cleanup():
-    """
-    Register the USB cleanup function with atexit.
-    Call this once in your script to enable automatic USB cleanup on exit.
-    """
-    atexit.register(cleanup_usb_mount)
+    try:
+        if not os.path.exists(file_path):
+            return {'success': False, 'error': 'Source file does not exist'}
+        
+        if not usb_path or not os.path.exists(usb_path):
+            return {'success': False, 'error': 'USB storage not found or not accessible'}
+        
+        # Create proper directory structure on USB: streamerData/recordings/webcam
+        usb_recordings_dir = os.path.join(usb_path, 'streamerData', 'recordings', 'webcam')
+        os.makedirs(usb_recordings_dir, exist_ok=True)
+        
+        # Get filename and create destination path
+        filename = os.path.basename(file_path)
+        destination = os.path.join(usb_recordings_dir, filename)
+        
+        # Check if file already exists and create unique name if needed
+        counter = 1
+        base_name, ext = os.path.splitext(filename)
+        while os.path.exists(destination):
+            new_filename = f"{base_name}_{counter}{ext}"
+            destination = os.path.join(usb_recordings_dir, new_filename)
+            counter += 1
+        
+        # Move the file
+        import shutil
+        shutil.move(file_path, destination)
+        
+        return {'success': True, 'destination': destination}
+        
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
 
 # UPS Monitoring Functions
 def read_voltage(bus, address=0x36):

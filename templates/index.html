@@ -492,6 +492,7 @@
                 </div>
                 <div style="display: flex; gap: 1rem; margin-top: 1.5rem; flex-wrap: wrap;">
                     <button type="submit" id="upload-btn" class="btn btn-success">Upload to Server</button>
+                    <button type="button" id="move-to-usb-btn" class="btn btn-primary">Move to USB Drive</button>
                     <button type="button" id="delete-btn" class="btn btn-danger">Delete Selected</button>
                 </div>
                 <div id="upload-result" style="margin-top: 1.5rem;"></div>
@@ -704,6 +705,8 @@
 
                                                     if (document.querySelectorAll('.upload-checkbox').length === 0) {
                                                         uploadBtn.remove();
+                                                        const moveToUsbBtn = document.getElementById('move-to-usb-btn');
+                                                        if (moveToUsbBtn) moveToUsbBtn.remove();
                                                     }
                                                 }
                                             } else if (progressData.status === 'error') {
@@ -1482,9 +1485,79 @@
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const deleteBtn = document.getElementById('delete-btn');
+            const moveToUsbBtn = document.getElementById('move-to-usb-btn');
             const uploadForm = document.getElementById('upload-form');
             const uploadBtn = document.getElementById('upload-btn');
             const uploadResult = document.getElementById('upload-result');
+            
+            // Move to USB Drive functionality
+            if (moveToUsbBtn && uploadForm) {
+                moveToUsbBtn.onclick = async function () {
+                    const checkboxes = document.querySelectorAll('.upload-checkbox:checked');
+                    if (checkboxes.length === 0) {
+                        uploadResult.innerHTML = '<span style="color:red;">No recordings selected.</span>';
+                        return;
+                    }
+                    
+                    if (!confirm('Move selected recordings to USB drive?')) return;
+                    
+                    moveToUsbBtn.disabled = true;
+                    let movedCount = 0;
+                    let resultList = uploadResult.querySelector('ul');
+                    if (!resultList) {
+                        resultList = document.createElement('ul');
+                        uploadResult.innerHTML = '';
+                        uploadResult.appendChild(resultList);
+                    }
+                    resultList.innerHTML = '';
+                    
+                    for (let i = 0; i < checkboxes.length; i++) {
+                        const filePath = checkboxes[i].value;
+                        const li = document.createElement('li');
+                        li.textContent = `Moving ${filePath} to USB... (${i + 1}/${checkboxes.length})`;
+                        resultList.appendChild(li);
+                        
+                        try {
+                            const resp = await fetch('/move-to-usb', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ file_path: filePath })
+                            });
+                            const result = await resp.json();
+                            
+                            if (resp.ok && !result.error) {
+                                li.style.color = 'green';
+                                li.textContent = `Moved ${filePath} to USB: ${result.destination || 'Success'}`;
+                                movedCount++;
+                                const checkboxDiv = checkboxes[i].closest('div');
+                                if (checkboxDiv) checkboxDiv.remove();
+                            } else {
+                                li.style.color = 'red';
+                                li.textContent = `Error moving ${filePath}: ${result.error || resp.statusText}`;
+                            }
+                        } catch (e) {
+                            li.style.color = 'red';
+                            li.textContent = `Error moving ${filePath}: ${e.message}`;
+                        }
+                    }
+                    
+                    if (movedCount > 0) {
+                        const summary = document.createElement('li');
+                        summary.style.color = 'green';
+                        summary.textContent = `Successfully moved ${movedCount} file(s) to USB drive.`;
+                        resultList.appendChild(summary);
+                    }
+                    
+                    moveToUsbBtn.disabled = false;
+                    if (document.querySelectorAll('.upload-checkbox').length === 0) {
+                        uploadBtn.remove();
+                        moveToUsbBtn.remove();
+                        deleteBtn.remove();
+                    }
+                };
+            }
+            
+            // Delete functionality
             if (deleteBtn && uploadForm) {
                 deleteBtn.onclick = async function () {
                     const checkboxes = document.querySelectorAll('.upload-checkbox:checked');
@@ -1537,6 +1610,7 @@
                     deleteBtn.disabled = false;
                     if (document.querySelectorAll('.upload-checkbox').length === 0) {
                         uploadBtn.remove();
+                        if (moveToUsbBtn) moveToUsbBtn.remove();
                         deleteBtn.remove();
                     }
                 };
