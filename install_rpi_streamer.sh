@@ -191,49 +191,40 @@ fi
 # Get the latest version from GitHub API
 printf "Checking latest MediaMTX version...\n"
 latest_version=$(curl -s https://api.github.com/repos/bluenviron/mediamtx/releases/latest | jq -r ".tag_name")
-if [ -z "$latest_version" ] || [ "$latest_version" = "null" ]; then
-    echo "Warning: Could not fetch latest MediaMTX version from GitHub (network error or rate limit exceeded)."
-    echo "Skipping MediaMTX update check - will use existing installation if available."
-    NEED_INSTALL=false
-    # Check if MediaMTX binary exists, if not we still need to install
-    if [ ! -f "$HOME/mediamtx" ]; then
-        echo "MediaMTX binary not found and cannot check for updates. Installation will be skipped."
-        echo "Please run the script again later when GitHub API is available."
+if [ -z "$latest_version" ]; then
+    echo "Error: Could not fetch latest MediaMTX version from GitHub."
+    exit 1
+fi
+printf "Latest MediaMTX version: %s\n" "$latest_version"
+
+# Check if MediaMTX exists and get its version
+NEED_INSTALL=false
+if [ -f "$HOME/mediamtx" ]; then
+    echo "MediaMTX binary found, checking version..."
+    # Check if the mediamtx binary is executable
+    if [ ! -x "$HOME/mediamtx" ]; then
+        echo "MediaMTX binary is not executable, will reinstall."
+        NEED_INSTALL=true
     else
-        echo "Existing MediaMTX installation will be used."
+        # Get current version
+        current_version=$("$HOME/mediamtx" --version 2>/dev/null | head -n1 | grep -o 'v[0-9][0-9.]*' || echo "unknown")
+        printf "Current MediaMTX version: %s\n" "$current_version"
+        
+        if [ "$current_version" = "$latest_version" ]; then
+            echo "MediaMTX is already up to date ($current_version)."
+            NEED_INSTALL=false
+        else
+            echo "MediaMTX needs update from $current_version to $latest_version."
+            NEED_INSTALL=true
+        fi
     fi
 else
-    printf "Latest MediaMTX version: %s\n" "$latest_version"
-    
-    # Check if MediaMTX exists and get its version
-    NEED_INSTALL=false
-    if [ -f "$HOME/mediamtx" ]; then
-        echo "MediaMTX binary found, checking version..."
-        # Check if the mediamtx binary is executable
-        if [ ! -x "$HOME/mediamtx" ]; then
-            echo "MediaMTX binary is not executable, will reinstall."
-            NEED_INSTALL=true
-        else
-            # Get current version
-            current_version=$("$HOME/mediamtx" --version 2>/dev/null | head -n1 | grep -o 'v[0-9][0-9.]*' || echo "unknown")
-            printf "Current MediaMTX version: %s\n" "$current_version"
-            
-            if [ "$current_version" = "$latest_version" ]; then
-                echo "MediaMTX is already up to date ($current_version)."
-                NEED_INSTALL=false
-            else
-                echo "MediaMTX needs update from $current_version to $latest_version."
-                NEED_INSTALL=true
-            fi
-        fi
-    else
-        echo "MediaMTX is not installed, proceeding with installation."
-        NEED_INSTALL=true
-    fi
+    echo "MediaMTX is not installed, proceeding with installation."
+    NEED_INSTALL=true
 fi
 
-# Only proceed with download if we need to install/update and have a valid latest_version
-if [ "$NEED_INSTALL" = "true" ] && [ -n "$latest_version" ] && [ "$latest_version" != "null" ]; then
+# Only proceed with download if we need to install/update
+if [ "$NEED_INSTALL" = "true" ]; then
     # Determine the latest MediaMTX release URL based on system architecture
     printf "Detecting system architecture...\n"
     ARCH=$(uname -m)
@@ -246,40 +237,38 @@ if [ "$NEED_INSTALL" = "true" ] && [ -n "$latest_version" ] && [ "$latest_versio
     
     latest_url=$(curl -s https://api.github.com/repos/bluenviron/mediamtx/releases/latest | jq -r ".assets[] | select(.browser_download_url | endswith(\"$MTX_SUFFIX\")) | .browser_download_url")
     printf "Latest MediaMTX URL: %s\n" "$latest_url"
-    if [ -z "$latest_url" ] || [ "$latest_url" = "null" ]; then
-        echo "Warning: Could not find the latest MediaMTX release URL (API may be unavailable)."
-        echo "Skipping MediaMTX installation/update."
-    else
-        cd "$HOME"
-        wget "$latest_url"
-        exit_code=$?
-        if [ $exit_code -ne 0 ]; then
-            echo "Warning: Failed to download MediaMTX."
-            echo "Continuing with existing installation if available."
-        else
-            printf "Extracting MediaMTX...\n"
-            # Extract the downloaded file
-            if [ ! -f "$(basename "$latest_url")" ]; then
-                echo "Error: Downloaded file not found."
-            elif [[ "$(basename "$latest_url")" != *.tar.gz ]]; then
-                echo "Error: Downloaded file is not a tar.gz file."
-                rm "$(basename "$latest_url")" 2>/dev/null || true
-            else
-                tar xvf $(basename "$latest_url")
-                chmod +x mediamtx
-                #delete the downloaded file
-                rm $(basename "$latest_url")
-                # Check if the mediamtx binary exists
-                if [ ! -f mediamtx ]; then
-                    echo "Error: MediaMTX binary not found after extraction."
-                else
-                    echo "MediaMTX installation completed successfully."
-                fi
-            fi
-        fi
+    if [ -z "$latest_url" ]; then
+        echo "Error: Could not find the latest MediaMTX release URL."
+        exit 1
     fi
-elif [ "$NEED_INSTALL" = "true" ]; then
-    echo "Skipping MediaMTX installation - cannot check latest version due to API unavailability."
+    cd "$HOME"
+    wget "$latest_url"
+    exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo "Error: Failed to download MediaMTX."
+        exit $exit_code
+    fi
+    printf "Extracting MediaMTX...\n"
+    # Extract the downloaded file
+    if [ ! -f "$(basename "$latest_url")" ]; then
+        echo "Error: Downloaded file not found."
+        exit 1
+    fi
+    # Ensure the file is a tar.gz file
+    if [[ "$(basename "$latest_url")" != *.tar.gz ]]; then
+        echo "Error: Downloaded file is not a tar.gz file."
+        exit 1
+    fi
+    tar xvf $(basename "$latest_url")
+    chmod +x mediamtx
+    #delete the downloaded file
+    rm $(basename "$latest_url")
+    # Check if the mediamtx binary exists
+    if [ ! -f mediamtx ]; then
+        echo "Error: MediaMTX binary not found after extraction."
+        exit 1
+    fi
+    echo "MediaMTX installation completed successfully."
 else
     echo "Skipping MediaMTX download - already up to date."
 fi
@@ -341,57 +330,6 @@ sudo systemctl restart flask_app
 sudo systemctl enable mediamtx
 sudo systemctl restart mediamtx
 
-# Create NetworkManager configuration for faster WiFi scanning and connection
-sudo tee /etc/NetworkManager/conf.d/99-wifi-optimization.conf >/dev/null << 'EOF'
-[main]
-# Faster WiFi scanning and connection settings
-no-auto-default=*
-
-[connection]
-# Faster connection attempts
-connection.autoconnect-retries=0
-ipv4.dhcp-timeout=10
-ipv6.dhcp-timeout=10
-
-[device]
-# Aggressive WiFi scanning for faster detection of available networks
-wifi.scan-rand-mac-address=no
-wifi.powersave=2
-
-[connectivity]
-# Faster connectivity checking
-uri=http://nmcheck.gnome.org/check_network_status.txt
-interval=10
-EOF
-
-# Configure systemd-networkd to not interfere with NetworkManager
-sudo systemctl disable systemd-networkd 2>/dev/null || true
-sudo systemctl stop systemd-networkd 2>/dev/null || true
-
-# Ensure NetworkManager starts early in the boot process and scans immediately
-sudo systemctl enable NetworkManager
-sudo systemctl enable NetworkManager-wait-online
-
-# Set NetworkManager to start scanning WiFi immediately on boot
-sudo tee /etc/systemd/system/wifi-fast-scan.service >/dev/null << 'EOF'
-[Unit]
-Description=Fast WiFi Scanning Service
-After=NetworkManager.service
-Wants=NetworkManager.service
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/nmcli device wifi rescan
-ExecStartPost=/bin/sleep 2
-ExecStartPost=/usr/bin/nmcli connection up id $(nmcli -t -f NAME connection show --active | head -1) 2>/dev/null || true
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl enable wifi-fast-scan.service
-
 # Install tailscale if the specified in the command line arguments
 if [[ "$@" == *"--tailscale"* ]]; then
     echo "Installing Tailscale..."
@@ -400,6 +338,3 @@ if [[ "$@" == *"--tailscale"* ]]; then
 else
     echo "Skipping Tailscale installation."
 fi
-
-echo "completed!"
-echo
