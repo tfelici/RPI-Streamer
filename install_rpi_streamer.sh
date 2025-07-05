@@ -111,50 +111,97 @@ curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Upload
 [ -f "$HOME/executables/Uploader-linux" ] && chmod +x "$HOME/executables/Uploader-linux"
 [ -f "$HOME/executables/Uploader-macos" ] && chmod +x "$HOME/executables/Uploader-macos"
 # search and install latest version of mediamtx
-printf "Detecting system architecture...\n"
-ARCH=$(uname -m)
-if [[ "$ARCH" == "aarch64"* || "$ARCH" == arm* ]]; then
-    MTX_SUFFIX="linux_arm64.tar.gz"
-else
-    MTX_SUFFIX="linux_amd64.tar.gz"
-fi
-printf "Searching for the latest MediaMTX release for $MTX_SUFFIX...\n"
-# Check if jq is installed, if not, install it
+#only install MediaMTX if it does not exist or is not the latest version
+printf "Checking for existing MediaMTX installation...\n"
+
+# Check if jq is installed, if not, install it (needed for version comparison)
 if ! command -v jq &> /dev/null; then
     sudo apt-get install jq -y
 fi
-latest_url=$(curl -s https://api.github.com/repos/bluenviron/mediamtx/releases/latest | jq -r ".assets[] | select(.browser_download_url | endswith(\"$MTX_SUFFIX\")) | .browser_download_url")
-printf "Latest MediaMTX URL: %s\n" "$latest_url"
-if [ -z "$latest_url" ]; then
-    echo "Error: Could not find the latest MediaMTX release URL."
+
+# Get the latest version from GitHub API
+printf "Checking latest MediaMTX version...\n"
+latest_version=$(curl -s https://api.github.com/repos/bluenviron/mediamtx/releases/latest | jq -r ".tag_name")
+if [ -z "$latest_version" ]; then
+    echo "Error: Could not fetch latest MediaMTX version from GitHub."
     exit 1
 fi
-cd "$HOME"
-wget "$latest_url"
-exit_code=$?
-if [ $exit_code -ne 0 ]; then
-    echo "Error: Failed to download MediaMTX."
-    exit $exit_code
+printf "Latest MediaMTX version: %s\n" "$latest_version"
+
+# Check if MediaMTX exists and get its version
+NEED_INSTALL=false
+if [ -f "$HOME/mediamtx" ]; then
+    echo "MediaMTX binary found, checking version..."
+    # Check if the mediamtx binary is executable
+    if [ ! -x "$HOME/mediamtx" ]; then
+        echo "MediaMTX binary is not executable, will reinstall."
+        NEED_INSTALL=true
+    else
+        # Get current version
+        current_version=$("$HOME/mediamtx" --version 2>/dev/null | head -n1 | grep -o 'v[0-9][0-9.]*' || echo "unknown")
+        printf "Current MediaMTX version: %s\n" "$current_version"
+        
+        if [ "$current_version" = "$latest_version" ]; then
+            echo "MediaMTX is already up to date ($current_version)."
+            NEED_INSTALL=false
+        else
+            echo "MediaMTX needs update from $current_version to $latest_version."
+            NEED_INSTALL=true
+        fi
+    fi
+else
+    echo "MediaMTX is not installed, proceeding with installation."
+    NEED_INSTALL=true
 fi
-printf "Extracting MediaMTX...\n"
-# Extract the downloaded file
-if [ ! -f "$(basename "$latest_url")" ]; then
-    echo "Error: Downloaded file not found."
-    exit 1
-fi
-# Ensure the file is a tar.gz file
-if [[ "$(basename "$latest_url")" != *.tar.gz ]]; then
-    echo "Error: Downloaded file is not a tar.gz file."
-    exit 1
-fi
-tar xvf $(basename "$latest_url")
-chmod +x mediamtx
-#delete the downloaded file
-rm $(basename "$latest_url")
-# Check if the mediamtx binary exists
-if [ ! -f mediamtx ]; then
-    echo "Error: MediaMTX binary not found after extraction."
-    exit 1
+
+# Only proceed with download if we need to install/update
+if [ "$NEED_INSTALL" = "true" ]; then
+    # Determine the latest MediaMTX release URL based on system architecture
+    printf "Detecting system architecture...\n"
+    ARCH=$(uname -m)
+    if [[ "$ARCH" == "aarch64"* || "$ARCH" == arm* ]]; then
+        MTX_SUFFIX="linux_arm64.tar.gz"
+    else
+        MTX_SUFFIX="linux_amd64.tar.gz"
+    fi
+    printf "Searching for the latest MediaMTX release for $MTX_SUFFIX...\n"
+    
+    latest_url=$(curl -s https://api.github.com/repos/bluenviron/mediamtx/releases/latest | jq -r ".assets[] | select(.browser_download_url | endswith(\"$MTX_SUFFIX\")) | .browser_download_url")
+    printf "Latest MediaMTX URL: %s\n" "$latest_url"
+    if [ -z "$latest_url" ]; then
+        echo "Error: Could not find the latest MediaMTX release URL."
+        exit 1
+    fi
+    cd "$HOME"
+    wget "$latest_url"
+    exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo "Error: Failed to download MediaMTX."
+        exit $exit_code
+    fi
+    printf "Extracting MediaMTX...\n"
+    # Extract the downloaded file
+    if [ ! -f "$(basename "$latest_url")" ]; then
+        echo "Error: Downloaded file not found."
+        exit 1
+    fi
+    # Ensure the file is a tar.gz file
+    if [[ "$(basename "$latest_url")" != *.tar.gz ]]; then
+        echo "Error: Downloaded file is not a tar.gz file."
+        exit 1
+    fi
+    tar xvf $(basename "$latest_url")
+    chmod +x mediamtx
+    #delete the downloaded file
+    rm $(basename "$latest_url")
+    # Check if the mediamtx binary exists
+    if [ ! -f mediamtx ]; then
+        echo "Error: MediaMTX binary not found after extraction."
+        exit 1
+    fi
+    echo "MediaMTX installation completed successfully."
+else
+    echo "Skipping MediaMTX download - already up to date."
 fi
 #mv mediamtx.yml flask_app
 
