@@ -98,73 +98,90 @@ if [ ! -w "$HOME/flask_app" ]; then
 fi
 
 #download the executables directory from the Streamer-Uploader repository
-#only download if they don't exist or if there's a newer version available
+#only download if the executables have changed or don't exist
 if [ ! -d "$HOME/executables" ]; then
     mkdir -p "$HOME/executables"
 fi
 
-# Check for StreamerUploader updates
-printf "Checking StreamerUploader executables...\n"
-
-# Get the latest release info from GitHub API
-latest_uploader_info=$(curl -s https://api.github.com/repos/tfelici/Streamer-Uploader/releases/latest)
-latest_uploader_version=$(echo "$latest_uploader_info" | jq -r ".tag_name")
-latest_uploader_date=$(echo "$latest_uploader_info" | jq -r ".published_at")
-
-if [ -z "$latest_uploader_version" ] || [ "$latest_uploader_version" = "null" ]; then
-    echo "Warning: Could not fetch latest StreamerUploader version, will download anyway."
-    NEED_UPLOADER_DOWNLOAD=true
-else
-    printf "Latest StreamerUploader version: %s (published: %s)\n" "$latest_uploader_version" "$latest_uploader_date"
+# Function to check if executable needs update by comparing SHA hashes
+# This function compares the SHA1 hash of the local file with the remote file's SHA
+# from the GitHub API to determine if an update is needed
+check_executable_update() {
+    local platform=$1
+    local filename=$2
+    local api_path=$3
+    local local_file="$HOME/executables/$filename"
     
-    # Check if we have a version file
-    uploader_version_file="$HOME/executables/.uploader_version"
-    NEED_UPLOADER_DOWNLOAD=false
+    printf "Checking %s executable...\n" "$platform"
     
-    if [ -f "$uploader_version_file" ]; then
-        current_uploader_version=$(cat "$uploader_version_file" 2>/dev/null || echo "unknown")
-        printf "Current StreamerUploader version: %s\n" "$current_uploader_version"
+    # Get remote file SHA from GitHub API
+    remote_sha=$(curl -s "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/$api_path" | jq -r ".sha")
+    
+    if [ -z "$remote_sha" ] || [ "$remote_sha" = "null" ]; then
+        echo "Warning: Could not fetch remote SHA for $platform executable, skipping update check."
+        return 1
+    fi
+    
+    # Check if local file exists and get its SHA
+    if [ -f "$local_file" ]; then
+        # Calculate SHA1 of local file (GitHub uses SHA1 for blob objects)
+        # Try git hash-object first, fallback to sha1sum if git is not available
+        local_sha=$(git hash-object "$local_file" 2>/dev/null || sha1sum "$local_file" 2>/dev/null | cut -d' ' -f1 || echo "")
         
-        if [ "$current_uploader_version" = "$latest_uploader_version" ]; then
-            # Check if all executables exist
-            if [ -f "$HOME/executables/Uploader-windows.exe" ] && \
-               [ -f "$HOME/executables/Uploader-macos" ] && \
-               [ -f "$HOME/executables/Uploader-linux" ]; then
-                echo "StreamerUploader executables are already up to date ($current_uploader_version)."
-                NEED_UPLOADER_DOWNLOAD=false
-            else
-                echo "Some StreamerUploader executables are missing, will download."
-                NEED_UPLOADER_DOWNLOAD=true
-            fi
+        if [ -z "$local_sha" ]; then
+            echo "Warning: Could not calculate local SHA for $platform executable, will re-download."
+            return 0  # Download needed
+        fi
+        
+        if [ "$local_sha" = "$remote_sha" ]; then
+            echo "$platform executable is up to date."
+            return 1  # No update needed
         else
-            echo "StreamerUploader needs update from $current_uploader_version to $latest_uploader_version."
-            NEED_UPLOADER_DOWNLOAD=true
+            echo "$platform executable needs update (local: ${local_sha:0:7}, remote: ${remote_sha:0:7})."
+            return 0  # Update needed
         fi
     else
-        echo "No version information found for StreamerUploader, will download."
-        NEED_UPLOADER_DOWNLOAD=true
+        echo "$platform executable not found, will download."
+        return 0  # Download needed
+    fi
+}
+
+# Download the StreamerUploader executables for different platforms
+printf "Checking StreamerUploader executables...\n"
+
+# Check and download Windows executable
+if check_executable_update "Windows" "Uploader-windows.exe" "windows/dist/StreamerUploader.exe"; then
+    printf "Downloading Windows executable...\n"
+    if curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/windows/dist/StreamerUploader.exe?$(date +%s)" -o "$HOME/executables/Uploader-windows.exe"; then
+        echo "Windows executable downloaded successfully."
+    else
+        echo "Error: Failed to download Windows executable."
     fi
 fi
 
-# Download StreamerUploader executables if needed
-if [ "$NEED_UPLOADER_DOWNLOAD" = "true" ]; then
-    printf "Downloading StreamerUploader executables...\n"
-    curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/windows/dist/StreamerUploader.exe?$(date +%s)" -o "$HOME/executables/Uploader-windows.exe"
-    curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/macos/dist/StreamerUploader?$(date +%s)" -o "$HOME/executables/Uploader-macos"
-    curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/linux/dist/StreamerUploader?$(date +%s)" -o "$HOME/executables/Uploader-linux"
-    
-    # Make the downloaded linux and macos executables executable
-    [ -f "$HOME/executables/Uploader-linux" ] && chmod +x "$HOME/executables/Uploader-linux"
-    [ -f "$HOME/executables/Uploader-macos" ] && chmod +x "$HOME/executables/Uploader-macos"
-    
-    # Save the version information for future checks
-    if [ -n "$latest_uploader_version" ] && [ "$latest_uploader_version" != "null" ]; then
-        echo "$latest_uploader_version" > "$uploader_version_file"
-        echo "StreamerUploader executables updated to version $latest_uploader_version."
+# Check and download macOS executable
+if check_executable_update "macOS" "Uploader-macos" "macos/dist/StreamerUploader"; then
+    printf "Downloading macOS executable...\n"
+    if curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/macos/dist/StreamerUploader?$(date +%s)" -o "$HOME/executables/Uploader-macos"; then
+        echo "macOS executable downloaded successfully."
+    else
+        echo "Error: Failed to download macOS executable."
     fi
-else
-    echo "Skipping StreamerUploader download - already up to date."
 fi
+
+# Check and download Linux executable
+if check_executable_update "Linux" "Uploader-linux" "linux/dist/StreamerUploader"; then
+    printf "Downloading Linux executable...\n"
+    if curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/linux/dist/StreamerUploader?$(date +%s)" -o "$HOME/executables/Uploader-linux"; then
+        echo "Linux executable downloaded successfully."
+    else
+        echo "Error: Failed to download Linux executable."
+    fi
+fi
+
+# Make the downloaded linux and macos executables executable
+[ -f "$HOME/executables/Uploader-linux" ] && chmod +x "$HOME/executables/Uploader-linux"
+[ -f "$HOME/executables/Uploader-macos" ] && chmod +x "$HOME/executables/Uploader-macos"
 # search and install latest version of mediamtx
 #only install MediaMTX if it does not exist or is not the latest version
 printf "Checking for existing MediaMTX installation...\n"
