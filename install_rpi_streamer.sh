@@ -98,18 +98,73 @@ if [ ! -w "$HOME/flask_app" ]; then
 fi
 
 #download the executables directory from the Streamer-Uploader repository
-#do not fail if the executables do not exist
+#only download if they don't exist or if there's a newer version available
 if [ ! -d "$HOME/executables" ]; then
     mkdir -p "$HOME/executables"
 fi
-# Download the StreamerUploader executables for different platforms
-printf "Downloading StreamerUploader executables...\n"
-curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/windows/dist/StreamerUploader.exe?$(date +%s)" -o "$HOME/executables/Uploader-windows.exe"
-curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/macos/dist/StreamerUploader?$(date +%s)" -o "$HOME/executables/Uploader-macos"
-curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/linux/dist/StreamerUploader?$(date +%s)" -o "$HOME/executables/Uploader-linux"
-# if they exist, Make the downloaded linux and macos executables executable
-[ -f "$HOME/executables/Uploader-linux" ] && chmod +x "$HOME/executables/Uploader-linux"
-[ -f "$HOME/executables/Uploader-macos" ] && chmod +x "$HOME/executables/Uploader-macos"
+
+# Check for StreamerUploader updates
+printf "Checking StreamerUploader executables...\n"
+
+# Get the latest release info from GitHub API
+latest_uploader_info=$(curl -s https://api.github.com/repos/tfelici/Streamer-Uploader/releases/latest)
+latest_uploader_version=$(echo "$latest_uploader_info" | jq -r ".tag_name")
+latest_uploader_date=$(echo "$latest_uploader_info" | jq -r ".published_at")
+
+if [ -z "$latest_uploader_version" ] || [ "$latest_uploader_version" = "null" ]; then
+    echo "Warning: Could not fetch latest StreamerUploader version, will download anyway."
+    NEED_UPLOADER_DOWNLOAD=true
+else
+    printf "Latest StreamerUploader version: %s (published: %s)\n" "$latest_uploader_version" "$latest_uploader_date"
+    
+    # Check if we have a version file
+    uploader_version_file="$HOME/executables/.uploader_version"
+    NEED_UPLOADER_DOWNLOAD=false
+    
+    if [ -f "$uploader_version_file" ]; then
+        current_uploader_version=$(cat "$uploader_version_file" 2>/dev/null || echo "unknown")
+        printf "Current StreamerUploader version: %s\n" "$current_uploader_version"
+        
+        if [ "$current_uploader_version" = "$latest_uploader_version" ]; then
+            # Check if all executables exist
+            if [ -f "$HOME/executables/Uploader-windows.exe" ] && \
+               [ -f "$HOME/executables/Uploader-macos" ] && \
+               [ -f "$HOME/executables/Uploader-linux" ]; then
+                echo "StreamerUploader executables are already up to date ($current_uploader_version)."
+                NEED_UPLOADER_DOWNLOAD=false
+            else
+                echo "Some StreamerUploader executables are missing, will download."
+                NEED_UPLOADER_DOWNLOAD=true
+            fi
+        else
+            echo "StreamerUploader needs update from $current_uploader_version to $latest_uploader_version."
+            NEED_UPLOADER_DOWNLOAD=true
+        fi
+    else
+        echo "No version information found for StreamerUploader, will download."
+        NEED_UPLOADER_DOWNLOAD=true
+    fi
+fi
+
+# Download StreamerUploader executables if needed
+if [ "$NEED_UPLOADER_DOWNLOAD" = "true" ]; then
+    printf "Downloading StreamerUploader executables...\n"
+    curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/windows/dist/StreamerUploader.exe?$(date +%s)" -o "$HOME/executables/Uploader-windows.exe"
+    curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/macos/dist/StreamerUploader?$(date +%s)" -o "$HOME/executables/Uploader-macos"
+    curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/linux/dist/StreamerUploader?$(date +%s)" -o "$HOME/executables/Uploader-linux"
+    
+    # Make the downloaded linux and macos executables executable
+    [ -f "$HOME/executables/Uploader-linux" ] && chmod +x "$HOME/executables/Uploader-linux"
+    [ -f "$HOME/executables/Uploader-macos" ] && chmod +x "$HOME/executables/Uploader-macos"
+    
+    # Save the version information for future checks
+    if [ -n "$latest_uploader_version" ] && [ "$latest_uploader_version" != "null" ]; then
+        echo "$latest_uploader_version" > "$uploader_version_file"
+        echo "StreamerUploader executables updated to version $latest_uploader_version."
+    fi
+else
+    echo "Skipping StreamerUploader download - already up to date."
+fi
 # search and install latest version of mediamtx
 #only install MediaMTX if it does not exist or is not the latest version
 printf "Checking for existing MediaMTX installation...\n"
