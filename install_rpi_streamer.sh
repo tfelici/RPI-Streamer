@@ -106,6 +106,12 @@ fi
 # Function to check and download executable if needed
 # This function handles both SHA checking and downloading in one place
 # Returns 0 on success (up to date or downloaded), 1 on failure (but doesn't exit)
+
+# Check if jq is installed, if not, install it (needed for version comparison)
+if ! command -v jq &> /dev/null; then
+    sudo apt-get install jq -y
+fi
+
 check_and_download_executable() {
     local platform=$1
     local filename=$2
@@ -182,11 +188,6 @@ printf "StreamerUploader executable check completed.\n"
 # search and install latest version of mediamtx
 #only install MediaMTX if it does not exist or is not the latest version
 printf "Checking for existing MediaMTX installation...\n"
-
-# Check if jq is installed, if not, install it (needed for version comparison)
-if ! command -v jq &> /dev/null; then
-    sudo apt-get install jq -y
-fi
 
 # Get the latest version from GitHub API
 printf "Checking latest MediaMTX version...\n"
