@@ -392,9 +392,3 @@ WantedBy=multi-user.target
 EOF
 
 sudo systemctl enable wifi-fast-scan.service
-
-# Make wifi fast connect script executable
-chmod +x wifi_connect_fast.sh
-
-printf "WiFi optimization completed. This will improve hotspot connection speed on next boot.\n"
-printf "You can also run './wifi_connect_fast.sh' manually to trigger immediate WiFi scanning.\n"
