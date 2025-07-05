@@ -103,14 +103,14 @@ if [ ! -d "$HOME/executables" ]; then
     mkdir -p "$HOME/executables"
 fi
 
-# Function to check if executable needs update by comparing SHA hashes
-# This function compares the SHA1 hash of the local file with the remote file's SHA
-# from the GitHub API to determine if an update is needed
+# Function to check if executable needs update by comparing stored SHA with remote SHA
+# This function stores the remote SHA locally and compares it on subsequent runs
 check_executable_update() {
     local platform=$1
     local filename=$2
     local api_path=$3
     local local_file="$HOME/executables/$filename"
+    local sha_file="$HOME/executables/${filename}.sha"
     
     printf "Checking %s executable...\n" "$platform"
     
@@ -122,32 +122,21 @@ check_executable_update() {
         return 1
     fi
     
-    # Check if local file exists and get its SHA
-    if [ -f "$local_file" ]; then
-        # Calculate SHA1 of local file (GitHub uses SHA1 for blob objects)
-        # We need to use git hash-object to match GitHub's blob SHA calculation
-        if command -v git &> /dev/null; then
-            local_sha=$(git hash-object "$local_file" 2>/dev/null || echo "")
-        else
-            # If git is not available, use sha1sum but this won't match GitHub's blob SHA
-            # In this case, we'll just re-download to be safe
-            local_sha=""
-        fi
+    # Check if local file exists and has a stored SHA
+    if [ -f "$local_file" ] && [ -f "$sha_file" ]; then
+        # Read the stored SHA
+        stored_sha=$(cat "$sha_file" 2>/dev/null || echo "")
         
-        if [ -z "$local_sha" ]; then
-            echo "Warning: Could not calculate local SHA for $platform executable, will re-download."
+        if [ -z "$stored_sha" ]; then
+            echo "No stored SHA found for $platform executable, will download."
             return 0  # Download needed
         fi
         
-        # Debug output to help troubleshoot
-        echo "  Local SHA:  $local_sha"
-        echo "  Remote SHA: $remote_sha"
-        
-        if [ "$local_sha" = "$remote_sha" ]; then
+        if [ "$stored_sha" = "$remote_sha" ]; then
             echo "$platform executable is up to date."
             return 1  # No update needed
         else
-            echo "$platform executable needs update (local: ${local_sha:0:7}, remote: ${remote_sha:0:7})."
+            echo "$platform executable needs update (stored: ${stored_sha:0:7}, remote: ${remote_sha:0:7})."
             return 0  # Update needed
         fi
     else
@@ -162,8 +151,12 @@ printf "Checking StreamerUploader executables...\n"
 # Check and download Windows executable
 if check_executable_update "Windows" "Uploader-windows.exe" "windows/dist/StreamerUploader.exe"; then
     printf "Downloading Windows executable...\n"
+    # Get the remote SHA again for storage after download
+    win_remote_sha=$(curl -s "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/windows/dist/StreamerUploader.exe" | jq -r ".sha")
     if curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/windows/dist/StreamerUploader.exe?$(date +%s)" -o "$HOME/executables/Uploader-windows.exe"; then
         echo "Windows executable downloaded successfully."
+        # Store the remote SHA for future comparisons
+        echo "$win_remote_sha" > "$HOME/executables/Uploader-windows.exe.sha"
     else
         echo "Error: Failed to download Windows executable."
     fi
@@ -172,8 +165,12 @@ fi
 # Check and download macOS executable
 if check_executable_update "macOS" "Uploader-macos" "macos/dist/StreamerUploader"; then
     printf "Downloading macOS executable...\n"
+    # Get the remote SHA again for storage after download
+    mac_remote_sha=$(curl -s "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/macos/dist/StreamerUploader" | jq -r ".sha")
     if curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/macos/dist/StreamerUploader?$(date +%s)" -o "$HOME/executables/Uploader-macos"; then
         echo "macOS executable downloaded successfully."
+        # Store the remote SHA for future comparisons
+        echo "$mac_remote_sha" > "$HOME/executables/Uploader-macos.sha"
     else
         echo "Error: Failed to download macOS executable."
     fi
@@ -182,8 +179,12 @@ fi
 # Check and download Linux executable
 if check_executable_update "Linux" "Uploader-linux" "linux/dist/StreamerUploader"; then
     printf "Downloading Linux executable...\n"
+    # Get the remote SHA again for storage after download
+    linux_remote_sha=$(curl -s "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/linux/dist/StreamerUploader" | jq -r ".sha")
     if curl -H "Cache-Control: no-cache" -L "https://github.com/tfelici/Streamer-Uploader/raw/main/linux/dist/StreamerUploader?$(date +%s)" -o "$HOME/executables/Uploader-linux"; then
         echo "Linux executable downloaded successfully."
+        # Store the remote SHA for future comparisons
+        echo "$linux_remote_sha" > "$HOME/executables/Uploader-linux.sha"
     else
         echo "Error: Failed to download Linux executable."
     fi
