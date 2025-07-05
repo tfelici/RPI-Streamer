@@ -125,13 +125,23 @@ check_executable_update() {
     # Check if local file exists and get its SHA
     if [ -f "$local_file" ]; then
         # Calculate SHA1 of local file (GitHub uses SHA1 for blob objects)
-        # Try git hash-object first, fallback to sha1sum if git is not available
-        local_sha=$(git hash-object "$local_file" 2>/dev/null || sha1sum "$local_file" 2>/dev/null | cut -d' ' -f1 || echo "")
+        # We need to use git hash-object to match GitHub's blob SHA calculation
+        if command -v git &> /dev/null; then
+            local_sha=$(git hash-object "$local_file" 2>/dev/null || echo "")
+        else
+            # If git is not available, use sha1sum but this won't match GitHub's blob SHA
+            # In this case, we'll just re-download to be safe
+            local_sha=""
+        fi
         
         if [ -z "$local_sha" ]; then
             echo "Warning: Could not calculate local SHA for $platform executable, will re-download."
             return 0  # Download needed
         fi
+        
+        # Debug output to help troubleshoot
+        echo "  Local SHA:  $local_sha"
+        echo "  Remote SHA: $remote_sha"
         
         if [ "$local_sha" = "$remote_sha" ]; then
             echo "$platform executable is up to date."
