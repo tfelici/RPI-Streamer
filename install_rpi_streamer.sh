@@ -340,32 +340,5 @@ else
     echo "Skipping Tailscale installation."
 fi
 
-# Optimize NetworkManager for faster WiFi connections
-printf "Optimizing NetworkManager for faster WiFi connections...\n"
-sudo tee /etc/NetworkManager/conf.d/99-wifi-optimization.conf > /dev/null << 'EOF'
-[main]
-# Faster WiFi scanning and connection settings
-no-auto-default=*
-
-[connection]
-# Faster connection attempts
-wifi.powersave=2
-ipv4.dhcp-timeout=10
-ipv6.dhcp-timeout=10
-
-[device]
-# Aggressive WiFi scanning for faster detection of available networks
-wifi.scan-rand-mac-address=no
-match-device=driver:brcmfmac
-
-[connectivity]
-# Faster connectivity checking
-uri=http://nmcheck.gnome.org/check_network_status.txt
-interval=10
-EOF
-
-# Restart NetworkManager to apply the new configuration
-sudo systemctl restart NetworkManager
-
 # Print completion message
 echo "RPI Streamer installation completed successfully!"
