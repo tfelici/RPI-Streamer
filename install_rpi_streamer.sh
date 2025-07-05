@@ -338,3 +338,63 @@ if [[ "$@" == *"--tailscale"* ]]; then
 else
     echo "Skipping Tailscale installation."
 fi
+
+# Optimize WiFi connection speed for faster hotspot detection
+printf "Optimizing WiFi connection settings for faster hotspot detection...\n"
+
+# Create NetworkManager configuration for faster WiFi scanning and connection
+sudo tee /etc/NetworkManager/conf.d/99-wifi-optimization.conf >/dev/null << 'EOF'
+[main]
+# Faster WiFi scanning and connection settings
+no-auto-default=*
+
+[connection]
+# Faster connection attempts
+connection.autoconnect-retries=0
+ipv4.dhcp-timeout=10
+ipv6.dhcp-timeout=10
+
+[device]
+# Aggressive WiFi scanning for faster detection of available networks
+wifi.scan-rand-mac-address=no
+wifi.powersave=2
+
+[connectivity]
+# Faster connectivity checking
+uri=http://nmcheck.gnome.org/check_network_status.txt
+interval=10
+EOF
+
+# Configure systemd-networkd to not interfere with NetworkManager
+sudo systemctl disable systemd-networkd 2>/dev/null || true
+sudo systemctl stop systemd-networkd 2>/dev/null || true
+
+# Ensure NetworkManager starts early in boot process and scans immediately
+sudo systemctl enable NetworkManager
+sudo systemctl enable NetworkManager-wait-online
+
+# Set NetworkManager to start scanning WiFi immediately on boot
+sudo tee /etc/systemd/system/wifi-fast-scan.service >/dev/null << 'EOF'
+[Unit]
+Description=Fast WiFi Scanning Service
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/nmcli device wifi rescan
+ExecStartPost=/bin/sleep 2
+ExecStartPost=/usr/bin/nmcli connection up id $(nmcli -t -f NAME connection show --active | head -1) 2>/dev/null || true
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl enable wifi-fast-scan.service
+
+# Make wifi fast connect script executable
+chmod +x wifi_connect_fast.sh
+
+printf "WiFi optimization completed. This will improve hotspot connection speed on next boot.\n"
+printf "You can also run './wifi_connect_fast.sh' manually to trigger immediate WiFi scanning.\n"
