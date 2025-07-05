@@ -191,40 +191,49 @@ fi
 # Get the latest version from GitHub API
 printf "Checking latest MediaMTX version...\n"
 latest_version=$(curl -s https://api.github.com/repos/bluenviron/mediamtx/releases/latest | jq -r ".tag_name")
-if [ -z "$latest_version" ]; then
-    echo "Error: Could not fetch latest MediaMTX version from GitHub."
-    exit 1
-fi
-printf "Latest MediaMTX version: %s\n" "$latest_version"
-
-# Check if MediaMTX exists and get its version
-NEED_INSTALL=false
-if [ -f "$HOME/mediamtx" ]; then
-    echo "MediaMTX binary found, checking version..."
-    # Check if the mediamtx binary is executable
-    if [ ! -x "$HOME/mediamtx" ]; then
-        echo "MediaMTX binary is not executable, will reinstall."
-        NEED_INSTALL=true
+if [ -z "$latest_version" ] || [ "$latest_version" = "null" ]; then
+    echo "Warning: Could not fetch latest MediaMTX version from GitHub (network error or rate limit exceeded)."
+    echo "Skipping MediaMTX update check - will use existing installation if available."
+    NEED_INSTALL=false
+    # Check if MediaMTX binary exists, if not we still need to install
+    if [ ! -f "$HOME/mediamtx" ]; then
+        echo "MediaMTX binary not found and cannot check for updates. Installation will be skipped."
+        echo "Please run the script again later when GitHub API is available."
     else
-        # Get current version
-        current_version=$("$HOME/mediamtx" --version 2>/dev/null | head -n1 | grep -o 'v[0-9][0-9.]*' || echo "unknown")
-        printf "Current MediaMTX version: %s\n" "$current_version"
-        
-        if [ "$current_version" = "$latest_version" ]; then
-            echo "MediaMTX is already up to date ($current_version)."
-            NEED_INSTALL=false
-        else
-            echo "MediaMTX needs update from $current_version to $latest_version."
-            NEED_INSTALL=true
-        fi
+        echo "Existing MediaMTX installation will be used."
     fi
 else
-    echo "MediaMTX is not installed, proceeding with installation."
-    NEED_INSTALL=true
+    printf "Latest MediaMTX version: %s\n" "$latest_version"
+    
+    # Check if MediaMTX exists and get its version
+    NEED_INSTALL=false
+    if [ -f "$HOME/mediamtx" ]; then
+        echo "MediaMTX binary found, checking version..."
+        # Check if the mediamtx binary is executable
+        if [ ! -x "$HOME/mediamtx" ]; then
+            echo "MediaMTX binary is not executable, will reinstall."
+            NEED_INSTALL=true
+        else
+            # Get current version
+            current_version=$("$HOME/mediamtx" --version 2>/dev/null | head -n1 | grep -o 'v[0-9][0-9.]*' || echo "unknown")
+            printf "Current MediaMTX version: %s\n" "$current_version"
+            
+            if [ "$current_version" = "$latest_version" ]; then
+                echo "MediaMTX is already up to date ($current_version)."
+                NEED_INSTALL=false
+            else
+                echo "MediaMTX needs update from $current_version to $latest_version."
+                NEED_INSTALL=true
+            fi
+        fi
+    else
+        echo "MediaMTX is not installed, proceeding with installation."
+        NEED_INSTALL=true
+    fi
 fi
 
-# Only proceed with download if we need to install/update
-if [ "$NEED_INSTALL" = "true" ]; then
+# Only proceed with download if we need to install/update and have a valid latest_version
+if [ "$NEED_INSTALL" = "true" ] && [ -n "$latest_version" ] && [ "$latest_version" != "null" ]; then
     # Determine the latest MediaMTX release URL based on system architecture
     printf "Detecting system architecture...\n"
     ARCH=$(uname -m)
@@ -237,38 +246,40 @@ if [ "$NEED_INSTALL" = "true" ]; then
     
     latest_url=$(curl -s https://api.github.com/repos/bluenviron/mediamtx/releases/latest | jq -r ".assets[] | select(.browser_download_url | endswith(\"$MTX_SUFFIX\")) | .browser_download_url")
     printf "Latest MediaMTX URL: %s\n" "$latest_url"
-    if [ -z "$latest_url" ]; then
-        echo "Error: Could not find the latest MediaMTX release URL."
-        exit 1
+    if [ -z "$latest_url" ] || [ "$latest_url" = "null" ]; then
+        echo "Warning: Could not find the latest MediaMTX release URL (API may be unavailable)."
+        echo "Skipping MediaMTX installation/update."
+    else
+        cd "$HOME"
+        wget "$latest_url"
+        exit_code=$?
+        if [ $exit_code -ne 0 ]; then
+            echo "Warning: Failed to download MediaMTX."
+            echo "Continuing with existing installation if available."
+        else
+            printf "Extracting MediaMTX...\n"
+            # Extract the downloaded file
+            if [ ! -f "$(basename "$latest_url")" ]; then
+                echo "Error: Downloaded file not found."
+            elif [[ "$(basename "$latest_url")" != *.tar.gz ]]; then
+                echo "Error: Downloaded file is not a tar.gz file."
+                rm "$(basename "$latest_url")" 2>/dev/null || true
+            else
+                tar xvf $(basename "$latest_url")
+                chmod +x mediamtx
+                #delete the downloaded file
+                rm $(basename "$latest_url")
+                # Check if the mediamtx binary exists
+                if [ ! -f mediamtx ]; then
+                    echo "Error: MediaMTX binary not found after extraction."
+                else
+                    echo "MediaMTX installation completed successfully."
+                fi
+            fi
+        fi
     fi
-    cd "$HOME"
-    wget "$latest_url"
-    exit_code=$?
-    if [ $exit_code -ne 0 ]; then
-        echo "Error: Failed to download MediaMTX."
-        exit $exit_code
-    fi
-    printf "Extracting MediaMTX...\n"
-    # Extract the downloaded file
-    if [ ! -f "$(basename "$latest_url")" ]; then
-        echo "Error: Downloaded file not found."
-        exit 1
-    fi
-    # Ensure the file is a tar.gz file
-    if [[ "$(basename "$latest_url")" != *.tar.gz ]]; then
-        echo "Error: Downloaded file is not a tar.gz file."
-        exit 1
-    fi
-    tar xvf $(basename "$latest_url")
-    chmod +x mediamtx
-    #delete the downloaded file
-    rm $(basename "$latest_url")
-    # Check if the mediamtx binary exists
-    if [ ! -f mediamtx ]; then
-        echo "Error: MediaMTX binary not found after extraction."
-        exit 1
-    fi
-    echo "MediaMTX installation completed successfully."
+elif [ "$NEED_INSTALL" = "true" ]; then
+    echo "Skipping MediaMTX installation - cannot check latest version due to API unavailability."
 else
     echo "Skipping MediaMTX download - already up to date."
 fi
