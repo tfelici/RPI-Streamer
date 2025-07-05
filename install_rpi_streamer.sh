@@ -105,6 +105,7 @@ fi
 
 # Function to check and download executable if needed
 # This function handles both SHA checking and downloading in one place
+# Returns 0 on success (up to date or downloaded), 1 on failure (but doesn't exit)
 check_and_download_executable() {
     local platform=$1
     local filename=$2
@@ -119,8 +120,9 @@ check_and_download_executable() {
     remote_sha=$(curl -s "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/$api_path" | jq -r ".sha")
     
     if [ -z "$remote_sha" ] || [ "$remote_sha" = "null" ]; then
-        echo "Warning: Could not fetch remote SHA for $platform executable, skipping update check."
-        return 1
+        echo "Warning: Could not fetch remote SHA for $platform executable. Remote file may not exist or API is unavailable."
+        echo "Skipping $platform executable update check."
+        return 0  # Return success to continue gracefully
     fi
     
     # Check if local file exists and has a stored SHA
@@ -153,8 +155,9 @@ check_and_download_executable() {
             echo "$remote_sha" > "$sha_file"
             return 0  # Success
         else
-            echo "Error: Failed to download $platform executable."
-            return 1  # Failed
+            echo "Warning: Failed to download $platform executable. This may be due to network issues or the file not existing."
+            echo "Continuing with installation..."
+            return 0  # Return success to continue gracefully
         fi
     fi
 }
@@ -170,6 +173,8 @@ check_and_download_executable "macOS" "Uploader-macos" "macos/dist/StreamerUploa
 
 # Check and download Linux executable
 check_and_download_executable "Linux" "Uploader-linux" "linux/dist/StreamerUploader" "https://github.com/tfelici/Streamer-Uploader/raw/main/linux/dist/StreamerUploader"
+
+printf "StreamerUploader executable check completed.\n"
 
 # Make the downloaded linux and macos executables executable
 [ -f "$HOME/executables/Uploader-linux" ] && chmod +x "$HOME/executables/Uploader-linux"
