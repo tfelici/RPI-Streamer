@@ -764,24 +764,11 @@ def system_settings_wifi():
         # Ensure NetworkManager is enabled for auto-start on boot
         subprocess.run(['sudo', 'systemctl', 'enable', 'NetworkManager'], check=False)
         
-        # Configure WiFi with optimized settings for faster connection
+        # Configure WiFi with lower priority - fallback when Ethernet unavailable
         subprocess.run([
             'sudo', 'nmcli', 'connection', 'modify', ssid,
             'connection.autoconnect', 'yes',
-            'connection.autoconnect-priority', '5',
-            # Optimize WiFi connection timeouts and retry behavior
-            'wifi.powersave', '2',  # Disable powersave for faster scanning
-            'connection.autoconnect-retries', '0',  # Infinite retries
-            'ipv4.dhcp-timeout', '10',  # Faster DHCP timeout (default 45s)
-            'ipv6.addr-gen-mode', 'stable-privacy',
-            'ipv6.dhcp-timeout', '10'
-        ], check=False)
-        
-        # Set aggressive WiFi scanning for faster detection
-        subprocess.run([
-            'sudo', 'nmcli', 'connection', 'modify', ssid,
-            'wifi.scan-rand-mac-address', 'no',  # Disable MAC randomization for faster scanning
-            'connection.wait-device-timeout', '5000'  # 5 second wait for device (default 10s)
+            'connection.autoconnect-priority', '5'
         ], check=False)
         
         # Ensure Ethernet connection exists and has higher priority (preferred)
