@@ -105,6 +105,12 @@
                     <option value="true" {% if settings.dynamicBitrate %}selected{% endif %}>Enabled (adaptive)</option>
                     <option value="false" {% if not settings.dynamicBitrate %}selected{% endif %}>Disabled (passthrough)</option>
                 </select>
+
+                <label for="use_gstreamer">Streaming Engine</label>
+                <select id="use_gstreamer" name="use_gstreamer">
+                    <option value="false" {% if not settings.use_gstreamer %}selected{% endif %}>FFmpeg (default)</option>
+                    <option value="true" {% if settings.use_gstreamer %}selected{% endif %}>GStreamer</option>
+                </select>
                 
                 <button type="submit" class="btn btn-primary">Save Settings</button>
                 <div id="msg" class="status-message" style="display: none;"></div>
@@ -129,6 +135,7 @@
                 document.getElementById('video_input').value = data.video_input || '';
                 document.getElementById('volume').value = data.volume || 100;
                 document.getElementById('dynamicBitrate').value = data.dynamicBitrate === true ? 'true' : 'false';
+                document.getElementById('use_gstreamer').value = data.use_gstreamer === true ? 'true' : 'false';
                 // Update volume display on page load
                 document.getElementById('volume-display').textContent = (data.volume || 100) + '%';
             });
@@ -154,6 +161,7 @@
             const video_input = document.getElementById('video_input').value;
             const volume = document.getElementById('volume').value;
             const dynamicBitrate = document.getElementById('dynamicBitrate').value === 'true';
+            const use_gstreamer = document.getElementById('use_gstreamer').value === 'true';
             
             // Only validate if not empty
             if (stream_url) {
@@ -175,7 +183,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         stream_url, framerate, crf, gop, resolution, 
-                        vbitrate, abitrate, ar, upload_url, audio_input, video_input, volume, dynamicBitrate
+                        vbitrate, abitrate, ar, upload_url, audio_input, video_input, volume, dynamicBitrate, use_gstreamer
                     })
                 });
                 

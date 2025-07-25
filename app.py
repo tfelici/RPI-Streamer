@@ -58,7 +58,8 @@ def load_settings():
         "upload_url": "",
         "volume": 100,
         "gop": 30,
-        "dynamicBitrate": True
+        "dynamicBitrate": True,
+        "use_gstreamer": False
     }
     if os.path.exists(SETTINGS_FILE):
         try:
@@ -295,6 +296,13 @@ def settings():
                 settings['dynamicBitrate'] = val
             elif isinstance(val, str):
                 settings['dynamicBitrate'] = val.lower() == 'true'
+        if 'use_gstreamer' in data:
+            # Accept both boolean and string values from the form
+            val = data['use_gstreamer']
+            if isinstance(val, bool):
+                settings['use_gstreamer'] = val
+            elif isinstance(val, str):
+                settings['use_gstreamer'] = val.lower() == 'true'
         save_settings(settings)
         return '', 204
     else:

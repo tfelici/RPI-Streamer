@@ -337,7 +337,8 @@ def start(stream_name):
             'vbitrate': get_setting('vbitrate', 1000),
             'ar': get_setting('ar', 8000),
             'abitrate': get_setting('abitrate', '128k'),
-            'volume': get_setting('volume', 100)
+            'volume': get_setting('volume', 100),
+            'use_gstreamer': get_setting('use_gstreamer', False)
         }
         
         while True:
@@ -353,7 +354,8 @@ def start(stream_name):
                 'vbitrate': get_setting('vbitrate', 1000),
                 'ar': get_setting('ar', 8000),
                 'abitrate': get_setting('abitrate', '128k'),
-                'volume': get_setting('volume', 100)
+                'volume': get_setting('volume', 100),
+                'use_gstreamer': get_setting('use_gstreamer', False)
             }
             
             # Check for device changes
@@ -398,12 +400,24 @@ def start(stream_name):
         video_device = find_video_device()
         audio_device = find_usb_audio_device()
 
-        # Build command with current settings
-        cmd, env = build_gstreamer_cmd(
-            video_device, audio_device, current_framerate, current_resolution,
-            current_crf, current_gop, current_vbitrate, current_ar,
-            current_abitrate, current_volume, stream_name
-        )
+        # Get streaming engine preference
+        use_gstreamer = get_setting('use_gstreamer', False)
+
+        # Build command with current settings using selected engine
+        if use_gstreamer:
+            cmd, env = build_gstreamer_cmd(
+                video_device, audio_device, current_framerate, current_resolution,
+                current_crf, current_gop, current_vbitrate, current_ar,
+                current_abitrate, current_volume, stream_name
+            )
+            print("Using GStreamer pipeline")
+        else:
+            cmd, env = build_ffmpeg_cmd(
+                video_device, audio_device, current_framerate, current_resolution,
+                current_crf, current_gop, current_vbitrate, current_ar,
+                current_abitrate, current_volume, stream_name
+            )
+            print("Using FFmpeg pipeline")
         
         print("Running:", ' '.join(str(x) for x in cmd))
         proc = subprocess.Popen(cmd, env=env)
