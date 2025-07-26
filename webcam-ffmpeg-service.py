@@ -17,7 +17,7 @@ def start(stream_name):
         """
         Return audio_input if set and available, else None.
         """
-        configured_device = get_setting('audio_input', None)
+        configured_device = get_setting('audio_input')
         if not configured_device:
             return None
         # Check if the configured device is in the list of available devices
@@ -33,7 +33,7 @@ def start(stream_name):
         """
         Return video_input if set and available, else None.
         """
-        configured_device = get_setting('video_input', None)
+        configured_device = get_setting('video_input')
         if not configured_device:
             return None
         
