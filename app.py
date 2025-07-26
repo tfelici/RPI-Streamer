@@ -19,7 +19,7 @@ import requests
 from datetime import datetime
 from functools import wraps
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, get_ups_status, move_file_to_usb, copy_settings_and_executables_to_usb
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, get_ups_status, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR
 
 # Use pymediainfo for fast video duration extraction
 try:
@@ -42,25 +42,10 @@ def add_no_cache_headers(response):
     response.headers["Expires"] = "0"
     return response
 
-STREAMER_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'streamerData'))
 STREAM_PIDFILE = "/tmp/relay-ffmpeg-webcam.pid"
-SETTINGS_FILE = os.path.join(STREAMER_DATA_DIR, 'settings.json')
 
 def load_settings():
-    settings = {
-        "stream_url": "",
-        "framerate": 30,
-        "crf": '',
-        "resolution": "1360x768",
-        "vbitrate": 384,
-        "abitrate": "128k",
-        "ar": 16000,
-        "upload_url": "",
-        "volume": 100,
-        "gop": 30,
-        "dynamicBitrate": True,
-        "use_gstreamer": False
-    }
+    settings = DEFAULT_SETTINGS.copy()
     if os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, 'r') as f:

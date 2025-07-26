@@ -106,7 +106,7 @@ def main():
         last_timestamp = time.time()
         
         # Track dynamicBitrate setting for change detection
-        current_dynamic_setting = get_setting('dynamicBitrate', True)
+        current_dynamic_setting = get_setting('dynamicBitrate')
         
         # Adaptive probing state
         failed_probes = 0
@@ -159,14 +159,14 @@ def main():
             
         print("Found srtsink element for stream monitoring")
         
-        vbitrate = get_setting('vbitrate', 2000)
+        vbitrate = get_setting('vbitrate')
         max_bitrate = current_bitrate = vbitrate
         while True:
             if stop_event is not None and stop_event.is_set():
                 print("Monitor thread received stop event, exiting.")
                 break
             #if vbitrate setting has changed, update current_bitrate
-            new_vbitrate = get_setting('vbitrate', 2000)
+            new_vbitrate = get_setting('vbitrate')
             if new_vbitrate != vbitrate:
                 print(f"vbitrate setting changed from {vbitrate} to {new_vbitrate} - updating encoder bitrate...")
                 vbitrate = new_vbitrate
@@ -176,7 +176,7 @@ def main():
                     print(f"[Debug] Encoder bitrate updated to: {x264enc.get_property('bitrate')} kbps")
 
             # Check for dynamicBitrate setting changes
-            new_dynamic_setting = get_setting('dynamicBitrate', True)
+            new_dynamic_setting = get_setting('dynamicBitrate')
             if new_dynamic_setting != current_dynamic_setting:
                 print(f"dynamicBitrate setting changed from {current_dynamic_setting} to {new_dynamic_setting} - triggering pipeline restart...")
                 # Trigger pipeline restart by setting the pipeline to EOS
@@ -357,7 +357,7 @@ def main():
         videoconvert = Gst.ElementFactory.make("videoconvert", None)
         x264enc = Gst.ElementFactory.make("x264enc", None)
         x264enc.set_property("tune", "zerolatency")
-        x264enc.set_property("bitrate", get_setting('vbitrate', 2000))
+        x264enc.set_property("bitrate", get_setting('vbitrate'))
         x264enc.set_property("speed-preset", "ultrafast")
         h264_caps = Gst.Caps.from_string("video/x-h264,profile=baseline")
         video_capsfilter = Gst.ElementFactory.make("capsfilter", None)
@@ -452,7 +452,7 @@ def main():
             last_timestamp = time.time()
             
             # Track dynamicBitrate setting for change detection
-            current_dynamic_setting = get_setting('dynamicBitrate', True)
+            current_dynamic_setting = get_setting('dynamicBitrate')
             
             # Find the srtsink element
             srtsink = None
@@ -477,7 +477,7 @@ def main():
                     break
                     
                 # Check for dynamicBitrate setting changes
-                new_dynamic_setting = get_setting('dynamicBitrate', True)
+                new_dynamic_setting = get_setting('dynamicBitrate')
                 if new_dynamic_setting != current_dynamic_setting:
                     print(f"dynamicBitrate setting changed from {current_dynamic_setting} to {new_dynamic_setting} - triggering pipeline restart...")
                     # Trigger pipeline restart by setting the pipeline to EOS
@@ -556,7 +556,7 @@ def main():
         stop_event.set()
         monitor_thread.join(timeout=2)
 
-    dynamicBitrate = get_setting('dynamicBitrate', True)
+    dynamicBitrate = get_setting('dynamicBitrate')
 
     def handle_exit(signum, frame):
         print(f"Received exit signal {signum}, cleaning up...")
@@ -588,7 +588,7 @@ def main():
     while True:
         # Get video bitrate from settings or use default
         #do it in this loop to capture changes in the settings
-        dynamicBitrate = get_setting('dynamicBitrate', True)
+        dynamicBitrate = get_setting('dynamicBitrate')
 
         if stream_url.startswith('https://') and '/whip' in stream_url:
             print("WHIP streaming is not supported in this version. Exiting.")

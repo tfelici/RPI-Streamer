@@ -330,15 +330,15 @@ def start(stream_name):
         prev_video_device = None
         prev_audio_device = None
         prev_settings = {
-            'framerate': get_setting('framerate', 5),
-            'resolution': get_setting('resolution', '1280x720') or '1280x720',
-            'crf': get_setting('crf', 30),
-            'gop': get_setting('gop', 5),
-            'vbitrate': get_setting('vbitrate', 1000),
-            'ar': get_setting('ar', 8000),
-            'abitrate': get_setting('abitrate', '128k'),
-            'volume': get_setting('volume', 100),
-            'use_gstreamer': get_setting('use_gstreamer', False)
+            'framerate': get_setting('framerate'),
+            'resolution': get_setting('resolution'),
+            'crf': get_setting('crf'),
+            'gop': get_setting('gop'),
+            'vbitrate': get_setting('vbitrate'),
+            'ar': get_setting('ar'),
+            'abitrate': get_setting('abitrate'),
+            'volume': get_setting('volume'),
+            'use_gstreamer': get_setting('use_gstreamer')
         }
         
         while True:
@@ -347,15 +347,15 @@ def start(stream_name):
             
             # Check for current settings
             current_settings = {
-                'framerate': get_setting('framerate', 5),
-                'resolution': get_setting('resolution', '1280x720') or '1280x720',
-                'crf': get_setting('crf', 30),
-                'gop': get_setting('gop', 5),
-                'vbitrate': get_setting('vbitrate', 1000),
-                'ar': get_setting('ar', 8000),
-                'abitrate': get_setting('abitrate', '128k'),
-                'volume': get_setting('volume', 100),
-                'use_gstreamer': get_setting('use_gstreamer', False)
+                'framerate': get_setting('framerate'),
+                'resolution': get_setting('resolution'),
+                'crf': get_setting('crf'),
+                'gop': get_setting('gop'),
+                'vbitrate': get_setting('vbitrate'),
+                'ar': get_setting('ar'),
+                'abitrate': get_setting('abitrate'),
+                'volume': get_setting('volume'),
+                'use_gstreamer': get_setting('use_gstreamer')
             }
             
             # Check for device changes
@@ -388,20 +388,20 @@ def start(stream_name):
 
     while True:
         # Get current settings each iteration
-        current_framerate = get_setting('framerate', 5)
-        current_resolution = get_setting('resolution', '1280x720') or '1280x720'
-        current_crf = get_setting('crf', 30)
-        current_gop = get_setting('gop', 5)
-        current_vbitrate = get_setting('vbitrate', 1000)
-        current_ar = get_setting('ar', 8000)
-        current_abitrate = get_setting('abitrate', '128k')
-        current_volume = get_setting('volume', 100)
+        current_framerate = get_setting('framerate')
+        current_resolution = get_setting('resolution')
+        current_crf = get_setting('crf')
+        current_gop = get_setting('gop')
+        current_vbitrate = get_setting('vbitrate')
+        current_ar = get_setting('ar')
+        current_abitrate = get_setting('abitrate')
+        current_volume = get_setting('volume')
 
         video_device = find_video_device()
         audio_device = find_usb_audio_device()
 
         # Get streaming engine preference
-        use_gstreamer = get_setting('use_gstreamer', False)
+        use_gstreamer = get_setting('use_gstreamer')
 
         # Build command with current settings using selected engine
         if use_gstreamer:

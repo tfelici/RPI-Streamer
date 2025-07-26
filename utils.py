@@ -35,6 +35,27 @@ try:
 except ImportError:
     UPS_AVAILABLE = False
 
+# Settings constants and defaults
+STREAMER_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'streamerData'))
+SETTINGS_FILE = os.path.join(STREAMER_DATA_DIR, 'settings.json')
+
+DEFAULT_SETTINGS = {
+    "stream_url": "",
+    "upload_url": "",
+    "framerate": 30,
+    "crf": 32,
+    "resolution": "1280x720",
+    "vbitrate": 768,
+    "abitrate": "16k",
+    "ar": 16000,
+    "volume": 100,
+    "gop": 30,
+    "dynamicBitrate": False,
+    "use_gstreamer": False,
+    "audio_input": None,
+    "video_input": None
+}
+
 def list_audio_inputs():
     """
     Returns a list of dicts: {"id": device_str, "label": friendly_name}
@@ -106,17 +127,50 @@ def list_video_inputs():
                     
     return devices
 
-def get_setting(key, default=None):
+# Settings cache to avoid re-reading file on every call
+_settings_cache = None
+_settings_cache_mtime = None
+
+def get_setting(key):
     """
     Load a single setting from the settings.json file in ../streamerData.
+    Uses centralized defaults if the key is not found.
+    Caches settings in memory and only re-reads file when modified.
     """
-    SETTINGS_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), '../streamerData/settings.json'))
+    global _settings_cache, _settings_cache_mtime
+    
     try:
-        with open(SETTINGS_FILE, 'r') as f:
-            s = json.load(f)
-        return s.get(key, default)
+        # Check if we need to reload the file
+        current_mtime = None
+        if os.path.exists(SETTINGS_FILE):
+            current_mtime = os.path.getmtime(SETTINGS_FILE)
+        
+        # Load from cache if file hasn't changed
+        if (_settings_cache is not None and 
+            current_mtime == _settings_cache_mtime):
+            # Use cached settings
+            if key in _settings_cache:
+                return _settings_cache[key]
+            return DEFAULT_SETTINGS.get(key, None)
+        
+        # File changed or no cache yet - reload
+        if os.path.exists(SETTINGS_FILE):
+            with open(SETTINGS_FILE, 'r') as f:
+                _settings_cache = json.load(f)
+            _settings_cache_mtime = current_mtime
+        else:
+            # File doesn't exist - use empty cache
+            _settings_cache = {}
+            _settings_cache_mtime = None
+        
+        # Return value from newly loaded cache
+        if key in _settings_cache:
+            return _settings_cache[key]
+        return DEFAULT_SETTINGS.get(key, None)
+        
     except Exception:
-        return default
+        # On error, fall back to defaults
+        return DEFAULT_SETTINGS.get(key, None)
 
 # =============================================================================
 # USB Storage Functions
