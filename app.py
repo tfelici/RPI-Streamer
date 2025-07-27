@@ -1253,6 +1253,44 @@ def get_system_diagnostics():
         diagnostics['ups_battery_status'] = f"Error: {str(e)}"
         diagnostics['ups_ac_power'] = None
     
+    # Add INA219 power monitoring information
+    try:
+        from INA219 import INA219
+        ina219 = INA219(addr=0x41)
+        
+        diagnostics['ina219_bus_voltage'] = f"{ina219.getBusVoltage_V():.3f} V"
+        diagnostics['ina219_shunt_voltage'] = f"{ina219.getShuntVoltage_mV():.3f} mV"
+        diagnostics['ina219_current'] = f"{ina219.getCurrent_mA():.1f} mA"
+        diagnostics['ina219_power'] = f"{ina219.getPower_W():.3f} W"
+        
+        # Get power status
+        power_status = ina219.getPowerStatus()
+        if power_status is True:
+            diagnostics['ina219_power_source'] = "AC Power (Charging)"
+        elif power_status is False:
+            diagnostics['ina219_power_source'] = "Battery Power"
+        else:
+            diagnostics['ina219_power_source'] = "Unknown"
+            
+        # Calculate PSU voltage (bus + shunt)
+        psu_voltage = ina219.getBusVoltage_V() + (ina219.getShuntVoltage_mV() / 1000)
+        diagnostics['ina219_psu_voltage'] = f"{psu_voltage:.3f} V"
+        
+        # Calculate battery percentage (based on 3S: 9V empty, 12.6V full)
+        bus_voltage = ina219.getBusVoltage_V()
+        battery_percent = (bus_voltage - 9) / 3.6 * 100
+        battery_percent = max(0, min(100, battery_percent))
+        diagnostics['ina219_battery_percent'] = f"{battery_percent:.1f}%"
+        
+    except Exception as e:
+        diagnostics['ina219_bus_voltage'] = f"Error: {str(e)}"
+        diagnostics['ina219_shunt_voltage'] = "N/A"
+        diagnostics['ina219_current'] = "N/A"
+        diagnostics['ina219_power'] = "N/A"
+        diagnostics['ina219_power_source'] = "N/A"
+        diagnostics['ina219_psu_voltage'] = "N/A"
+        diagnostics['ina219_battery_percent'] = "N/A"
+    
     # Parse throttled status for special highlighting
     throttled_raw = diagnostics.get('throttled', '')
     throttled_info = parse_throttled_status(throttled_raw)

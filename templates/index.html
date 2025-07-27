@@ -416,6 +416,39 @@
                                     <span class="diag-value" id="diag-codec-wvc1">--</span>
                                 </div>
                             </div>
+
+                            <!-- INA219 Power Monitoring -->
+                            <div class="diag-category">
+                                <h5>Power Monitoring (INA219)</h5>
+                                <div class="diag-item">
+                                    <span class="diag-label">Bus Voltage:</span>
+                                    <span class="diag-value" id="diag-ina219-bus-voltage">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Shunt Voltage:</span>
+                                    <span class="diag-value" id="diag-ina219-shunt-voltage">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Current:</span>
+                                    <span class="diag-value" id="diag-ina219-current">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Power:</span>
+                                    <span class="diag-value" id="diag-ina219-power">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">PSU Voltage:</span>
+                                    <span class="diag-value" id="diag-ina219-psu-voltage">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Power Source:</span>
+                                    <span class="diag-value" id="diag-ina219-power-source">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Battery Level:</span>
+                                    <span class="diag-value" id="diag-ina219-battery-percent">--</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1084,6 +1117,15 @@
             updateDiagValue('diag-codec-h264', data.codec_h264);
             updateDiagValue('diag-codec-mpg2', data.codec_mpg2);
             updateDiagValue('diag-codec-wvc1', data.codec_wvc1);
+            
+            // INA219 Power Monitoring
+            updateDiagValue('diag-ina219-bus-voltage', data.ina219_bus_voltage);
+            updateDiagValue('diag-ina219-shunt-voltage', data.ina219_shunt_voltage);
+            updateDiagValue('diag-ina219-current', data.ina219_current);
+            updateDiagValue('diag-ina219-power', data.ina219_power);
+            updateDiagValue('diag-ina219-psu-voltage', data.ina219_psu_voltage);
+            updateDiagValue('diag-ina219-power-source', data.ina219_power_source);
+            updateDiagValue('diag-ina219-battery-percent', data.ina219_battery_percent);
         }
         
         function updateDiagValue(elementId, value) {
