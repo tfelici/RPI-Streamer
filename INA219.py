@@ -68,11 +68,31 @@ class INA219:
         #self.set_calibration_32V_2A()
         self.set_calibration_16V_5A()
 
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+    
+    def close(self):
+        """Close the I2C bus connection"""
+        if hasattr(self, 'bus') and self.bus:
+            self.bus.close()
+            self.bus = None
+
+    def __del__(self):
+        """Ensure bus is closed when object is destroyed"""
+        self.close()
+
     def read(self, address):
+        if not self.bus:
+            raise RuntimeError("I2C bus is not initialized or has been closed")
         data = self.bus.read_i2c_block_data(self.addr, address, 2)
         return ((data[0] * 256) + data[1])
 
     def write(self, address, data):
+        if not self.bus:
+            raise RuntimeError("I2C bus is not initialized or has been closed")
         temp = [0, 0]
         temp[1] = data & 0xFF
         temp[0] = (data & 0xFF00) >> 8
@@ -300,34 +320,34 @@ class INA219:
         
 if __name__=='__main__':
 
-    # Create an INA219 instance.
-    ina219 = INA219(addr=0x41)
-    while True:
-        # Get power status
-        ac_status = ina219.getPowerStatus()
-        if ac_status is True:
-            power_source = "Plugged In"
-        elif ac_status is False:
-            power_source = "Unplugged"
-        else:
-            power_source = "Unknown"
-            
-        bus_voltage = ina219.getBusVoltage_V()             # voltage on V- (load side)
-        shunt_voltage = ina219.getShuntVoltage_mV() / 1000 # voltage between V+ and V- across the shunt
-        current = ina219.getCurrent_mA()                   # current in mA
-        power = ina219.getPower_W()                        # power in W
-        p = (bus_voltage - 9)/3.6*100
-        if(p > 100):p = 100
-        if(p < 0):p = 0
+    # Create an INA219 instance with proper cleanup
+    with INA219(addr=0x41) as ina219:
+        while True:
+            # Get power status
+            ac_status = ina219.getPowerStatus()
+            if ac_status is True:
+                power_source = "Plugged In"
+            elif ac_status is False:
+                power_source = "Unplugged"
+            else:
+                power_source = "Unknown"
+                
+            bus_voltage = ina219.getBusVoltage_V()             # voltage on V- (load side)
+            shunt_voltage = ina219.getShuntVoltage_mV() / 1000 # voltage between V+ and V- across the shunt
+            current = ina219.getCurrent_mA()                   # current in mA
+            power = ina219.getPower_W()                        # power in W
+            p = (bus_voltage - 9)/3.6*100
+            if(p > 100):p = 100
+            if(p < 0):p = 0
 
-        # INA219 measure bus voltage on the load side. So PSU voltage = bus_voltage + shunt_voltage
-        print(f"Power Source:  {power_source}")
-        #print("PSU Voltage:   {:6.3f} V".format(bus_voltage + shunt_voltage))
-        #print("Shunt Voltage: {:9.6f} V".format(shunt_voltage))
-        print("Load Voltage:  {:6.3f} V".format(bus_voltage))
-        print("Current:       {:9.6f} A".format(current/1000))
-        print("Power:         {:6.3f} W".format(power))
-        print("Percent:       {:3.1f}%".format(p))
-        print("")
+            # INA219 measure bus voltage on the load side. So PSU voltage = bus_voltage + shunt_voltage
+            print(f"Power Source:  {power_source}")
+            #print("PSU Voltage:   {:6.3f} V".format(bus_voltage + shunt_voltage))
+            #print("Shunt Voltage: {:9.6f} V".format(shunt_voltage))
+            print("Load Voltage:  {:6.3f} V".format(bus_voltage))
+            print("Current:       {:9.6f} A".format(current/1000))
+            print("Power:         {:6.3f} W".format(power))
+            print("Percent:       {:3.1f}%".format(p))
+            print("")
 
-        time.sleep(2)
+            time.sleep(2)
