@@ -307,7 +307,7 @@ class INA219:
             # Negative current = discharging (on battery)
             if current > 50:  # mA threshold to avoid noise
                 return True   # AC power connected (charging)
-            elif current < -150:
+            elif current < -250:
                 return False  # On battery (discharging)
             else:
                 # Very low current - check voltage to determine state
