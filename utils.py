@@ -565,28 +565,31 @@ def get_battery_status(voltage):
     else:
         return "Unknown"
 
-def get_ac_power_state():
+def get_ac_power_state(pld_pin=6):
     """
-    Check AC power state using INA219 raw UPS status data.
-    Returns True if AC power is connected, False if disconnected, None if unknown/error.
+    Check AC power state via GPIO.
+    Returns True if AC power is present, False if unplugged, None if error.
     """
     if not UPS_AVAILABLE:
         return None
     try:
-        bus = smbus2.SMBus(1)
-        addr = 0x41
+        # Try different GPIO chip names for compatibility
+        chip = None
+        for chip_name in ['gpiochip0', 'gpiochip4']:
+            try:
+                chip = gpiod.Chip(chip_name)
+                break
+            except:
+                continue
         
-        # Read raw UPS status data from registers 0-7
-        raw_data = []
-        for i in range(8):
-            raw_data.append(bus.read_byte_data(addr, i))
-        
-        # Determine power source based on raw data
-        if len(raw_data) >= 3 and raw_data[2] == 0x60:
-            return True  # AC power connected
-        else:
-            return False  # On battery power
+        if chip is None:
+            return None
             
+        pld_line = chip.get_line(pld_pin)
+        pld_line.request(consumer="PLD", type=gpiod.LINE_REQ_DIR_IN)
+        ac_power_state = pld_line.get_value()
+        pld_line.release()
+        return ac_power_state == 1
     except Exception:
         return None
 
