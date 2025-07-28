@@ -1266,7 +1266,7 @@ def get_system_diagnostics():
         # Get power status
         power_status = ina219.getPowerStatus()
         if power_status is True:
-            diagnostics['ina219_power_source'] = "AC Power (Charging)"
+            diagnostics['ina219_power_source'] = "Plugged In"
         elif power_status is False:
             diagnostics['ina219_power_source'] = "Battery Power"
         else:

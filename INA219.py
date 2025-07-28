@@ -308,7 +308,7 @@ if __name__=='__main__':
         if ac_status is True:
             power_source = "Plugged In"
         elif ac_status is False:
-            power_source = "Battery"
+            power_source = "Unplugged"
         else:
             power_source = "Unknown"
             
