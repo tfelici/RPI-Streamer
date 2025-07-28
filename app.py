@@ -1268,7 +1268,7 @@ def get_system_diagnostics():
         if power_status is True:
             diagnostics['ina219_power_source'] = "Plugged In"
         elif power_status is False:
-            diagnostics['ina219_power_source'] = "Battery Power"
+            diagnostics['ina219_power_source'] = "Unplugged"
         else:
             diagnostics['ina219_power_source'] = "Unknown"
             
