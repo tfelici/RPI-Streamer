@@ -16,8 +16,12 @@ import subprocess
 import re
 import uuid
 import requests
+import socket
+import platform
 from datetime import datetime
 from functools import wraps
+from pathlib import Path
+from subprocess import check_output
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR
 from x120x import get_ups_status
@@ -85,10 +89,26 @@ def get_temperature():
     except Exception:
         return "N/A"
 
-def get_power_draw():
+def get_fan_rpm():
+    try:
+        sys_devices_path = Path('/sys/devices/platform/cooling_fan')
+        fan_input_files = list(sys_devices_path.rglob('fan1_input'))
+        if not fan_input_files:
+            return "No fan?"
+        with open(fan_input_files[0], 'r') as file:
+            rpm = file.read().strip()
+        return f"{rpm} RPM"
+    except FileNotFoundError:
+        return "Fan RPM file not found"
+    except PermissionError:
+        return "Permission denied accessing the fan RPM file"
+    except Exception as e:
+        return f"Unexpected error: {e}"
+
+def power_consumption_watts():
     """
-    Try to get total power draw in watts (W) using vcgencmd PMIC readings.
-    Returns a string, or 'N/A' if not available.
+    Calculate total power consumption in watts by parsing all PMIC voltage and current readings.
+    Returns formatted power string like "2.45 W", or fallback values if not available.
     """
     # First try system power supply files
     power_paths = [
@@ -109,12 +129,37 @@ def get_power_draw():
             except Exception:
                 continue
     
-    # Try using vcgencmd PMIC readings to calculate power (V * A = W)
     try:
         # Check if vcgencmd is available first
         subprocess.run(['vcgencmd', 'version'], capture_output=True, text=True, timeout=2)
         
-        # Get PMIC voltage and current readings
+        # Get all PMIC ADC readings
+        output = check_output(['vcgencmd', 'pmic_read_adc'], timeout=5).decode("utf-8")
+        lines = output.split('\n')
+        amperages = {}
+        voltages = {}
+        
+        for line in lines:
+            cleaned_line = line.strip()
+            if cleaned_line and '=' in cleaned_line:
+                try:
+                    parts = cleaned_line.split(' ')
+                    label, value = parts[0], parts[-1]
+                    val = float(value.split('=')[1][:-1])  # Remove unit (V or A)
+                    short_label = label[:-2]  # Remove _V or _A suffix
+                    if label.endswith('A'):
+                        amperages[short_label] = val
+                    elif label.endswith('V'):
+                        voltages[short_label] = val
+                except (ValueError, IndexError):
+                    continue
+        
+        # Calculate total wattage (V * A = W) for matching voltage/current pairs
+        wattage = sum(amperages[key] * voltages[key] for key in amperages if key in voltages)
+        if wattage > 0:
+            return f"{wattage:.2f} W"
+        
+        # Fallback: Try individual VDD_CORE readings if comprehensive method failed
         voltage = None
         current = None
         
@@ -139,13 +184,14 @@ def get_power_draw():
         elif voltage is not None:
             return f"{voltage:.3f} V (core)"
         
+        return "0.00 W"
+        
     except (FileNotFoundError, subprocess.TimeoutExpired):
         # vcgencmd not available, fallback to "--" like in diagnostics
         return "--"
-    except Exception:
-        pass
-    
-    return "N/A"
+    except Exception as e:
+        print(f"Error calculating power consumption: {e}")
+        return "N/A"
 
 def is_streaming():
     """Return True if streaming is currently active."""
@@ -259,14 +305,15 @@ def stats():
             cpu = psutil.cpu_percent(interval=1)
             mem = psutil.virtual_memory().percent
             temp = get_temperature()
-            power = get_power_draw()
+            power = power_consumption_watts()
+            fan_rpm = get_fan_rpm()
             connection = get_connection_info()
             
             # Format connection info for JSON
             import json
             connection_json = json.dumps(connection).replace('"', '\\"')
             
-            data = f"data: {{\"cpu\": {cpu}, \"mem\": {mem}, \"temp\": \"{temp}\", \"power\": \"{power}\", \"connection\": \"{connection_json}\"}}\n\n"
+            data = f"data: {{\"cpu\": {cpu}, \"mem\": {mem}, \"temp\": \"{temp}\", \"power\": \"{power}\", \"fan_rpm\": \"{fan_rpm}\", \"connection\": \"{connection_json}\"}}\n\n"
             yield data
             time.sleep(1)
     return Response(event_stream(), mimetype='text/event-stream')
@@ -1317,6 +1364,12 @@ def get_system_diagnostics():
         diagnostics['ups_capacity'] = None
         diagnostics['ups_battery_status'] = f"Error: {str(e)}"
         diagnostics['ups_ac_power'] = None
+    
+    # Add fan RPM information
+    try:
+        diagnostics['fan_rpm'] = get_fan_rpm()
+    except Exception as e:
+        diagnostics['fan_rpm'] = f"Error: {str(e)}"
     
     # Add INA219 power monitoring information
     try:

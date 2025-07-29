@@ -229,6 +229,10 @@
                         <div class="stat-label">Temperature</div>
                     </div>
                     <div class="stat-item">
+                        <span class="stat-value" id="fan-rpm">--</span>
+                        <div class="stat-label">Fan RPM</div>
+                    </div>
+                    <div class="stat-item">
                         <span class="stat-value" id="power">--</span>
                         <div class="stat-label">Power Draw</div>
                     </div>
@@ -322,6 +326,10 @@
                                 <div class="diag-item">
                                     <span class="diag-label">Temperature:</span>
                                     <span class="diag-value" id="diag-temperature">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Fan RPM:</span>
+                                    <span class="diag-value" id="diag-fan-rpm">--</span>
                                 </div>
                                 <div class="diag-item">
                                     <span class="diag-label">PMIC Core Voltage:</span>
@@ -1062,6 +1070,7 @@
         function updateDetailedDiagnostics(data) {
             // Temperature & PMIC
             updateDiagValue('diag-temperature', data.temperature);
+            updateDiagValue('diag-fan-rpm', data.fan_rpm);
             updateDiagValue('diag-pmic-vdd-core-v', data.pmic_vdd_core_v);
             updateDiagValue('diag-pmic-vdd-core-a', data.pmic_vdd_core_a);
             updateDiagValue('diag-pmic-ext5v-v', data.pmic_ext5v_v);
@@ -1130,6 +1139,7 @@
         const cpu = document.getElementById('cpu');
         const mem = document.getElementById('mem');
         const temp = document.getElementById('temp');
+        const fanRpm = document.getElementById('fan-rpm');
         const power = document.getElementById('power');
         const ethernet = document.getElementById('ethernet');
         const wifi = document.getElementById('wifi');
@@ -1146,6 +1156,7 @@
             cpu.textContent = data.cpu;
             mem.textContent = data.mem;
             temp.textContent = data.temp;
+            fanRpm.textContent = data.fan_rpm || '--';
             power.textContent = data.power;
 
             // Handle connection information
