@@ -77,32 +77,9 @@ try:
                     print(recovery_msg)
                     logging.info(recovery_msg)
             else:
-                # Check for other critical conditions only when AC power is present
-                critical_condition = False
-                shutdown_reason = ""
-                
-                if capacity < 20:
-                    critical_msg = "Battery level critical."
-                    print(critical_msg)
-                    logging.warning(critical_msg)
-                    critical_condition = True
-                    shutdown_reason = "due to critical battery level."
-                elif voltage < 3.20:
-                    critical_msg = "Battery voltage critical."
-                    print(critical_msg)
-                    logging.warning(critical_msg)
-                    critical_condition = True
-                    shutdown_reason = "due to critical battery voltage."
-                
-                if critical_condition:
-                    shutdown_message = f"Critical condition met {shutdown_reason} Initiating shutdown."
-                    print(shutdown_message)
-                    logging.critical(shutdown_message)
-                    call("sudo nohup shutdown -h now", shell=True)
-                else:
-                    print("System operating within normal parameters. No action required.")
-                    logging.debug("System operating within normal parameters.")
-            
+                    print("UPS plugged in. No action required.")
+                    logging.debug("UPS plugged in.")
+
             if LOOP:
                 time.sleep(SLEEP_TIME)
             else:
