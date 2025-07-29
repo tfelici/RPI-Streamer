@@ -1195,6 +1195,13 @@ def get_system_diagnostics():
     """
     diagnostics = {}
     
+    # Check if vcgencmd is available first
+    try:
+        subprocess.run(['vcgencmd', 'version'], capture_output=True, text=True, timeout=2)
+        vcgencmd_available = True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        vcgencmd_available = False
+    
     # List of vcgencmd commands to run
     commands = {
         'temperature': ['measure_temp'],
@@ -1213,55 +1220,60 @@ def get_system_diagnostics():
         'config_str': ['get_config', 'str'],
     }
     
-    for key, cmd_args in commands.items():
-        try:
-            result = subprocess.run(['vcgencmd'] + cmd_args, capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                output = result.stdout.strip()
-                
-                # Parse and clean up specific outputs
-                if key == 'temperature':
-                    # Extract temperature from "temp=48.8'C"
-                    temp_match = re.search(r'temp=([\d.]+)', output)
-                    if temp_match:
-                        diagnostics[key] = f"{temp_match.group(1)}°C"
-                    else:
-                        diagnostics[key] = output
-                elif key.startswith('pmic_'):
-                    # Parse PMIC values
-                    if 'VDD_CORE_V' in output:
-                        # Extract voltage from "VDD_CORE_V volt(15)=0.84104930V"
-                        volt_match = re.search(r'=([\d.]+)V', output)
-                        if volt_match:
-                            diagnostics[key] = f"{float(volt_match.group(1)):.3f}V"
+    # If vcgencmd is not available, set all values to "--"
+    if not vcgencmd_available:
+        for key in commands.keys():
+            diagnostics[key] = "--"
+    else:
+        for key, cmd_args in commands.items():
+            try:
+                result = subprocess.run(['vcgencmd'] + cmd_args, capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    output = result.stdout.strip()
+                    
+                    # Parse and clean up specific outputs
+                    if key == 'temperature':
+                        # Extract temperature from "temp=48.8'C"
+                        temp_match = re.search(r'temp=([\d.]+)', output)
+                        if temp_match:
+                            diagnostics[key] = f"{temp_match.group(1)}°C"
                         else:
                             diagnostics[key] = output
-                    elif 'VDD_CORE_A' in output:
-                        # Extract current from "VDD_CORE_A current(7)=2.35752000A"
-                        current_match = re.search(r'=([\d.]+)A', output)
-                        if current_match:
-                            diagnostics[key] = f"{float(current_match.group(1)):.3f}A"
-                        else:
-                            diagnostics[key] = output
-                    elif 'EXT5V_V' in output:
-                        # Extract voltage from "EXT5V_V volt(24)=5.15096000V"
-                        volt_match = re.search(r'=([\d.]+)V', output)
-                        if volt_match:
-                            diagnostics[key] = f"{float(volt_match.group(1)):.3f}V"
+                    elif key.startswith('pmic_'):
+                        # Parse PMIC values
+                        if 'VDD_CORE_V' in output:
+                            # Extract voltage from "VDD_CORE_V volt(15)=0.84104930V"
+                            volt_match = re.search(r'=([\d.]+)V', output)
+                            if volt_match:
+                                diagnostics[key] = f"{float(volt_match.group(1)):.3f}V"
+                            else:
+                                diagnostics[key] = output
+                        elif 'VDD_CORE_A' in output:
+                            # Extract current from "VDD_CORE_A current(7)=2.35752000A"
+                            current_match = re.search(r'=([\d.]+)A', output)
+                            if current_match:
+                                diagnostics[key] = f"{float(current_match.group(1)):.3f}A"
+                            else:
+                                diagnostics[key] = output
+                        elif 'EXT5V_V' in output:
+                            # Extract voltage from "EXT5V_V volt(24)=5.15096000V"
+                            volt_match = re.search(r'=([\d.]+)V', output)
+                            if volt_match:
+                                diagnostics[key] = f"{float(volt_match.group(1)):.3f}V"
+                            else:
+                                diagnostics[key] = output
                         else:
                             diagnostics[key] = output
                     else:
                         diagnostics[key] = output
                 else:
-                    diagnostics[key] = output
-            else:
-                diagnostics[key] = f"Error: {result.stderr.strip()}" if result.stderr.strip() else "N/A"
-        except subprocess.TimeoutExpired:
-            diagnostics[key] = "Timeout"
-        except FileNotFoundError:
-            diagnostics[key] = "vcgencmd not found"
-        except Exception as e:
-            diagnostics[key] = f"Error: {str(e)}"
+                    diagnostics[key] = f"Error: {result.stderr.strip()}" if result.stderr.strip() else "N/A"
+            except subprocess.TimeoutExpired:
+                diagnostics[key] = "Timeout"
+            except FileNotFoundError:
+                diagnostics[key] = "--"
+            except Exception as e:
+                diagnostics[key] = f"Error: {str(e)}"
     
     # Add UPS status information
     try:
