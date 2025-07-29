@@ -4,10 +4,29 @@ Handles communication with the X120X UPS controller via I2C and GPIO.
 """
 
 import struct
+
+def check_ups_device():
+    """
+    Check if UPS device is present at I2C address 0x36 using smbus2.
+    Returns True if device is detected, False otherwise.
+    """
+    try:
+        import smbus2
+        bus = smbus2.SMBus(1)
+        # Try to read from the device at address 0x36
+        # If device is present, this should succeed
+        bus.read_byte(0x36)
+        bus.close()
+        return True
+    except Exception:
+        # Device not present or I2C error
+        return False
+
 try:
     import smbus2
     import gpiod
-    UPS_AVAILABLE = True
+    # Check if both libraries are available AND the UPS device is present
+    UPS_AVAILABLE = check_ups_device()
 except ImportError:
     UPS_AVAILABLE = False
 

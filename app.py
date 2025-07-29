@@ -1316,6 +1316,15 @@ def get_system_diagnostics():
             battery_percent = max(0, min(100, battery_percent))
             diagnostics['ina219_battery_percent'] = f"{battery_percent:.1f}%"
         
+    except RuntimeError as e:
+        # INA219 device not found
+        diagnostics['ina219_bus_voltage'] = "INA219 Not Available"
+        diagnostics['ina219_shunt_voltage'] = "--"
+        diagnostics['ina219_current'] = "--"
+        diagnostics['ina219_power'] = "--"
+        diagnostics['ina219_power_source'] = "--"
+        diagnostics['ina219_psu_voltage'] = "--"
+        diagnostics['ina219_battery_percent'] = "--"
     except Exception as e:
         diagnostics['ina219_bus_voltage'] = f"Error: {str(e)}"
         diagnostics['ina219_shunt_voltage'] = "N/A"

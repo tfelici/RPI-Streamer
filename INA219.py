@@ -18,6 +18,22 @@ _REG_CURRENT                = 0x04
 # CALIBRATION REGISTER (R/W)
 _REG_CALIBRATION            = 0x05
 
+def check_ina219_device(i2c_bus=1, addr=0x40):
+    """
+    Check if INA219 device is present at the specified I2C address.
+    Returns True if device is detected, False otherwise.
+    """
+    try:
+        bus = smbus2.SMBus(i2c_bus)
+        # Try to read from the device at the specified address
+        # Reading the config register should succeed if device is present
+        bus.read_word_data(addr, _REG_CONFIG)
+        bus.close()
+        return True
+    except Exception:
+        # Device not present or I2C error
+        return False
+
 class BusVoltageRange:
     """Constants for ``bus_voltage_range``"""
     RANGE_16V               = 0x00      # set bus voltage range to 16V
@@ -58,6 +74,10 @@ class Mode:
 
 class INA219:
     def __init__(self, i2c_bus=1, addr=0x40):
+        # Check if device is present at the specified address
+        if not check_ina219_device(i2c_bus, addr):
+            raise RuntimeError(f"INA219 device not found at I2C address 0x{addr:02x} on bus {i2c_bus}")
+        
         self.bus = smbus2.SMBus(i2c_bus)
         self.addr = addr
 

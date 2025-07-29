@@ -338,7 +338,7 @@
                             </div>
 
                             <!-- UPS Status -->
-                            <div class="diag-category">
+                            <div class="diag-category" id="ups-section">
                                 <h5>UPS Status</h5>
                                 <div class="diag-item">
                                     <span class="diag-label">UPS Voltage:</span>
@@ -389,7 +389,7 @@
                             </div>
 
                             <!-- INA219 Power Monitoring -->
-                            <div class="diag-category">
+                            <div class="diag-category" id="ina219-section">
                                 <h5>Power Monitoring (INA219)</h5>
                                 <div class="diag-item">
                                     <span class="diag-label">Bus Voltage:</span>
@@ -1066,11 +1066,18 @@
             updateDiagValue('diag-pmic-vdd-core-a', data.pmic_vdd_core_a);
             updateDiagValue('diag-pmic-ext5v-v', data.pmic_ext5v_v);
             
-            // UPS Status
-            updateDiagValue('diag-ups-voltage', data.ups_voltage ? data.ups_voltage.toFixed(2) + 'V' : null);
-            updateDiagValue('diag-ups-capacity', data.ups_capacity ? data.ups_capacity.toFixed(1) + '%' : null);
-            updateDiagValue('diag-ups-battery-status', data.ups_battery_status);
-            updateDiagValue('diag-ups-ac-power', data.ups_ac_power !== null ? (data.ups_ac_power ? 'Plugged In' : 'Unplugged') : null);
+            // UPS Status - Show/Hide section based on availability
+            const upsSection = document.getElementById('ups-section');
+            const upsAvailable = data.ups_battery_status && data.ups_battery_status !== 'UPS Not Available';
+            if (upsSection) {
+                upsSection.style.display = upsAvailable ? 'block' : 'none';
+            }
+            if (upsAvailable) {
+                updateDiagValue('diag-ups-voltage', data.ups_voltage ? data.ups_voltage.toFixed(2) + 'V' : null);
+                updateDiagValue('diag-ups-capacity', data.ups_capacity ? data.ups_capacity.toFixed(1) + '%' : null);
+                updateDiagValue('diag-ups-battery-status', data.ups_battery_status);
+                updateDiagValue('diag-ups-ac-power', data.ups_ac_power !== null ? (data.ups_ac_power ? 'Plugged In' : 'Unplugged') : null);
+            }
             
             // Memory Split
             updateDiagValue('diag-mem-arm', data.mem_arm);
@@ -1081,14 +1088,23 @@
             updateDiagValue('diag-codec-mpg2', data.codec_mpg2);
             updateDiagValue('diag-codec-wvc1', data.codec_wvc1);
             
-            // INA219 Power Monitoring
-            updateDiagValue('diag-ina219-bus-voltage', data.ina219_bus_voltage);
-            updateDiagValue('diag-ina219-shunt-voltage', data.ina219_shunt_voltage);
-            updateDiagValue('diag-ina219-current', data.ina219_current);
-            updateDiagValue('diag-ina219-power', data.ina219_power);
-            updateDiagValue('diag-ina219-psu-voltage', data.ina219_psu_voltage);
-            updateDiagValue('diag-ina219-power-source', data.ina219_power_source);
-            updateDiagValue('diag-ina219-battery-percent', data.ina219_battery_percent);
+            // INA219 Power Monitoring - Show/Hide section based on availability
+            const ina219Section = document.getElementById('ina219-section');
+            const ina219Available = data.ina219_bus_voltage && 
+                                   data.ina219_bus_voltage !== 'INA219 Not Available' && 
+                                   !data.ina219_bus_voltage.startsWith('Error:');
+            if (ina219Section) {
+                ina219Section.style.display = ina219Available ? 'block' : 'none';
+            }
+            if (ina219Available) {
+                updateDiagValue('diag-ina219-bus-voltage', data.ina219_bus_voltage);
+                updateDiagValue('diag-ina219-shunt-voltage', data.ina219_shunt_voltage);
+                updateDiagValue('diag-ina219-current', data.ina219_current);
+                updateDiagValue('diag-ina219-power', data.ina219_power);
+                updateDiagValue('diag-ina219-psu-voltage', data.ina219_psu_voltage);
+                updateDiagValue('diag-ina219-power-source', data.ina219_power_source);
+                updateDiagValue('diag-ina219-battery-percent', data.ina219_battery_percent);
+            }
         }
         
         function updateDiagValue(elementId, value) {
