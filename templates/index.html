@@ -316,28 +316,24 @@
                     </h4>
                     <div id="detailed-diagnostics" class="detailed-content" style="display: none;">
                         <div class="diagnostics-grid">
-                            <!-- Temperature & Voltages -->
+                            <!-- Temperature & PMIC -->
                             <div class="diag-category">
-                                <h5>Temperature & Voltages</h5>
+                                <h5>Temperature & PMIC</h5>
                                 <div class="diag-item">
                                     <span class="diag-label">Temperature:</span>
                                     <span class="diag-value" id="diag-temperature">--</span>
                                 </div>
                                 <div class="diag-item">
-                                    <span class="diag-label">Core Voltage:</span>
-                                    <span class="diag-value" id="diag-voltage-core">--</span>
+                                    <span class="diag-label">PMIC Core Voltage:</span>
+                                    <span class="diag-value" id="diag-pmic-vdd-core-v">--</span>
                                 </div>
                                 <div class="diag-item">
-                                    <span class="diag-label">SDRAM C Voltage:</span>
-                                    <span class="diag-value" id="diag-voltage-sdram-c">--</span>
+                                    <span class="diag-label">PMIC Core Current:</span>
+                                    <span class="diag-value" id="diag-pmic-vdd-core-a">--</span>
                                 </div>
                                 <div class="diag-item">
-                                    <span class="diag-label">SDRAM I Voltage:</span>
-                                    <span class="diag-value" id="diag-voltage-sdram-i">--</span>
-                                </div>
-                                <div class="diag-item">
-                                    <span class="diag-label">SDRAM P Voltage:</span>
-                                    <span class="diag-value" id="diag-voltage-sdram-p">--</span>
+                                    <span class="diag-label">PMIC External 5V:</span>
+                                    <span class="diag-value" id="diag-pmic-ext5v-v">--</span>
                                 </div>
                             </div>
 
@@ -359,31 +355,6 @@
                                 <div class="diag-item">
                                     <span class="diag-label">Power Source:</span>
                                     <span class="diag-value" id="diag-ups-ac-power">--</span>
-                                </div>
-                            </div>
-
-                            <!-- Clock Frequencies -->
-                            <div class="diag-category">
-                                <h5>Clock Frequencies</h5>
-                                <div class="diag-item">
-                                    <span class="diag-label">ARM:</span>
-                                    <span class="diag-value" id="diag-clock-arm">--</span>
-                                </div>
-                                <div class="diag-item">
-                                    <span class="diag-label">Core:</span>
-                                    <span class="diag-value" id="diag-clock-core">--</span>
-                                </div>
-                                <div class="diag-item">
-                                    <span class="diag-label">H264:</span>
-                                    <span class="diag-value" id="diag-clock-h264">--</span>
-                                </div>
-                                <div class="diag-item">
-                                    <span class="diag-label">ISP:</span>
-                                    <span class="diag-value" id="diag-clock-isp">--</span>
-                                </div>
-                                <div class="diag-item">
-                                    <span class="diag-label">V3D:</span>
-                                    <span class="diag-value" id="diag-clock-v3d">--</span>
                                 </div>
                             </div>
 
@@ -1089,25 +1060,17 @@
         }
         
         function updateDetailedDiagnostics(data) {
-            // Temperature & Voltages
+            // Temperature & PMIC
             updateDiagValue('diag-temperature', data.temperature);
-            updateDiagValue('diag-voltage-core', data.voltage_core);
-            updateDiagValue('diag-voltage-sdram-c', data.voltage_sdram_c);
-            updateDiagValue('diag-voltage-sdram-i', data.voltage_sdram_i);
-            updateDiagValue('diag-voltage-sdram-p', data.voltage_sdram_p);
+            updateDiagValue('diag-pmic-vdd-core-v', data.pmic_vdd_core_v);
+            updateDiagValue('diag-pmic-vdd-core-a', data.pmic_vdd_core_a);
+            updateDiagValue('diag-pmic-ext5v-v', data.pmic_ext5v_v);
             
             // UPS Status
             updateDiagValue('diag-ups-voltage', data.ups_voltage ? data.ups_voltage.toFixed(2) + 'V' : null);
             updateDiagValue('diag-ups-capacity', data.ups_capacity ? data.ups_capacity.toFixed(1) + '%' : null);
             updateDiagValue('diag-ups-battery-status', data.ups_battery_status);
             updateDiagValue('diag-ups-ac-power', data.ups_ac_power !== null ? (data.ups_ac_power ? 'Plugged In' : 'Unplugged') : null);
-            
-            // Clock Frequencies
-            updateDiagValue('diag-clock-arm', data.clock_arm);
-            updateDiagValue('diag-clock-core', data.clock_core);
-            updateDiagValue('diag-clock-h264', data.clock_h264);
-            updateDiagValue('diag-clock-isp', data.clock_isp);
-            updateDiagValue('diag-clock-v3d', data.clock_v3d);
             
             // Memory Split
             updateDiagValue('diag-mem-arm', data.mem_arm);

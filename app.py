@@ -19,7 +19,8 @@ import requests
 from datetime import datetime
 from functools import wraps
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, get_ups_status, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR
+from x120x import get_ups_status
 
 # Use pymediainfo for fast video duration extraction
 try:
@@ -1197,22 +1198,9 @@ def get_system_diagnostics():
     # List of vcgencmd commands to run
     commands = {
         'temperature': ['measure_temp'],
-        'voltage_core': ['measure_volts', 'core'],
-        'voltage_sdram_c': ['measure_volts', 'sdram_c'],
-        'voltage_sdram_i': ['measure_volts', 'sdram_i'],
-        'voltage_sdram_p': ['measure_volts', 'sdram_p'],
-        'clock_arm': ['measure_clock', 'arm'],
-        'clock_core': ['measure_clock', 'core'],
-        'clock_h264': ['measure_clock', 'h264'],
-        'clock_isp': ['measure_clock', 'isp'],
-        'clock_v3d': ['measure_clock', 'v3d'],
-        'clock_uart': ['measure_clock', 'uart'],
-        'clock_pwm': ['measure_clock', 'pwm'],
-        'clock_emmc': ['measure_clock', 'emmc'],
-        'clock_pixel': ['measure_clock', 'pixel'],
-        'clock_vec': ['measure_clock', 'vec'],
-        'clock_hdmi': ['measure_clock', 'hdmi'],
-        'clock_dpi': ['measure_clock', 'dpi'],
+        'pmic_vdd_core_v': ['pmic_read_adc', 'VDD_CORE_V'],
+        'pmic_vdd_core_a': ['pmic_read_adc', 'VDD_CORE_A'],
+        'pmic_ext5v_v': ['pmic_read_adc', 'EXT5V_V'],
         'throttled': ['get_throttled'],
         'mem_arm': ['get_mem', 'arm'],
         'mem_gpu': ['get_mem', 'gpu'],
@@ -1230,7 +1218,42 @@ def get_system_diagnostics():
             result = subprocess.run(['vcgencmd'] + cmd_args, capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 output = result.stdout.strip()
-                diagnostics[key] = output
+                
+                # Parse and clean up specific outputs
+                if key == 'temperature':
+                    # Extract temperature from "temp=48.8'C"
+                    temp_match = re.search(r'temp=([\d.]+)', output)
+                    if temp_match:
+                        diagnostics[key] = f"{temp_match.group(1)}°C"
+                    else:
+                        diagnostics[key] = output
+                elif key.startswith('pmic_'):
+                    # Parse PMIC values
+                    if 'VDD_CORE_V' in output:
+                        # Extract voltage from "VDD_CORE_V volt(15)=0.84104930V"
+                        volt_match = re.search(r'=([\d.]+)V', output)
+                        if volt_match:
+                            diagnostics[key] = f"{float(volt_match.group(1)):.3f}V"
+                        else:
+                            diagnostics[key] = output
+                    elif 'VDD_CORE_A' in output:
+                        # Extract current from "VDD_CORE_A current(7)=2.35752000A"
+                        current_match = re.search(r'=([\d.]+)A', output)
+                        if current_match:
+                            diagnostics[key] = f"{float(current_match.group(1)):.3f}A"
+                        else:
+                            diagnostics[key] = output
+                    elif 'EXT5V_V' in output:
+                        # Extract voltage from "EXT5V_V volt(24)=5.15096000V"
+                        volt_match = re.search(r'=([\d.]+)V', output)
+                        if volt_match:
+                            diagnostics[key] = f"{float(volt_match.group(1)):.3f}V"
+                        else:
+                            diagnostics[key] = output
+                    else:
+                        diagnostics[key] = output
+                else:
+                    diagnostics[key] = output
             else:
                 diagnostics[key] = f"Error: {result.stderr.strip()}" if result.stderr.strip() else "N/A"
         except subprocess.TimeoutExpired:

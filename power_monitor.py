@@ -4,7 +4,7 @@ import os
 import time
 import logging
 from subprocess import call
-from utils import get_ups_status
+from x120x import get_ups_status
 
 # Configure logging
 logging.basicConfig(
