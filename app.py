@@ -62,21 +62,35 @@ def save_settings(settings):
         json.dump(settings, f)
 
 def get_temperature():
-    # Try to get CPU temperature (Linux only, fallback to N/A)
+    # Use vcgencmd like in get_system_diagnostics for consistency
     try:
-        for zone in os.listdir('/sys/class/thermal'):
-            if zone.startswith('thermal_zone'):
-                with open(f'/sys/class/thermal/{zone}/temp') as f:
-                    temp = int(f.read()) / 1000.0
-                    return f"{temp:.1f}°C"
+        # Check if vcgencmd is available first
+        subprocess.run(['vcgencmd', 'version'], capture_output=True, text=True, timeout=2)
+        
+        # Get temperature using vcgencmd
+        result = subprocess.run(['vcgencmd', 'measure_temp'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            output = result.stdout.strip()
+            # Extract temperature from "temp=48.8'C"
+            temp_match = re.search(r'temp=([\d.]+)', output)
+            if temp_match:
+                return f"{temp_match.group(1)}°C"
+            else:
+                return output
+        else:
+            return "N/A"
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        # vcgencmd not available, fallback to "--" like in diagnostics
+        return "--"
     except Exception:
         return "N/A"
 
 def get_power_draw():
     """
-    Try to get total power draw in watts (W) or microwatts (uW).
+    Try to get total power draw in watts (W) using vcgencmd PMIC readings.
     Returns a string, or 'N/A' if not available.
     """
+    # First try system power supply files
     power_paths = [
         '/sys/class/power_supply/rpi_battery/power_now',
         '/sys/class/power_supply/battery/power_now',
@@ -94,27 +108,43 @@ def get_power_draw():
                         return f"{val} uW"
             except Exception:
                 continue
-    # Try using vcgencmd if available (returns voltage and current)
+    
+    # Try using vcgencmd PMIC readings to calculate power (V * A = W)
     try:
-        result = subprocess.run(['vcgencmd', 'measure_volts'], capture_output=True, text=True)
-        volts = None
-        if result.returncode == 0:
-            m = re.search(r'volt=([\d.]+)V', result.stdout)
-            if m:
-                volts = float(m.group(1))
-        result = subprocess.run(['vcgencmd', 'measure_current'], capture_output=True, text=True)
-        amps = None
-        if result.returncode == 0:
-            m = re.search(r'current=([\d.]+)A', result.stdout)
-            if m:
-                amps = float(m.group(1))
-        if volts is not None and amps is not None:
-            watts = volts * amps
+        # Check if vcgencmd is available first
+        subprocess.run(['vcgencmd', 'version'], capture_output=True, text=True, timeout=2)
+        
+        # Get PMIC voltage and current readings
+        voltage = None
+        current = None
+        
+        # Get VDD_CORE voltage
+        result = subprocess.run(['vcgencmd', 'pmic_read_adc', 'VDD_CORE_V'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0 and 'VDD_CORE_V' in result.stdout:
+            volt_match = re.search(r'=([\d.]+)V', result.stdout)
+            if volt_match:
+                voltage = float(volt_match.group(1))
+        
+        # Get VDD_CORE current
+        result = subprocess.run(['vcgencmd', 'pmic_read_adc', 'VDD_CORE_A'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0 and 'VDD_CORE_A' in result.stdout:
+            current_match = re.search(r'=([\d.]+)A', result.stdout)
+            if current_match:
+                current = float(current_match.group(1))
+        
+        # Calculate power if both voltage and current are available
+        if voltage is not None and current is not None:
+            watts = voltage * current
             return f"{watts:.2f} W"
-        elif volts is not None:
-            return f"{volts:.2f} V"
+        elif voltage is not None:
+            return f"{voltage:.3f} V (core)"
+        
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        # vcgencmd not available, fallback to "--" like in diagnostics
+        return "--"
     except Exception:
         pass
+    
     return "N/A"
 
 def is_streaming():
