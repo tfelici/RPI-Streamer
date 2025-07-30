@@ -3,16 +3,17 @@
 import os
 import time
 import logging
+from logging.handlers import RotatingFileHandler
 from subprocess import call
 from x120x import X120X
 
-# Configure logging
+# Configure logging with rotation to prevent unlimited growth
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler('/var/log/ups-monitor.log')
+        RotatingFileHandler('/var/log/ups-monitor.log', maxBytes=50000, backupCount=1)
     ]
 )
 
