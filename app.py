@@ -24,7 +24,6 @@ from pathlib import Path
 from subprocess import check_output
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR
-from x120x import get_ups_status
 
 # Use pymediainfo for fast video duration extraction
 try:
@@ -1354,11 +1353,19 @@ def get_system_diagnostics():
     
     # Add UPS status information
     try:
-        ups_status = get_ups_status()
-        diagnostics['ups_voltage'] = ups_status['voltage']
-        diagnostics['ups_capacity'] = ups_status['capacity'] 
-        diagnostics['ups_battery_status'] = ups_status['battery_status']
-        diagnostics['ups_ac_power'] = ups_status['ac_power_connected']
+        from x120x import X120X
+        with X120X() as ups:
+            ups_status = ups.get_status()
+            diagnostics['ups_voltage'] = ups_status['voltage']
+            diagnostics['ups_capacity'] = ups_status['capacity'] 
+            diagnostics['ups_battery_status'] = ups_status['battery_status']
+            diagnostics['ups_ac_power'] = ups_status['ac_power_connected']
+    except RuntimeError as e:
+        # UPS device not found or libraries not available
+        diagnostics['ups_voltage'] = None
+        diagnostics['ups_capacity'] = None
+        diagnostics['ups_battery_status'] = "UPS Not Available"
+        diagnostics['ups_ac_power'] = None
     except Exception as e:
         diagnostics['ups_voltage'] = None
         diagnostics['ups_capacity'] = None

@@ -81,7 +81,7 @@ sudo i2cdetect -y 1
 sudo journalctl -u ups-monitor -f
 
 # Test UPS integration
-python3 -c "from utils import get_ups_status; print(get_ups_status())"
+python3 -c "from x120x import X120X; with X120X() as ups: print(ups.get_status())"
 ```
 
 ## USB Storage Support
