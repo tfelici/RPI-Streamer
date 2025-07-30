@@ -3,9 +3,12 @@
 import os
 import time
 import logging
+import sys
 from logging.handlers import RotatingFileHandler
 from subprocess import call
 from x120x import X120X
+
+import fcntl
 
 # Configure logging with rotation to prevent unlimited growth
 logging.basicConfig(
@@ -21,15 +24,18 @@ logging.basicConfig(
 SLEEP_TIME = 60  # Time in seconds to wait between failure checks
 LOOP = True  # Set to True for continuous monitoring (required for systemd service)
 
-# Ensure only one instance of the script is running
-pid = str(os.getpid())
-pidfile = "/var/run/X1200.pid" # move to /var/run because of conventions
-if os.path.isfile(pidfile):
-    print("Script already running")
-    exit(1)
-else:
-    with open(pidfile, 'w') as f:
-        f.write(pid)
+# Ensure only one instance of the script is running using file locking
+lockfile_path = "/var/run/ups-monitor.lock"
+try:
+    lockfile = open(lockfile_path, 'w')
+    fcntl.flock(lockfile.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    lockfile.write(str(os.getpid()))
+    lockfile.flush()
+except (IOError, OSError):
+    print("Another instance of UPS monitor is already running")
+    if 'lockfile' in locals() and lockfile:
+        lockfile.close()
+    sys.exit(1)
 
 try:
     logging.info("Starting UPS monitoring")
@@ -108,8 +114,13 @@ except Exception as e:
     exit(1)
 
 finally:
-    if os.path.isfile(pidfile):
-        os.unlink(pidfile)
+    # File lock is automatically released when the process exits
+    # Close the lockfile handle if it was opened
+    if 'lockfile' in locals() and lockfile:
+        try:
+            lockfile.close()
+        except:
+            pass
     logging.info("UPS monitoring stopped")
     exit(0)
 
