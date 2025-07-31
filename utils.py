@@ -46,7 +46,8 @@ DEFAULT_SETTINGS = {
     "dynamicBitrate": False,
     "use_gstreamer": False,
     "audio_input": None,
-    "video_input": None
+    "video_input": None,
+    "video_stabilization": False
 }
 
 def list_audio_inputs():

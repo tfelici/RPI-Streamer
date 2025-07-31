@@ -49,6 +49,9 @@ def start(stream_name):
         # Switch to control output format: True for WHIP, False for SRT
         usewhip = False
 
+        # Get stabilization setting
+        stabilization = get_setting('video_stabilization')
+
         # Set hardware volume using amixer if audio_device and volume are set
         if audio_device and volume_val is not None:
             import re
@@ -95,15 +98,29 @@ def start(stream_name):
         # Parse resolution
         width, height = map(int, str(resolution_val).split('x'))
         
+        # Helper function to build video processing chain
+        def build_video_processing_chain():
+            """Build the video processing pipeline with optional stabilization"""
+            chain = 'videoconvert ! video/x-raw,format=I420'
+            if stabilization:
+                # Add video stabilization - using videostabilize element
+                chain += ' ! videostabilize'
+            return chain
+        
+        def build_static_video_processing_chain():
+            """Build the static image processing pipeline (no stabilization needed)"""
+            return 'videoconvert ! video/x-raw,format=I420'
+        
         if video_device and audio_device:
             # Both video and audio available
             encoder_pars = probe_hardware_encoder_pars(crf_val, gop_val, vbitrate_val)
+            video_processing = build_video_processing_chain()
             if usewhip:
-                video_part = f'v4l2src device={video_device} ! image/jpeg,width={width},height={height},framerate={framerate_val}/1 ! jpegdec ! videoconvert ! video/x-raw,format=I420 ! {encoder_pars} ! video/x-h264,profile=baseline ! queue ! sink.'
+                video_part = f'v4l2src device={video_device} ! image/jpeg,width={width},height={height},framerate={framerate_val}/1 ! jpegdec ! {video_processing} ! {encoder_pars} ! video/x-h264,profile=baseline ! queue ! sink.'
                 audio_part = f'alsasrc device=plug{audio_device} ! audioresample ! audio/x-raw,rate={ar_val} ! opusenc bitrate={int(abitrate_val.rstrip("k")) * 1000} ! queue ! sink.'
                 output_part = f'whipclientsink name=sink signaller::whip-endpoint=http://localhost:8889/{stream_name}/whip stun-server=stun://stun.l.google.com:19302 congestion-control=disabled'
             else:
-                video_part = f'v4l2src device={video_device} ! image/jpeg,width={width},height={height},framerate={framerate_val}/1 ! jpegdec ! videoconvert ! video/x-raw,format=I420 ! {encoder_pars} ! video/x-h264,profile=baseline ! mux.'
+                video_part = f'v4l2src device={video_device} ! image/jpeg,width={width},height={height},framerate={framerate_val}/1 ! jpegdec ! {video_processing} ! {encoder_pars} ! video/x-h264,profile=baseline ! mux.'
                 audio_part = f'alsasrc device=plug{audio_device} ! audioresample ! audio/x-raw,rate={ar_val} ! opusenc bitrate={int(abitrate_val.rstrip("k")) * 1000} ! mux.'
                 output_part = f'mpegtsmux name=mux ! srtsink uri="srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316"'
             
@@ -111,31 +128,34 @@ def start(stream_name):
         elif video_device and not audio_device:
             # Video only - no audio
             encoder_pars = probe_hardware_encoder_pars(crf_val, gop_val, vbitrate_val)
+            video_processing = build_video_processing_chain()
             # Streaming only
             if usewhip:
-                pipeline = f'v4l2src device={video_device} ! image/jpeg,width={width},height={height},framerate={framerate_val}/1 ! jpegdec ! videoconvert ! video/x-raw,format=I420 ! {encoder_pars} ! video/x-h264,profile=baseline ! whipclientsink signaller::whip-endpoint=http://localhost:8889/{stream_name}/whip stun-server=stun://stun.l.google.com:19302 congestion-control=disabled'
+                pipeline = f'v4l2src device={video_device} ! image/jpeg,width={width},height={height},framerate={framerate_val}/1 ! jpegdec ! {video_processing} ! {encoder_pars} ! video/x-h264,profile=baseline ! whipclientsink signaller::whip-endpoint=http://localhost:8889/{stream_name}/whip stun-server=stun://stun.l.google.com:19302 congestion-control=disabled'
             else:
-                pipeline = f'v4l2src device={video_device} ! image/jpeg,width={width},height={height},framerate={framerate_val}/1 ! jpegdec ! videoconvert ! video/x-raw,format=I420 ! {encoder_pars} ! video/x-h264,profile=baseline ! mpegtsmux ! srtsink uri="srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316"'
+                pipeline = f'v4l2src device={video_device} ! image/jpeg,width={width},height={height},framerate={framerate_val}/1 ! jpegdec ! {video_processing} ! {encoder_pars} ! video/x-h264,profile=baseline ! mpegtsmux ! srtsink uri="srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316"'
         elif audio_device and not video_device:
             # Audio with static image placeholder
             encoder_pars = probe_hardware_encoder_pars(None, gop_val, 100)  # Use low bitrate for static image
+            static_processing = build_static_video_processing_chain()
             # Streaming only
             if usewhip:
-                video_part = f'multifilesrc location={static_img} loop=true ! pngdec ! imagefreeze ! videoscale ! video/x-raw,width={width},height={height} ! videorate ! video/x-raw,framerate={framerate_val}/1 ! videoconvert ! video/x-raw,format=I420 ! {encoder_pars} ! video/x-h264,profile=baseline ! queue ! sink.'
+                video_part = f'multifilesrc location={static_img} loop=true ! pngdec ! imagefreeze ! videoscale ! video/x-raw,width={width},height={height} ! videorate ! video/x-raw,framerate={framerate_val}/1 ! {static_processing} ! {encoder_pars} ! video/x-h264,profile=baseline ! queue ! sink.'
                 audio_part = f'alsasrc device=plug{audio_device} ! audioresample ! audio/x-raw,rate={ar_val} ! opusenc bitrate={int(abitrate_val.rstrip("k")) * 1000} ! queue ! sink.'
                 output_part = f'whipclientsink name=sink signaller::whip-endpoint=http://localhost:8889/{stream_name}/whip stun-server=stun://stun.l.google.com:19302 congestion-control=disabled'
             else:
-                video_part = f'multifilesrc location={static_img} loop=true ! pngdec ! imagefreeze ! videoscale ! video/x-raw,width={width},height={height} ! videorate ! video/x-raw,framerate={framerate_val}/1 ! videoconvert ! video/x-raw,format=I420 ! {encoder_pars} ! video/x-h264,profile=baseline ! mux.'
+                video_part = f'multifilesrc location={static_img} loop=true ! pngdec ! imagefreeze ! videoscale ! video/x-raw,width={width},height={height} ! videorate ! video/x-raw,framerate={framerate_val}/1 ! {static_processing} ! {encoder_pars} ! video/x-h264,profile=baseline ! mux.'
                 audio_part = f'alsasrc device=plug{audio_device} ! audioresample ! audio/x-raw,rate={ar_val} ! opusenc bitrate={int(abitrate_val.rstrip("k")) * 1000} ! mux.'
                 output_part = f'mpegtsmux name=mux ! srtsink uri="srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316"'
             pipeline = f'{video_part}   {audio_part}   {output_part}'
         else:
             # Neither video nor audio - static image placeholder only
             encoder_pars = probe_hardware_encoder_pars(None, gop_val, 100) # Use low bitrate for static image
+            static_processing = build_static_video_processing_chain()
             if usewhip:
-                pipeline = f'multifilesrc location={static_img} loop=true ! pngdec ! imagefreeze ! videoscale ! video/x-raw,width={width},height={height} ! videorate ! video/x-raw,framerate={framerate_val}/1 ! videoconvert ! video/x-raw,format=I420 ! {encoder_pars} ! video/x-h264,profile=baseline ! whipclientsink signaller::whip-endpoint=http://localhost:8889/{stream_name}/whip stun-server=stun://stun.l.google.com:19302 congestion-control=disabled'
+                pipeline = f'multifilesrc location={static_img} loop=true ! pngdec ! imagefreeze ! videoscale ! video/x-raw,width={width},height={height} ! videorate ! video/x-raw,framerate={framerate_val}/1 ! {static_processing} ! {encoder_pars} ! video/x-h264,profile=baseline ! whipclientsink signaller::whip-endpoint=http://localhost:8889/{stream_name}/whip stun-server=stun://stun.l.google.com:19302 congestion-control=disabled'
             else:
-                pipeline = f'multifilesrc location={static_img} loop=true ! pngdec ! imagefreeze ! videoscale ! video/x-raw,width={width},height={height} ! videorate ! video/x-raw,framerate={framerate_val}/1 ! videoconvert ! video/x-raw,format=I420 ! {encoder_pars} ! video/x-h264,profile=baseline ! mpegtsmux ! srtsink uri="srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316"'
+                pipeline = f'multifilesrc location={static_img} loop=true ! pngdec ! imagefreeze ! videoscale ! video/x-raw,width={width},height={height} ! videorate ! video/x-raw,framerate={framerate_val}/1 ! {static_processing} ! {encoder_pars} ! video/x-h264,profile=baseline ! mpegtsmux ! srtsink uri="srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316"'
         
         # Clean up the pipeline string and split into arguments
         pipeline_clean = ' '.join(pipeline.split())  # Remove extra whitespace and line breaks
@@ -165,6 +185,9 @@ def start(stream_name):
                 except Exception as e:
                     print(f"Warning: Failed to set mic volume with amixer: {e}")
 
+        # Get stabilization setting
+        stabilization = get_setting('video_stabilization')
+        
         def probe_hardware_encoder(video_opts):
             # Try h264_v4l2m2m first (RPi hardware encoder)
             try:
@@ -317,8 +340,14 @@ def start(stream_name):
                 '-ar', str(ar_val),
                 '-b:a', static_abitrate,
             ]
+        # Build video filter chain
+        video_filters = ['scale=trunc(iw/2)*2:trunc(ih/2)*2']
+        if stabilization:
+            # Add deshake filter for real-time stabilization
+            video_filters.insert(0, 'deshake=x=-1:y=-1:w=-1:h=-1:rx=16:ry=16')
+        
         output_opts = [
-            '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+            '-vf', ','.join(video_filters),
             '-f', 'mpegts', f'srt://localhost:8890?streamid=publish:{stream_name}&pkt_size=1316']
         cmd = ['ffmpeg'] + video_opts + audio_opts + base_opts + output_opts
         return cmd, None
@@ -338,7 +367,8 @@ def start(stream_name):
             'ar': get_setting('ar'),
             'abitrate': get_setting('abitrate'),
             'volume': get_setting('volume'),
-            'use_gstreamer': get_setting('use_gstreamer')
+            'use_gstreamer': get_setting('use_gstreamer'),
+            'video_stabilization': get_setting('video_stabilization')
         }
         
         while True:
@@ -355,7 +385,8 @@ def start(stream_name):
                 'ar': get_setting('ar'),
                 'abitrate': get_setting('abitrate'),
                 'volume': get_setting('volume'),
-                'use_gstreamer': get_setting('use_gstreamer')
+                'use_gstreamer': get_setting('use_gstreamer'),
+                'video_stabilization': get_setting('video_stabilization')
             }
             
             # Check for device changes

@@ -365,6 +365,13 @@ def settings():
                 settings['use_gstreamer'] = val
             elif isinstance(val, str):
                 settings['use_gstreamer'] = val.lower() == 'true'
+        if 'video_stabilization' in data:
+            # Accept both boolean and string values from the form
+            val = data['video_stabilization']
+            if isinstance(val, bool):
+                settings['video_stabilization'] = val
+            elif isinstance(val, str):
+                settings['video_stabilization'] = val.lower() == 'true'
         save_settings(settings)
         return '', 204
     else:
