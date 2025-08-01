@@ -1249,6 +1249,34 @@ def active_recordings_sse():
         print("No active recordings, closing SSE stream")
     return Response(event_stream(), mimetype='text/event-stream')
 
+@app.route('/ups-monitor-log')
+def ups_monitor_log():
+    """Serve the UPS monitor log file for viewing."""
+    log_file_path = '/var/log/ups-monitor.log'
+    
+    try:
+        # Check if log file exists
+        if not os.path.exists(log_file_path):
+            return "UPS monitor log file not found.", 404
+        
+        # Read the log file
+        with open(log_file_path, 'r') as f:
+            log_content = f.read()
+        
+        # Return as plain text with monospace font
+        return Response(
+            log_content, 
+            mimetype='text/plain',
+            headers={
+                'Content-Type': 'text/plain; charset=utf-8',
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            }
+        )
+    except Exception as e:
+        return f"Error reading UPS monitor log: {str(e)}", 500
+
 @app.route('/diagnostics-sse')
 def diagnostics_sse():
     """SSE endpoint for system diagnostics updates."""
