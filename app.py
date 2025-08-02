@@ -23,7 +23,7 @@ from functools import wraps
 from pathlib import Path
 from subprocess import check_output
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR, is_streaming, is_pid_running, STREAM_PIDFILE
 
 # Use pymediainfo for fast video duration extraction
 try:
@@ -45,8 +45,6 @@ def add_no_cache_headers(response):
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
-
-STREAM_PIDFILE = "/tmp/relay-ffmpeg-webcam.pid"
 
 def load_settings():
     settings = DEFAULT_SETTINGS.copy()
@@ -192,18 +190,6 @@ def power_consumption_watts():
         print(f"Error calculating power consumption: {e}")
         return "N/A"
 
-def is_streaming():
-    """Return True if streaming is currently active."""
-    if os.path.exists(STREAM_PIDFILE):
-        try:
-            with open(STREAM_PIDFILE) as f:
-                pid = int(f.read().strip())
-            # Check if the process is still running
-            return is_pid_running(pid)
-        except Exception:
-            pass
-    return False
-
 def get_app_version():
     # Find the latest mtime among all .py, .html, .png files in the project
     exts = {'.py', '.html', '.png'}
@@ -222,19 +208,6 @@ def get_app_version():
         mtime_dt = datetime.fromtimestamp(latest_mtime)
         return mtime_dt.strftime('%Y-%m-%d %H:%M')
     return ''
-
-def is_pid_running(pid):
-    """
-    Check if a process with the given PID is actually running using psutil.
-    Returns False for non-existent, zombie, or dead processes.
-    """
-    try:
-        process = psutil.Process(pid)
-        # Check if process is running (not zombie/dead)
-        status = process.status()
-        return status not in [psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD]
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
-        return False
 
 def get_active_recording_info():
     """Return (pid, file_path) if an active recording is in progress, else (None, None)"""
@@ -300,21 +273,35 @@ def home():
 @app.route('/stats')
 def stats():
     def event_stream():
-        while True:
-            cpu = psutil.cpu_percent(interval=1)
-            mem = psutil.virtual_memory().percent
-            temp = get_temperature()
-            power = power_consumption_watts()
-            fan_rpm = get_fan_rpm()
-            connection = get_connection_info()
-            
-            # Format connection info for JSON
-            import json
-            connection_json = json.dumps(connection).replace('"', '\\"')
-            
-            data = f"data: {{\"cpu\": {cpu}, \"mem\": {mem}, \"temp\": \"{temp}\", \"power\": \"{power}\", \"fan_rpm\": \"{fan_rpm}\", \"connection\": \"{connection_json}\"}}\n\n"
-            yield data
-            time.sleep(1)
+        client_timeout = 0
+        max_timeout = 30  # Stop after 30 seconds of no activity
+        
+        while client_timeout < max_timeout:
+            try:
+                cpu = psutil.cpu_percent(interval=1)
+                mem = psutil.virtual_memory().percent
+                temp = get_temperature()
+                power = power_consumption_watts()
+                fan_rpm = get_fan_rpm()
+                connection = get_connection_info()
+                
+                # Format connection info for JSON
+                import json
+                connection_json = json.dumps(connection).replace('"', '\\"')
+                
+                data = f"data: {{\"cpu\": {cpu}, \"mem\": {mem}, \"temp\": \"{temp}\", \"power\": \"{power}\", \"fan_rpm\": \"{fan_rpm}\", \"connection\": \"{connection_json}\"}}\n\n"
+                yield data
+                client_timeout = 0  # Reset timeout on successful yield
+                time.sleep(1)
+            except GeneratorExit:
+                # Client disconnected
+                print("Stats SSE client disconnected")
+                break
+            except Exception as e:
+                print(f"Stats SSE error: {e}")
+                client_timeout += 1
+                time.sleep(1)
+        print("Stats SSE stream ended")
     return Response(event_stream(), mimetype='text/event-stream')
 
 @app.route('/settings', methods=['GET', 'POST'])
@@ -1283,7 +1270,10 @@ def diagnostics_sse():
     import json
     def event_stream():
         last_diagnostics = None
-        while True:
+        client_timeout = 0
+        max_timeout = 30  # Stop after 30 seconds of no activity
+        
+        while client_timeout < max_timeout:
             try:
                 diagnostics = get_system_diagnostics()
                 
@@ -1291,12 +1281,20 @@ def diagnostics_sse():
                 if diagnostics != last_diagnostics:
                     yield f"data: {json.dumps(diagnostics)}\n\n"
                     last_diagnostics = diagnostics
+                    client_timeout = 0  # Reset timeout on successful yield
                     
                 time.sleep(2)  # Update every 2 seconds
+            except GeneratorExit:
+                # Client disconnected
+                print("Diagnostics SSE client disconnected")
+                break
             except Exception as e:
+                print(f"Diagnostics SSE error: {e}")
                 error_data = {'error': str(e)}
                 yield f"data: {json.dumps(error_data)}\n\n"
+                client_timeout += 1
                 time.sleep(5)  # Wait longer on error
+        print("Diagnostics SSE stream ended")
     return Response(event_stream(), mimetype='text/event-stream')
 
 def get_system_diagnostics():

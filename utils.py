@@ -26,11 +26,13 @@ import re
 import os
 import json
 import atexit
+import psutil
 from datetime import datetime
 
 # Settings constants and defaults
 STREAMER_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'streamerData'))
 SETTINGS_FILE = os.path.join(STREAMER_DATA_DIR, 'settings.json')
+STREAM_PIDFILE = "/tmp/relay-ffmpeg-webcam.pid"
 
 DEFAULT_SETTINGS = {
     "stream_url": "",
@@ -165,6 +167,31 @@ def get_setting(key):
     except Exception:
         # On error, fall back to defaults
         return DEFAULT_SETTINGS.get(key, None)
+
+def is_pid_running(pid):
+    """
+    Check if a process with the given PID is actually running using psutil.
+    Returns False for non-existent, zombie, or dead processes.
+    """
+    try:
+        process = psutil.Process(pid)
+        # Check if process is running (not zombie/dead)
+        status = process.status()
+        return status not in [psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD]
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return False
+
+def is_streaming():
+    """Return True if streaming is currently active."""
+    if os.path.exists(STREAM_PIDFILE):
+        try:
+            with open(STREAM_PIDFILE) as f:
+                pid = int(f.read().strip())
+            # Check if the process is still running
+            return is_pid_running(pid)
+        except Exception:
+            pass
+    return False
 
 # =============================================================================
 # USB Storage Functions

@@ -9,6 +9,7 @@ from subprocess import call
 from x120x import X120X
 
 import fcntl
+from utils import is_streaming
 
 # Configure logging with rotation to prevent unlimited growth
 logging.basicConfig(
@@ -71,22 +72,29 @@ try:
                     warning_msg = "UPS is unplugged or AC power loss detected."
                     print(warning_msg)
                     logging.warning(warning_msg)
-                    print(f"Waiting {SLEEP_TIME} seconds before shutdown...")
-                    time.sleep(SLEEP_TIME)
                     
-                    # Check power state again after sleep time using same connection
-                    ups_status_recheck = ups.get_status()
-                    recheck_ac_power = ups_status_recheck.get('ac_power_connected', False)
-                    
-                    if not recheck_ac_power:
-                        shutdown_message = "UPS still unplugged after grace period. Initiating shutdown."
-                        print(shutdown_message)
-                        logging.critical(shutdown_message)
-                        call("sudo nohup shutdown -h now", shell=True)
+                    # Check if streaming is active - if so, skip shutdown process entirely
+                    if is_streaming():
+                        streaming_msg = "UPS unplugged but streaming is active. Skipping shutdown to prevent stream interruption."
+                        print(streaming_msg)
+                        logging.warning(streaming_msg)
                     else:
-                        recovery_msg = "Power restored during grace period. Continuing monitoring."
-                        print(recovery_msg)
-                        logging.info(recovery_msg)
+                        print(f"Waiting {SLEEP_TIME} seconds before shutdown...")
+                        time.sleep(SLEEP_TIME)
+                        
+                        # Check power state again after sleep time using same connection
+                        ups_status_recheck = ups.get_status()
+                        recheck_ac_power = ups_status_recheck.get('ac_power_connected', False)
+                        
+                        if not recheck_ac_power:
+                            shutdown_message = "UPS still unplugged after grace period. Initiating shutdown."
+                            print(shutdown_message)
+                            logging.critical(shutdown_message)
+                            call("sudo nohup shutdown -h now", shell=True)
+                        else:
+                            recovery_msg = "Power restored during grace period. Continuing monitoring."
+                            print(recovery_msg)
+                            logging.info(recovery_msg)
                 else:
                     print("UPS plugged in. No action required.")
                     logging.debug("UPS plugged in.")

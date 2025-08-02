@@ -112,10 +112,10 @@
                     <option value="true" {% if settings.use_gstreamer %}selected{% endif %}>GStreamer</option>
                 </select>
 
-                <label for="video_stabilization">Video Stabilization</label>
+                <label for="video_stabilization">Video Stabilization test</label>
                 <select id="video_stabilization" name="video_stabilization">
                     <option value="false" {% if not settings.video_stabilization %}selected{% endif %}>Disabled</option>
-                    <option value="true" {% if settings.video_stabilization %}selected{% endif %}>Enabled (reduces camera shake)</option>
+                    <option value="true" {% if settings.video_stabilization %}selected{% endif %}>TEST Enabled (reduces camera shake)</option>
                 </select>
                 
                 <button type="submit" class="btn btn-primary">Save Settings</button>
