@@ -41,14 +41,14 @@ except (IOError, OSError):
 try:
     logging.info("Starting UPS monitoring")
     
-    # Try to connect to UPS - exit if it fails (service will restart us)
-    with X120X() as ups:
-        logging.info("UPS connection established successfully")
-        
-        # Main monitoring loop - runs until UPS disconnects or error occurs
-        while True:
-            try:
-                # Get complete UPS status using existing connection
+    # Main monitoring loop - runs until error occurs
+    while True:
+        try:
+            # Create fresh UPS connection for each monitoring cycle
+            with X120X() as ups:
+                logging.debug("UPS connection established for monitoring cycle")
+                
+                # Get complete UPS status using fresh connection
                 ups_status = ups.get_status()
                 
                 voltage = ups_status['voltage']
@@ -67,23 +67,26 @@ try:
                 status_msg = f"Capacity: {capacity:.2f}% ({battery_status}), AC Power: {'Plugged in' if ac_power_connected else 'Unplugged'}, Voltage: {voltage:.2f}V"
                 print(status_msg)
                 logging.info(status_msg)
+            # First connection closed here
+            
+            # Handle power state outside of connection context
+            if not ac_power_connected:
+                warning_msg = "UPS is unplugged or AC power loss detected."
+                print(warning_msg)
+                logging.warning(warning_msg)
                 
-                if not ac_power_connected:
-                    warning_msg = "UPS is unplugged or AC power loss detected."
-                    print(warning_msg)
-                    logging.warning(warning_msg)
+                # Check if streaming is active - if so, skip shutdown process entirely
+                if is_streaming():
+                    streaming_msg = "UPS unplugged but streaming is active. Skipping shutdown to prevent stream interruption."
+                    print(streaming_msg)
+                    logging.warning(streaming_msg)
+                else:
+                    print(f"Waiting {SLEEP_TIME} seconds before shutdown...")
+                    time.sleep(SLEEP_TIME)
                     
-                    # Check if streaming is active - if so, skip shutdown process entirely
-                    if is_streaming():
-                        streaming_msg = "UPS unplugged but streaming is active. Skipping shutdown to prevent stream interruption."
-                        print(streaming_msg)
-                        logging.warning(streaming_msg)
-                    else:
-                        print(f"Waiting {SLEEP_TIME} seconds before shutdown...")
-                        time.sleep(SLEEP_TIME)
-                        
-                        # Check power state again after sleep time using same connection
-                        ups_status_recheck = ups.get_status()
+                    # Create fresh connection for recheck after sleep
+                    with X120X() as ups_recheck:
+                        ups_status_recheck = ups_recheck.get_status()
                         recheck_ac_power = ups_status_recheck.get('ac_power_connected', False)
                         
                         if not recheck_ac_power:
@@ -95,22 +98,22 @@ try:
                             recovery_msg = "Power restored during grace period. Continuing monitoring."
                             print(recovery_msg)
                             logging.info(recovery_msg)
-                else:
-                    print("UPS plugged in. No action required.")
-                    logging.debug("UPS plugged in.")
+            else:
+                print("UPS plugged in. No action required.")
+                logging.debug("UPS plugged in.")
 
-                if LOOP:
-                    time.sleep(SLEEP_TIME)
-                else:
-                    # Single run mode - exit after one successful check
-                    exit(0)
-                    
-            except Exception as e:
-                error_msg = f"Error during monitoring cycle: {e}"
-                print(error_msg)
-                logging.error(error_msg)
-                # Exit and let service restart us
-                exit(1)
+            if LOOP:
+                time.sleep(SLEEP_TIME)
+            else:
+                # Single run mode - exit after one successful check
+                exit(0)
+                
+        except Exception as e:
+            error_msg = f"Error during monitoring cycle: {e}"
+            print(error_msg)
+            logging.error(error_msg)
+            # Exit and let service restart us
+            exit(1)
 
 except KeyboardInterrupt:
     print("Monitoring stopped by user")
