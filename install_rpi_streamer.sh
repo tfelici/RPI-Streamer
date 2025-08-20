@@ -12,8 +12,8 @@ set -e
 # Wait for internet connectivity (max 20 seconds)
 for i in {1..20}; do
     if ping -c 1 github.com &>/dev/null; then
-    echo "Internet is up."
-    break
+        echo "Internet is up."
+        break
     fi
     echo "Waiting for internet connection..."
     sleep 1
@@ -41,7 +41,14 @@ sudo apt-get install mediainfo -y
 
 # GPS Tracker dependencies
 sudo apt-get install python3-serial -y
-sudo apt-get install python3-rpi.gpio -y
+
+# RPi.GPIO is only available on Raspberry Pi hardware
+if grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null || [ -f /boot/config.txt ]; then
+    echo "Raspberry Pi detected - installing RPi.GPIO package..."
+    sudo apt-get install python3-rpi.gpio -y
+else
+    echo "Not running on Raspberry Pi - skipping RPi.GPIO package (GPS hardware features will be limited)"
+fi
 
 # SIM7600G-H 4G dongle dependencies (installed always for potential use)
 sudo apt-get install minicom screen ppp usb-modeswitch usb-modeswitch-data -y
@@ -137,45 +144,45 @@ check_and_download_executable() {
     remote_sha=$(curl -s "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/$api_path" | jq -r ".sha")
     
     if [ -z "$remote_sha" ] || [ "$remote_sha" = "null" ]; then
-    echo "Warning: Could not fetch remote SHA for $platform executable. Remote file may not exist or API is unavailable."
-    echo "Skipping $platform executable update check."
-    return 0  # Return success to continue gracefully
+        echo "Warning: Could not fetch remote SHA for $platform executable. Remote file may not exist or API is unavailable."
+        echo "Skipping $platform executable update check."
+        return 0  # Return success to continue gracefully
     fi
     
     # Check if local file exists and has a stored SHA
     local need_download=false
     if [ -f "$local_file" ] && [ -f "$sha_file" ]; then
-    # Read the stored SHA
-    stored_sha=$(cat "$sha_file" 2>/dev/null || echo "")
+        # Read the stored SHA
+        stored_sha=$(cat "$sha_file" 2>/dev/null || echo "")
         
-    if [ -z "$stored_sha" ]; then
-        echo "No stored SHA found for $platform executable, will download."
-        need_download=true
-    elif [ "$stored_sha" = "$remote_sha" ]; then
-        echo "$platform executable is up to date."
-        return 0  # Already up to date
+        if [ -z "$stored_sha" ]; then
+            echo "No stored SHA found for $platform executable, will download."
+            need_download=true
+        elif [ "$stored_sha" = "$remote_sha" ]; then
+            echo "$platform executable is up to date."
+            return 0  # Already up to date
+        else
+            echo "$platform executable needs update (stored: ${stored_sha:0:7}, remote: ${remote_sha:0:7})."
+            need_download=true
+        fi
     else
-        echo "$platform executable needs update (stored: ${stored_sha:0:7}, remote: ${remote_sha:0:7})."
+        echo "$platform executable not found, will download."
         need_download=true
-    fi
-    else
-    echo "$platform executable not found, will download."
-    need_download=true
     fi
     
     # Download if needed
     if [ "$need_download" = "true" ]; then
-    printf "Downloading %s executable...\n" "$platform"
-    if curl -H "Cache-Control: no-cache" -L "$download_url?$(date +%s)" -o "$local_file"; then
-        echo "$platform executable downloaded successfully."
-        # Store the remote SHA for future comparisons
-        echo "$remote_sha" > "$sha_file"
-        return 0  # Success
-    else
-        echo "Warning: Failed to download $platform executable. This may be due to network issues or the file not existing."
-        echo "Continuing with installation..."
-        return 0  # Return success to continue gracefully
-    fi
+        printf "Downloading %s executable...\n" "$platform"
+        if curl -H "Cache-Control: no-cache" -L "$download_url?$(date +%s)" -o "$local_file"; then
+            echo "$platform executable downloaded successfully."
+            # Store the remote SHA for future comparisons
+            echo "$remote_sha" > "$sha_file"
+            return 0  # Success
+        else
+            echo "Warning: Failed to download $platform executable. This may be due to network issues or the file not existing."
+            echo "Continuing with installation..."
+            return 0  # Return success to continue gracefully
+        fi
     fi
 }
 
@@ -215,20 +222,20 @@ if [ -f "$HOME/mediamtx" ]; then
     echo "MediaMTX binary found, checking version..."
     # Check if the mediamtx binary is executable
     if [ ! -x "$HOME/mediamtx" ]; then
-    echo "MediaMTX binary is not executable, will reinstall."
-    NEED_INSTALL=true
-    else
-    # Get current version
-    current_version=$("$HOME/mediamtx" --version 2>/dev/null | head -n1 | grep -o 'v[0-9][0-9.]*' || echo "unknown")
-    printf "Current MediaMTX version: %s\n" "$current_version"
-        
-    if [ "$current_version" = "$latest_version" ]; then
-        echo "MediaMTX is already up to date ($current_version)."
-        NEED_INSTALL=false
-    else
-        echo "MediaMTX needs update from $current_version to $latest_version."
+        echo "MediaMTX binary is not executable, will reinstall."
         NEED_INSTALL=true
-    fi
+    else
+        # Get current version
+        current_version=$("$HOME/mediamtx" --version 2>/dev/null | head -n1 | grep -o 'v[0-9][0-9.]*' || echo "unknown")
+        printf "Current MediaMTX version: %s\n" "$current_version"
+        
+        if [ "$current_version" = "$latest_version" ]; then
+            echo "MediaMTX is already up to date ($current_version)."
+            NEED_INSTALL=false
+        else
+            echo "MediaMTX needs update from $current_version to $latest_version."
+            NEED_INSTALL=true
+        fi
     fi
 else
     echo "MediaMTX is not installed, proceeding with installation."
@@ -241,35 +248,35 @@ if [ "$NEED_INSTALL" = "true" ]; then
     printf "Detecting system architecture...\n"
     ARCH=$(uname -m)
     if [[ "$ARCH" == "aarch64"* || "$ARCH" == arm* ]]; then
-    MTX_SUFFIX="linux_arm64.tar.gz"
+        MTX_SUFFIX="linux_arm64.tar.gz"
     else
-    MTX_SUFFIX="linux_amd64.tar.gz"
+        MTX_SUFFIX="linux_amd64.tar.gz"
     fi
     printf "Searching for the latest MediaMTX release for $MTX_SUFFIX...\n"
     
     latest_url=$(curl -s https://api.github.com/repos/bluenviron/mediamtx/releases/latest | jq -r ".assets[] | select(.browser_download_url | endswith(\"$MTX_SUFFIX\")) | .browser_download_url")
     printf "Latest MediaMTX URL: %s\n" "$latest_url"
     if [ -z "$latest_url" ]; then
-    echo "Error: Could not find the latest MediaMTX release URL."
-    exit 1
+        echo "Error: Could not find the latest MediaMTX release URL."
+        exit 1
     fi
     cd "$HOME"
     wget "$latest_url"
     exit_code=$?
     if [ $exit_code -ne 0 ]; then
-    echo "Error: Failed to download MediaMTX."
-    exit $exit_code
+        echo "Error: Failed to download MediaMTX."
+        exit $exit_code
     fi
     printf "Extracting MediaMTX...\n"
     # Extract the downloaded file
     if [ ! -f "$(basename "$latest_url")" ]; then
-    echo "Error: Downloaded file not found."
-    exit 1
+        echo "Error: Downloaded file not found."
+        exit 1
     fi
     # Ensure the file is a tar.gz file
     if [[ "$(basename "$latest_url")" != *.tar.gz ]]; then
-    echo "Error: Downloaded file is not a tar.gz file."
-    exit 1
+        echo "Error: Downloaded file is not a tar.gz file."
+        exit 1
     fi
     tar xvf $(basename "$latest_url")
     chmod +x mediamtx
@@ -277,8 +284,8 @@ if [ "$NEED_INSTALL" = "true" ]; then
     rm $(basename "$latest_url")
     # Check if the mediamtx binary exists
     if [ ! -f mediamtx ]; then
-    echo "Error: MediaMTX binary not found after extraction."
-    exit 1
+        echo "Error: MediaMTX binary not found after extraction."
+        exit 1
     fi
     echo "MediaMTX installation completed successfully."
 else
@@ -436,131 +443,131 @@ EOFSERVICE
     DONGLE_DETECTED=false
     
     if lsusb | grep -i "1e0e:9001\|1e0e:9011"; then
-    echo "✅ SIM7600G-H dongle detected!"
-    DONGLE_DETECTED=true
+        echo "✅ SIM7600G-H dongle detected!"
+        DONGLE_DETECTED=true
     else
-    echo "ℹ️  SIM7600G-H dongle not currently detected"
-    echo "   📋 The system is now configured to automatically"
-    echo "      connect when the dongle is plugged in later."
-    echo ""
-    echo "   🔌 To use the dongle:"
-    echo "   1. Insert SIM card into the dongle"
-    echo "   2. Connect dongle to USB port"
-    echo "   3. Wait 30-60 seconds for auto-configuration"
-    echo "   4. Check connection: ip addr show usb0"
-    echo ""
-    echo "✅ SIM7600G-H setup completed (hardware will auto-configure when connected)"
-    return 0
+        echo "ℹ️  SIM7600G-H dongle not currently detected"
+        echo "   📋 The system is now configured to automatically"
+        echo "      connect when the dongle is plugged in later."
+        echo ""
+        echo "   🔌 To use the dongle:"
+        echo "   1. Insert SIM card into the dongle"
+        echo "   2. Connect dongle to USB port"
+        echo "   3. Wait 30-60 seconds for auto-configuration"
+        echo "   4. Check connection: ip addr show usb0"
+        echo ""
+        echo "✅ SIM7600G-H setup completed (hardware will auto-configure when connected)"
+        return 0
     fi
     
     # If dongle is detected, proceed with immediate configuration
     if [ "$DONGLE_DETECTED" = true ]; then
-    # Check for available ttyUSB ports
-    echo "🔍 Checking USB serial ports..."
-    USB_PORTS=$(ls /dev/ttyUSB* 2>/dev/null || echo "")
-    if [ -z "$USB_PORTS" ]; then
-        echo "⚠️  No ttyUSB ports found!"
-        echo "   The dongle may not be properly recognized."
-        echo "   Try disconnecting and reconnecting the dongle."
-        echo "   ℹ️  Auto-configuration will work when dongle is ready."
-        return 0
-    fi
-        
-    echo "✅ Found USB ports: $USB_PORTS"
-        
-    # Determine the AT command port (usually ttyUSB2)
-    AT_PORT="/dev/ttyUSB2"
-    if [ ! -e "$AT_PORT" ]; then
-        echo "⚠️  ttyUSB2 not found, trying ttyUSB1..."
-        AT_PORT="/dev/ttyUSB1"
-        if [ ! -e "$AT_PORT" ]; then
-            echo "⚠️  ttyUSB1 not found, trying ttyUSB0..."
-            AT_PORT="/dev/ttyUSB0"
-            if [ ! -e "$AT_PORT" ]; then
-                echo "❌ No suitable AT command port found!"
-                echo "   ℹ️  Auto-configuration will work when dongle is ready."
-                return 0
-            fi
-        fi
-    fi
-        
-    echo "📱 Using AT command port: $AT_PORT"
-        
-    # Function to send AT command using screen
-    send_at_screen() {
-        local command="$1"
-        echo "📤 Sending AT command: $command"
-            
-        # Create a screen session and send the command
-        screen -dm -S sim7600_at "$AT_PORT" 115200
-        sleep 2
-        screen -S sim7600_at -p 0 -X stuff "$command^M"
-        sleep 3
-        screen -S sim7600_at -X quit 2>/dev/null || true
-    }
-        
-    echo "🔧 Configuring SIM7600G-H for RNDIS networking..."
-        
-    # Switch to RNDIS mode (9011)
-    send_at_screen "AT+CUSBPIDSWITCH=9011,1,1"
-        
-    echo "⏳ Waiting for module to restart (30 seconds)..."
-    sleep 30
-        
-    # Check if usb0 interface appeared
-    echo "🔍 Checking for USB network interface..."
-    if ip link show | grep -q "usb0"; then
-        echo "✅ usb0 interface detected!"
-            
-        # Bring up the interface
-        echo "🌐 Bringing up usb0 interface..."
-        sudo ip link set usb0 up
-            
-        # Get IP address via DHCP
-        echo "📡 Requesting IP address via DHCP..."
-        timeout 30 sudo dhclient -v usb0 2>&1 | head -20 || echo "DHCP timeout"
-            
-        # Check if we got an IP
-        USB0_IP=$(ip addr show usb0 | grep "inet " | awk '{print $2}' | cut -d/ -f1)
-        if [ -n "$USB0_IP" ]; then
-            echo "✅ Successfully obtained IP address: $USB0_IP"
-                
-            # Test internet connectivity
-            echo "🌍 Testing internet connectivity..."
-            if timeout 10 ping -c 3 8.8.8.8 >/dev/null 2>&1; then
-                echo "✅ Internet connection successful!"
-                echo "✅ SIM7600G-H internet setup completed successfully!"
-                echo "   Interface: usb0"
-                echo "   IP Address: $USB0_IP"
-                return 0
-            else
-                echo "⚠️  Got IP but no internet connectivity"
-                echo "   This might be due to APN settings or network registration"
-            fi
-        else
-            echo "⚠️  Interface is up but no IP address obtained"
-            echo "   Try manually: sudo dhclient -v usb0"
-        fi
-            
-    elif ip link show | grep -q "eth1"; then
-        echo "✅ eth1 interface detected (alternative naming)!"
-        ETH_IFACE="eth1"
-            
-        # Similar setup for eth1
-        sudo ip link set $ETH_IFACE up
-        timeout 30 sudo dhclient -v $ETH_IFACE || echo "DHCP timeout"
-            
-        ETH_IP=$(ip addr show $ETH_IFACE | grep "inet " | awk '{print $2}' | cut -d/ -f1)
-        if [ -n "$ETH_IP" ]; then
-            echo "✅ Successfully obtained IP address: $ETH_IP"
-            echo "✅ SIM7600G-H internet setup completed successfully!"
+        # Check for available ttyUSB ports
+        echo "🔍 Checking USB serial ports..."
+        USB_PORTS=$(ls /dev/ttyUSB* 2>/dev/null || echo "")
+        if [ -z "$USB_PORTS" ]; then
+            echo "⚠️  No ttyUSB ports found!"
+            echo "   The dongle may not be properly recognized."
+            echo "   Try disconnecting and reconnecting the dongle."
+            echo "   ℹ️  Auto-configuration will work when dongle is ready."
             return 0
         fi
-    else
-        echo "❌ No USB network interface found!"
-        echo "   The dongle may need more time or manual configuration."
-        echo "   ℹ️  Auto-configuration will retry on next boot."
-    fi
+        
+        echo "✅ Found USB ports: $USB_PORTS"
+        
+        # Determine the AT command port (usually ttyUSB2)
+        AT_PORT="/dev/ttyUSB2"
+        if [ ! -e "$AT_PORT" ]; then
+            echo "⚠️  ttyUSB2 not found, trying ttyUSB1..."
+            AT_PORT="/dev/ttyUSB1"
+            if [ ! -e "$AT_PORT" ]; then
+                echo "⚠️  ttyUSB1 not found, trying ttyUSB0..."
+                AT_PORT="/dev/ttyUSB0"
+                if [ ! -e "$AT_PORT" ]; then
+                    echo "❌ No suitable AT command port found!"
+                    echo "   ℹ️  Auto-configuration will work when dongle is ready."
+                    return 0
+                fi
+            fi
+        fi
+        
+        echo "📱 Using AT command port: $AT_PORT"
+        
+        # Function to send AT command using screen
+        send_at_screen() {
+            local command="$1"
+            echo "📤 Sending AT command: $command"
+            
+            # Create a screen session and send the command
+            screen -dm -S sim7600_at "$AT_PORT" 115200
+            sleep 2
+            screen -S sim7600_at -p 0 -X stuff "$command^M"
+            sleep 3
+            screen -S sim7600_at -X quit 2>/dev/null || true
+        }
+        
+        echo "🔧 Configuring SIM7600G-H for RNDIS networking..."
+        
+        # Switch to RNDIS mode (9011)
+        send_at_screen "AT+CUSBPIDSWITCH=9011,1,1"
+        
+        echo "⏳ Waiting for module to restart (30 seconds)..."
+        sleep 30
+        
+        # Check if usb0 interface appeared
+        echo "🔍 Checking for USB network interface..."
+        if ip link show | grep -q "usb0"; then
+            echo "✅ usb0 interface detected!"
+            
+            # Bring up the interface
+            echo "🌐 Bringing up usb0 interface..."
+            sudo ip link set usb0 up
+            
+            # Get IP address via DHCP
+            echo "📡 Requesting IP address via DHCP..."
+            timeout 30 sudo dhclient -v usb0 2>&1 | head -20 || echo "DHCP timeout"
+            
+            # Check if we got an IP
+            USB0_IP=$(ip addr show usb0 | grep "inet " | awk '{print $2}' | cut -d/ -f1)
+            if [ -n "$USB0_IP" ]; then
+                echo "✅ Successfully obtained IP address: $USB0_IP"
+                
+                # Test internet connectivity
+                echo "🌍 Testing internet connectivity..."
+                if timeout 10 ping -c 3 8.8.8.8 >/dev/null 2>&1; then
+                    echo "✅ Internet connection successful!"
+                    echo "✅ SIM7600G-H internet setup completed successfully!"
+                    echo "   Interface: usb0"
+                    echo "   IP Address: $USB0_IP"
+                    return 0
+                else
+                    echo "⚠️  Got IP but no internet connectivity"
+                    echo "   This might be due to APN settings or network registration"
+                fi
+            else
+                echo "⚠️  Interface is up but no IP address obtained"
+                echo "   Try manually: sudo dhclient -v usb0"
+            fi
+            
+        elif ip link show | grep -q "eth1"; then
+            echo "✅ eth1 interface detected (alternative naming)!"
+            ETH_IFACE="eth1"
+            
+            # Similar setup for eth1
+            sudo ip link set $ETH_IFACE up
+            timeout 30 sudo dhclient -v $ETH_IFACE || echo "DHCP timeout"
+            
+            ETH_IP=$(ip addr show $ETH_IFACE | grep "inet " | awk '{print $2}' | cut -d/ -f1)
+            if [ -n "$ETH_IP" ]; then
+                echo "✅ Successfully obtained IP address: $ETH_IP"
+                echo "✅ SIM7600G-H internet setup completed successfully!"
+                return 0
+            fi
+        else
+            echo "❌ No USB network interface found!"
+            echo "   The dongle may need more time or manual configuration."
+            echo "   ℹ️  Auto-configuration will retry on next boot."
+        fi
     fi
 }
 
