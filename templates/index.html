@@ -440,6 +440,63 @@
             </div>
         </div>
 
+        <!-- GPS Tracking -->
+        <div class="frame" id="gps-panel">
+            <h2>GPS Tracking</h2>
+            
+            <!-- Flight Settings Info -->
+            <div class="flight-info" style="background: #f8f9fa; padding: 12px; border-radius: 6px; margin-bottom: 1rem; font-size: 14px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div>
+                        <strong>Username:</strong> {{ settings.gps_username or 'Not configured' }}
+                    </div>
+                    <div>
+                        <strong>Aircraft:</strong> {{ settings.aircraft_registration or 'Not set' }}
+                    </div>
+                    <div>
+                        <strong>Start Mode:</strong> 
+                        {% if settings.gps_start_mode == 'manual' %}Manual
+                        {% elif settings.gps_start_mode == 'boot' %}Auto (Boot)
+                        {% elif settings.gps_start_mode == 'motion' %}Auto (Motion)
+                        {% else %}{{ settings.gps_start_mode }}
+                        {% endif %}
+                    </div>
+                    <div>
+                        <strong>Stream Link:</strong> {{ 'Enabled' if settings.gps_stream_link else 'Disabled' }}
+                    </div>
+                </div>
+                {% if not settings.gps_username %}
+                <div style="margin-top: 8px; color: #dc3545; font-size: 13px;">
+                    ?? Configure username in <a href="/flight-settings" style="color: #0d6efd;">Flight Settings</a> to enable GPS tracking
+                </div>
+                {% endif %}
+            </div>
+            
+            <div style="text-align: center; margin-bottom: 1.5rem;">
+                <button id="gps-btn" class="btn btn-primary" {% if not settings.gps_username %}disabled title="Configure username in Flight Settings first"{% endif %}>
+                    {{ 'Stop GPS Tracking' if gps_tracking else 'Start GPS Tracking' }}
+                </button>
+            </div>
+            <div id="gps-status" class="status-info" style="text-align: center;">
+                {% if gps_tracking %}
+                    <p><strong>Status:</strong> <span class="status-active">Active</span></p>
+                    <p><em>GPS tracking is running in simulation mode</em></p>
+                    {% if settings.gps_stream_link %}
+                    <p><em>Video streaming will automatically control with GPS tracking</em></p>
+                    {% endif %}
+                {% else %}
+                    <p><strong>Status:</strong> <span class="status-inactive">Inactive</span></p>
+                    {% if settings.gps_start_mode == 'manual' %}
+                        <p><em>Click "Start GPS Tracking" to begin location tracking</em></p>
+                    {% elif settings.gps_start_mode == 'boot' %}
+                        <p><em>GPS tracking will auto-start on system boot</em></p>
+                    {% elif settings.gps_start_mode == 'motion' %}
+                        <p><em>GPS tracking will auto-start when aircraft moves</em></p>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+
         <!-- Stream Control -->
         <div class="frame" id="stream-panel">
             <h2>Stream Control</h2>
@@ -1486,6 +1543,56 @@
                 .catch(() => {
                     streamStatus.textContent = 'Error.';
                     streamBtn.disabled = false;
+                });
+        });
+
+        // GPS Tracking control
+        const gpsBtn = document.getElementById('gps-btn');
+        const gpsStatus = document.getElementById('gps-status');
+        var gpsTracking = {{ gps_tracking | tojson | safe }};
+        
+        gpsBtn.addEventListener('click', function () {
+            gpsBtn.disabled = true;
+            const statusText = gpsStatus.querySelector('span[class*="status-"]');
+            const statusDescription = gpsStatus.querySelector('em');
+            
+            if (statusText) statusText.textContent = gpsTracking ? 'Stopping...' : 'Starting...';
+            if (statusDescription) statusDescription.textContent = gpsTracking ? 'Stopping GPS tracking...' : 'Starting GPS tracking...';
+            
+            fetch('/gps-control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: gpsTracking ? 'stop' : 'start' })
+            })
+                .then(r => r.json().then(data => ({ status: r.status, data })))
+                .then(result => {
+                    if (result.status !== 200 && result.data && result.data.error) {
+                        if (statusDescription) {
+                            statusDescription.textContent = result.data.error;
+                            statusDescription.style.color = '#d9534f';
+                        }
+                        gpsBtn.disabled = false;
+                        return;
+                    }
+                    gpsTracking = !gpsTracking;
+                    gpsBtn.textContent = gpsTracking ? 'Stop GPS Tracking' : 'Start GPS Tracking';
+                    
+                    if (statusText) {
+                        statusText.textContent = gpsTracking ? 'Active' : 'Inactive';
+                        statusText.className = gpsTracking ? 'status-active' : 'status-inactive';
+                    }
+                    if (statusDescription) {
+                        statusDescription.textContent = gpsTracking ? 'GPS tracking is running in simulation mode' : 'Click "Start GPS Tracking" to begin location tracking';
+                        statusDescription.style.color = '';
+                    }
+                    gpsBtn.disabled = false;
+                })
+                .catch(() => {
+                    if (statusDescription) {
+                        statusDescription.textContent = 'Error controlling GPS tracking.';
+                        statusDescription.style.color = '#d9534f';
+                    }
+                    gpsBtn.disabled = false;
                 });
         });
 

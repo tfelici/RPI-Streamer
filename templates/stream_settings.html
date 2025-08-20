@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stream Settings - RPI Streamer</title>
+</head>
+<body>
+    {% include 'navbar.html' %}
+    
+    <div class="container">
+        <div class="frame">
+            <h1>Stream Settings</h1>
+            <form id="settings-form">
+                <label for="stream_url">Remote Streaming URL</label>
+                <input type="text" id="stream_url" name="stream_url" value="{{ settings.stream_url }}" placeholder="e.g. rtsp://..., rtmp://..., srt://..., udp://..., http://..., https://..., hls://...">
+
+                <label for="upload_url">Upload Recording Server URL</label>
+                <input type="text" id="upload_url" name="upload_url" value="{{ settings.upload_url }}" placeholder="e.g. https://gyropilots.org/ajaxservices.php?command=replacerecordings">                <label for="framerate">Frame Rate (fps)</label>
+                <input type="number" id="framerate" name="framerate" min="1" max="60" required>
+
+                <label for="crf">CRF (Quality, lower is better, <em>leave blank to use Video Bitrate instead</em>)</label>
+                <input type="number" id="crf" name="crf" min="10" max="51" placeholder="(blank = disabled)">
+
+                <label for="vbitrate">Video Bitrate (kbps)</label>
+                <input type="number" id="vbitrate" name="vbitrate" min="50" max="5000" required>
+
+                <label for="gop">GOP (keyframe interval, lower gives higher Quality & larger file size)</label>
+                <input type="number" id="gop" name="gop" min="1" max="600" required>
+
+                <label for="resolution">Resolution</label>
+                <select id="resolution" name="resolution">
+                    <option value="">Loading...</option>
+                </select>
+    <script>
+    // Dynamically populate the resolution dropdown with supported resolutions at or below Full HD
+    
+    window.currentResolution = "{{ settings.resolution }}";
+    fetch('/video-resolutions')
+      .then(r => r.json())
+      .then(resolutions => {
+        const select = document.getElementById('resolution');
+        select.innerHTML = '';
+        resolutions.forEach(res => {
+          const opt = document.createElement('option');
+          opt.value = res;
+          opt.textContent = res;
+          select.appendChild(opt);
+        });
+        // If no resolutions are available, add a "none available" option
+        if (resolutions.length === 0) {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = 'No resolutions available for selected camera';
+          select.appendChild(opt);
+        }
+        // Set the current value if available
+        if (window.currentResolution) {
+          select.value = window.currentResolution;
+        }      });
+    </script>
+
+                <label for="abitrate">Audio Bitrate</label>
+                <select id="abitrate" name="abitrate" required>
+                    <option value="6k">6 kbps</option>
+                    <option value="8k">8 kbps</option>
+                    <option value="12k">12 kbps</option>
+                    <option value="16k">16 kbps</option>
+                    <option value="24k">24 kbps</option>
+                    <option value="32k">32 kbps</option>
+                    <option value="48k">48 kbps</option>
+                    <option value="64k">64 kbps</option>
+                    <option value="96k">96 kbps</option>
+                    <option value="128k">128 kbps</option>
+                    <option value="192k">192 kbps</option>
+                </select>
+
+                <label for="ar">Audio Sample Rate (Hz)</label>
+                <select id="ar" name="ar" required>
+                    <option value="8000">8000</option>
+                    <option value="12000">12000</option>
+                    <option value="16000">16000</option>
+                    <option value="24000">24000</option>
+                    <option value="48000">48000</option>
+                </select>
+
+                <label for="video_input">Video Input Device</label>
+                <select id="video_input" name="video_input">
+                    <option value="">(Disabled)</option>
+                    {% for device in video_inputs %}
+                        <option value="{{ device.id }}" {% if settings.video_input == device.id %}selected{% endif %}>{{ device.label }}</option>
+                    {% endfor %}
+                </select>                <label for="audio_input">Audio Input Device</label>
+                <select id="audio_input" name="audio_input">
+                    <option value="">(Disabled)</option>
+                    {% for device in audio_inputs %}
+                        <option value="{{ device.id }}" {% if settings.audio_input == device.id %}selected{% endif %}>{{ device.label }}</option>
+                    {% endfor %}
+                </select>
+
+                <label for="volume">Audio Input Volume: <span id="volume-display">{{ settings.volume or 100 }}%</span></label>
+                <input type="range" id="volume" name="volume" min="0" max="150" value="{{ settings.volume or 100 }}" step="1" required>
+
+                <label for="dynamicBitrate">Dynamic Bitrate</label>
+                <select id="dynamicBitrate" name="dynamicBitrate">
+                    <option value="true" {% if settings.dynamicBitrate %}selected{% endif %}>Enabled (adaptive)</option>
+                    <option value="false" {% if not settings.dynamicBitrate %}selected{% endif %}>Disabled (passthrough)</option>
+                </select>
+
+                <label for="use_gstreamer">Streaming Engine</label>
+                <select id="use_gstreamer" name="use_gstreamer">
+                    <option value="false" {% if not settings.use_gstreamer %}selected{% endif %}>FFmpeg (default)</option>
+                    <option value="true" {% if settings.use_gstreamer %}selected{% endif %}>GStreamer</option>
+                </select>
+
+                <label for="video_stabilization">Video Stabilization test</label>
+                <select id="video_stabilization" name="video_stabilization">
+                    <option value="false" {% if not settings.video_stabilization %}selected{% endif %}>Disabled</option>
+                    <option value="true" {% if settings.video_stabilization %}selected{% endif %}>TEST Enabled (reduces camera shake)</option>
+                </select>
+                
+                <button type="submit" class="btn btn-primary">Save Settings</button>
+                <div id="msg" class="status-message" style="display: none;"></div>
+            </form>
+        </div>
+    </div>
+    <script>
+        // Fetch current settings
+        fetch('/settings')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('stream_url').value = data.stream_url || '';
+                document.getElementById('framerate').value = data.framerate || 5;
+                document.getElementById('crf').value = (data.crf === undefined || data.crf === null || data.crf === "") ? "" : data.crf;
+                document.getElementById('gop').value = data.gop || 5;
+                document.getElementById('resolution').value = data.resolution || '1280x720';
+                document.getElementById('vbitrate').value = data.vbitrate || 1000;
+                document.getElementById('abitrate').value = data.abitrate || '128k';
+                document.getElementById('ar').value = data.ar || 8000;                
+                document.getElementById('upload_url').value = data.upload_url || '';
+                document.getElementById('audio_input').value = data.audio_input || '';
+                document.getElementById('video_input').value = data.video_input || '';
+                document.getElementById('volume').value = data.volume || 100;
+                document.getElementById('dynamicBitrate').value = data.dynamicBitrate === true ? 'true' : 'false';
+                document.getElementById('use_gstreamer').value = data.use_gstreamer === true ? 'true' : 'false';
+                document.getElementById('video_stabilization').value = data.video_stabilization === true ? 'true' : 'false';
+                // Update volume display on page load
+                document.getElementById('volume-display').textContent = (data.volume || 100) + '%';
+            });
+            
+        // Add event listener to update volume display in real-time
+        document.getElementById('volume').addEventListener('input', function() {
+            document.getElementById('volume-display').textContent = this.value + '%';
+        });
+            
+        document.getElementById('settings-form').onsubmit = async function(e) {
+            e.preventDefault();
+            const msgDiv = document.getElementById('msg');
+            const stream_url = document.getElementById('stream_url').value.trim();
+            const framerate = document.getElementById('framerate').value;
+            const crf = document.getElementById('crf').value;
+            const gop = document.getElementById('gop').value;
+            const resolution = document.getElementById('resolution').value;
+            const vbitrate = document.getElementById('vbitrate').value;
+            const abitrate = document.getElementById('abitrate').value;
+            const ar = document.getElementById('ar').value;
+            const upload_url = document.getElementById('upload_url').value.trim();
+            const audio_input = document.getElementById('audio_input').value;
+            const video_input = document.getElementById('video_input').value;
+            const volume = document.getElementById('volume').value;
+            const dynamicBitrate = document.getElementById('dynamicBitrate').value === 'true';
+            const use_gstreamer = document.getElementById('use_gstreamer').value === 'true';
+            const video_stabilization = document.getElementById('video_stabilization').value === 'true';
+            
+            // Only validate if not empty
+            if (stream_url) {
+                const validProtocols = [
+                    'rtsp://', 'rtsps://', 'rtmp://', 'rtmps://', 'srt://', 'https://'
+                ];
+                const isValid = validProtocols.some(proto => stream_url.startsWith(proto));
+                if (!isValid) {
+                    msgDiv.textContent = 'Remote Streaming URL must start with a supported protocol: ' + validProtocols.join(', ');
+                    msgDiv.className = 'status-message status-error';
+                    msgDiv.style.display = 'block';
+                    return;
+                }
+            }
+            
+            try {
+                const resp = await fetch('/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        stream_url, framerate, crf, gop, resolution, 
+                        vbitrate, abitrate, ar, upload_url, audio_input, video_input, volume, dynamicBitrate, use_gstreamer, video_stabilization
+                    })
+                });
+                
+                if (resp.ok) {
+                    msgDiv.textContent = 'Settings saved successfully!';
+                    msgDiv.className = 'status-message status-success';
+                } else {
+                    msgDiv.textContent = 'Failed to save settings.';
+                    msgDiv.className = 'status-message status-error';
+                }
+            } catch (error) {
+                msgDiv.textContent = 'Error: ' + error.message;
+                msgDiv.className = 'status-message status-error';
+            }
+            
+            msgDiv.style.display = 'block';
+        };
+    </script>
+</body>
+</html>

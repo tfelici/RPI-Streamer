@@ -13,6 +13,17 @@ curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/R
 bash install_rpi_streamer.sh --tailscale
 ```
 
+### Installation with 4G Dongle Support
+
+For systems with or planning to use the Waveshare SIM7600G-H 4G dongle:
+
+```sh
+curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh?$(date +%s)
+bash install_rpi_streamer.sh --tailscale --sim7600
+```
+
+**Note**: The SIM7600 setup installs all necessary drivers and services even if the dongle is not currently connected. This allows plug-and-play functionality when the dongle is connected later.
+
 ### UPS Management (Optional)
 
 If you have a UPS hardware HAT installed, you can optionally install the UPS management system:
@@ -38,6 +49,9 @@ The UPS management system provides:
 - Audio/video device selection
 - **System diagnostics panel** with real-time hardware monitoring
 - **UPS monitoring and management** (optional, requires UPS HAT)
+- **4G cellular internet** (optional, supports Waveshare SIM7600G-H dongle)
+- **WiFi hotspot mode** for standalone operation
+- **GPS tracking with simulation** for flight recording
 - **Automatic USB storage detection and mounting**
 - **Recording segments saved to USB when available**
 - **Auto-restart webcam service when settings change**

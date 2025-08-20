@@ -23,7 +23,7 @@ from functools import wraps
 from pathlib import Path
 from subprocess import check_output
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR, is_streaming, is_pid_running, STREAM_PIDFILE
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR, is_streaming, is_pid_running, STREAM_PIDFILE, get_active_gps_tracking_info, is_gps_tracking, load_settings, save_settings
 
 # Use pymediainfo for fast video duration extraction
 try:
@@ -45,22 +45,6 @@ def add_no_cache_headers(response):
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
-
-def load_settings():
-    settings = DEFAULT_SETTINGS.copy()
-    if os.path.exists(SETTINGS_FILE):
-        try:
-            with open(SETTINGS_FILE, 'r') as f:
-                settings.update(json.load(f))
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"Warning: Could not parse settings.json: {e}")
-            # Keep default settings
-    settings['streaming'] = is_streaming()
-    return settings
-
-def save_settings(settings):
-    with open(SETTINGS_FILE, 'w') as f:
-        json.dump(settings, f)
 
 def get_temperature():
     # Use vcgencmd like in get_system_diagnostics for consistency
@@ -257,6 +241,8 @@ def add_files_from_path(recording_files, path, source_label="", location="Local"
 @app.route('/')
 def home():
     streaming = is_streaming()
+    gps_tracking = is_gps_tracking()
+    settings = load_settings()
 
     # Gather recording files info
     recording_files = []
@@ -268,7 +254,15 @@ def home():
         usb_recording_path = os.path.join(usb_mount_point, 'streamerData', 'recordings', 'webcam')
         add_files_from_path(recording_files, usb_recording_path, "[USB] ", "USB")
 
-    return render_template('index.html', active_tab='home', streaming=streaming, recording_files=recording_files, app_version=get_app_version())
+    return render_template(
+        'index.html', 
+        active_tab='home', 
+        streaming=streaming, 
+        gps_tracking=gps_tracking, 
+        recording_files=recording_files, 
+        app_version=get_app_version(),
+        settings=settings
+    )
 
 @app.route('/stats')
 def stats():
@@ -362,19 +356,80 @@ def settings():
         save_settings(settings)
         return '', 204
     else:
-        return jsonify(load_settings())
+        settings = load_settings()
+        settings['streaming'] = is_streaming()
+        return jsonify(settings)
 
-@app.route('/settings-page')
-def settings_page():
+@app.route('/stream-settings')
+def stream_settings_page():
     audio_inputs = list_audio_inputs()
     video_inputs = list_video_inputs()
     return render_template(
-        'settings.html',
-        active_tab='settings',
+        'stream_settings.html',
+        active_tab='stream_settings',
         settings=load_settings(),
         app_version=get_app_version(),
         audio_inputs=audio_inputs,
         video_inputs=video_inputs
+    )
+
+@app.route('/flight-settings')
+def flight_settings_page():
+    return render_template(
+        'flight_settings.html',
+        active_tab='flight_settings',
+        settings=load_settings(),
+        app_version=get_app_version()
+    )
+
+@app.route('/flight-settings', methods=['POST'])
+def flight_settings_save():
+    settings = load_settings()
+    
+    # Update flight settings
+    settings['gps_username'] = request.form.get('gps_username', '').strip()
+    settings['aircraft_registration'] = request.form.get('aircraft_registration', '').strip()
+    settings['gps_stream_link'] = request.form.get('gps_stream_link') == 'on'
+    old_gps_start_mode = settings['gps_start_mode']
+    settings['gps_start_mode'] = request.form.get('gps_start_mode', 'manual')
+    settings['gps_stop_on_power_loss'] = request.form.get('gps_stop_on_power_loss') == 'on'
+    
+    # Handle power loss timeout with validation
+    try:
+        power_loss_minutes = int(request.form.get('gps_stop_power_loss_minutes', DEFAULT_SETTINGS['gps_stop_power_loss_minutes']))
+        if 1 <= power_loss_minutes <= 60:
+            settings['gps_stop_power_loss_minutes'] = power_loss_minutes
+        else:
+            settings['gps_stop_power_loss_minutes'] = DEFAULT_SETTINGS['gps_stop_power_loss_minutes']  # Default fallback
+    except (ValueError, TypeError):
+        settings['gps_stop_power_loss_minutes'] = DEFAULT_SETTINGS['gps_stop_power_loss_minutes']  # Default fallback
+    
+    # Save settings
+    save_settings(settings)
+    
+    # Manage GPS startup service based on the start mode
+    new_gps_start_mode = settings['gps_start_mode']
+    if old_gps_start_mode != new_gps_start_mode:
+        try:
+            if new_gps_start_mode in ['boot', 'motion']:
+                # Enable and start the GPS startup service
+                subprocess.run(['sudo', 'systemctl', 'enable', 'gps-startup.service'], check=False)
+                subprocess.run(['sudo', 'systemctl', 'restart', 'gps-startup.service'], check=False)
+                print(f"GPS startup service enabled for mode: {new_gps_start_mode}")
+            else:
+                # Disable and stop the GPS startup service for manual mode
+                subprocess.run(['sudo', 'systemctl', 'stop', 'gps-startup.service'], check=False)
+                subprocess.run(['sudo', 'systemctl', 'disable', 'gps-startup.service'], check=False)
+                print("GPS startup service disabled for manual mode")
+        except Exception as e:
+            print(f"Warning: Could not manage GPS startup service: {e}")
+    
+    return render_template(
+        'flight_settings.html',
+        active_tab='flight_settings',
+        settings=settings,
+        app_version=get_app_version(),
+        message='Flight settings saved successfully!'
     )
 
 @app.route('/audio-inputs') 
@@ -417,49 +472,144 @@ def video_resolutions():
     except Exception as e:
         return jsonify([])
 
+def start_streaming():
+    """Helper function to start streaming. Returns (success, message, status_code)"""
+    # Check if already streaming
+    if is_streaming():
+        return False, 'Streaming is already active.', 200
+    
+    settings = load_settings()
+    stream_url = settings['stream_url'].strip()
+    if not stream_url:
+        return False, 'Remote Streaming URL is not set. Please configure it in Settings.', 400
+    
+    # Start relay-ffmpeg.py asynchronously
+    subprocess.Popen(['python', 'relay-ffmpeg.py', 'webcam'])
+    # Also start relay-ffmpeg-record.py asynchronously
+    subprocess.Popen(['python', 'relay-ffmpeg-record.py', 'webcam'])
+    
+    return True, 'started', 200
+
+def stop_streaming():
+    """Helper function to stop streaming. Returns (success, message, status_code)"""
+    if is_streaming():
+        # Stop both relay-ffmpeg.py and relay-ffmpeg-record.py processes
+        print("Stopping stream...")
+        try:
+            with open(STREAM_PIDFILE, 'r') as f:
+                pid = int(f.read().strip())
+            print(f"Stopping stream with PID {pid}")
+            if is_pid_running(pid):
+                os.kill(pid, 15)  # SIGTERM
+            # Also stop the recording process if it exists
+            active_pid, _ = get_active_recording_info()
+            if active_pid and is_pid_running(active_pid):
+                print(f"Stopping recording with PID {active_pid}")
+                os.kill(active_pid, 15)  # SIGTERM
+            # Loop until both processes are no longer running
+            while active_pid and is_pid_running(active_pid) or pid and is_pid_running(pid):
+                # Print status
+                print(f"Waiting for stream and recording to stop... (stream PID: {pid}={is_pid_running(pid)}, recording PID: {active_pid}={is_pid_running(active_pid)})")
+                time.sleep(0.5)  # Give it a moment to terminate
+            print("Stream and recording stopped successfully.")
+        except Exception as e:
+            print(f"Error stopping stream: {e}")
+    else:
+        print("No active stream to stop.")
+    
+    return True, 'stopped', 200
+
+def start_gps_tracking():
+    """Helper function to start GPS tracking. Returns (success, message, status_code)"""
+    # Check if already tracking
+    if is_gps_tracking():
+        return False, 'GPS tracking is already active.', 200
+    
+    # Get username from settings and validate
+    settings = load_settings()
+    username = settings['gps_username'].strip()
+    if not username:
+        return False, 'GPS username is not configured. Please set a username for GPS tracking in the flight settings.', 400
+    
+    # Start GPS tracker with simulation mode
+    subprocess.Popen(['python', 'gps_tracker.py', username, '--simulate'])
+    
+    # If gps_stream_link is enabled, also start video streaming
+    if settings['gps_stream_link']:
+        print("Auto-starting video streaming with GPS tracking...")
+        success, message, status_code = start_streaming()
+        if success:
+            print("Video streaming started automatically with GPS tracking.")
+        else:
+            print(f"Warning: Failed to auto-start video streaming: {message}")
+    
+    return True, 'started', 200
+
+def stop_gps_tracking():
+    """Helper function to stop GPS tracking. Returns (success, message, status_code)"""
+    settings = load_settings()
+    
+    if is_gps_tracking():
+        print("Stopping GPS tracking...")
+        try:
+            gps_pid, username, host, track_id = get_active_gps_tracking_info()
+            if gps_pid:
+                print(f"Stopping GPS tracking with PID {gps_pid}")
+                if is_pid_running(gps_pid):
+                    os.kill(gps_pid, 15)  # SIGTERM
+                # Wait for the process to stop
+                for _ in range(20):  # Wait up to 2 seconds
+                    if not is_pid_running(gps_pid):
+                        break
+                    time.sleep(0.1)
+                print("GPS tracking stopped successfully.")
+        except Exception as e:
+            print(f"Error stopping GPS tracking: {e}")
+            
+        # If gps_stream_link is enabled, also stop video streaming
+        if settings['gps_stream_link']:
+            print("Auto-stopping video streaming with GPS tracking...")
+            success, message, status_code = stop_streaming()
+            if success:
+                print("Video streaming stopped automatically with GPS tracking.")
+            else:
+                print(f"Warning: Failed to auto-stop video streaming: {message}")
+    else:
+        print("No active GPS tracking to stop.")
+    
+    return True, 'stopped', 200
+
 @app.route('/stream-control', methods=['POST'])
 def stream_control():
     data = request.get_json()
     action = data.get('action')
+    
     if action == 'start':
-        # Check if already streaming
-        if is_streaming():
-            return jsonify({'status': 'Streaming is already active.'})
-        settings = load_settings()
-        stream_url = settings.get('stream_url', '').strip()
-        if not stream_url:
-            return jsonify({'error': 'Remote Streaming URL is not set. Please configure it in Settings.'}), 400
-        #start relay-ffmpeg.py asynchronously
-        subprocess.Popen(['python', 'relay-ffmpeg.py', 'webcam'])
-        #also start relay-ffmpeg-record.py asynchronously
-        subprocess.Popen(['python', 'relay-ffmpeg-record.py', 'webcam'])
-        return jsonify({'status': 'started'})
-    elif action == 'stop':
-        if is_streaming():
-            #stop both relay-ffmpeg.py and relay-ffmpeg-record.py processes
-            print("Stopping stream...")
-            try:
-                with open(STREAM_PIDFILE, 'r') as f:
-                    pid = int(f.read().strip())
-                print(f"Stopping stream with PID {pid}")
-                if is_pid_running(pid):
-                    os.kill(pid, 15)  # SIGTERM
-                #also stop the recording process if it exists
-                active_pid, _ = get_active_recording_info()
-                if active_pid and is_pid_running(active_pid):
-                    print(f"Stopping recording with PID {active_pid}")
-                    os.kill(active_pid, 15)  # SIGTERM
-                # loop until both processes are no longer running
-                while active_pid and is_pid_running(active_pid) or pid and is_pid_running(pid):
-                    #print status
-                    print(f"Waiting for stream and recording to stop... (stream PID: {pid}={is_pid_running(pid)}, recording PID: {active_pid}={is_pid_running(active_pid)})")
-                    time.sleep(0.5)  # Give it a moment to terminate
-                print("Stream and recording stopped successfully.")
-            except Exception as e:
-                print(f"Error stopping stream: {e}")
+        success, message, status_code = start_streaming()
+        if success:
+            return jsonify({'status': message})
         else:
-            print("No active stream to stop.")
-        return jsonify({'status': 'stopped'})
+            return jsonify({'error': message}), status_code
+    elif action == 'stop':
+        success, message, status_code = stop_streaming()
+        return jsonify({'status': message})
+    else:
+        return jsonify({'error': 'Invalid action'}), 400
+
+@app.route('/gps-control', methods=['POST'])
+def gps_control():
+    data = request.get_json()
+    action = data.get('action')
+    
+    if action == 'start':
+        success, message, status_code = start_gps_tracking()
+        if success:
+            return jsonify({'status': message})
+        else:
+            return jsonify({'error': message}), status_code
+    elif action == 'stop':
+        success, message, status_code = stop_gps_tracking()
+        return jsonify({'status': message})
     else:
         return jsonify({'error': 'Invalid action'}), 400
 
@@ -468,7 +618,7 @@ def upload_recording():
     from werkzeug.utils import secure_filename
     
     settings = load_settings()
-    upload_url = settings.get('upload_url', '').strip()
+    upload_url = settings['upload_url'].strip()
     if not upload_url:
         return jsonify({'error': 'Upload URL is not set. Please configure it in Settings.'}), 400
     
@@ -855,6 +1005,202 @@ def system_settings_wifi():
     except Exception as e:
         return jsonify({'success': False, 'error': f'Failed to configure WiFi with NetworkManager: {e}'})
     return jsonify({'success': True})
+
+def get_wifi_mode_status():
+    """Get current WiFi mode and hotspot status"""
+    settings = load_settings()
+    wifi_mode = settings['wifi_mode']
+    
+    # Check if hostapd is running (indicates hotspot mode)
+    try:
+        result = subprocess.run(['sudo', 'systemctl', 'is-active', 'hostapd'], 
+                              capture_output=True, text=True)
+        hostapd_active = result.stdout.strip() == 'active'
+    except:
+        hostapd_active = False
+    
+    # Check current IP configuration
+    current_ip = None
+    try:
+        result = subprocess.run(['ip', 'addr', 'show', 'wlan0'], 
+                              capture_output=True, text=True)
+        for line in result.stdout.split('\n'):
+            if 'inet ' in line and not '127.0.0.1' in line:
+                current_ip = line.strip().split()[1].split('/')[0]
+                break
+    except:
+        pass
+    
+    return {
+        'mode': wifi_mode,
+        'hostapd_active': hostapd_active,
+        'current_ip': current_ip,
+        'hotspot_ssid': settings['hotspot_ssid'],
+        'hotspot_ip': settings['hotspot_ip']
+    }
+
+def configure_wifi_hotspot(ssid, password, channel=6, ip_address="192.168.4.1"):
+    """Configure WiFi hotspot using hostapd and dnsmasq"""
+    try:
+        # Install required packages if not present
+        subprocess.run(['sudo', 'apt-get', 'update'], check=False)
+        subprocess.run(['sudo', 'apt-get', 'install', '-y', 'hostapd', 'dnsmasq'], check=False)
+        
+        # Stop services
+        subprocess.run(['sudo', 'systemctl', 'stop', 'hostapd'], check=False)
+        subprocess.run(['sudo', 'systemctl', 'stop', 'dnsmasq'], check=False)
+        subprocess.run(['sudo', 'systemctl', 'stop', 'NetworkManager'], check=False)
+        
+        # Configure hostapd
+        hostapd_conf = f"""interface=wlan0
+driver=nl80211
+ssid={ssid}
+hw_mode=g
+channel={channel}
+wmm_enabled=0
+macaddr_acl=0
+auth_algs=1
+ignore_broadcast_ssid=0
+wpa=2
+wpa_passphrase={password}
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=TKIP
+rsn_pairwise=CCMP
+"""
+        
+        with open('/tmp/hostapd.conf', 'w') as f:
+            f.write(hostapd_conf)
+        subprocess.run(['sudo', 'mv', '/tmp/hostapd.conf', '/etc/hostapd/hostapd.conf'], check=True)
+        
+        # Configure dnsmasq
+        dnsmasq_conf = f"""interface=wlan0
+dhcp-range={ip_address.rsplit('.', 1)[0]}.10,{ip_address.rsplit('.', 1)[0]}.50,255.255.255.0,24h
+"""
+        
+        with open('/tmp/dnsmasq.conf', 'w') as f:
+            f.write(dnsmasq_conf)
+        subprocess.run(['sudo', 'mv', '/tmp/dnsmasq.conf', '/etc/dnsmasq.conf'], check=True)
+        
+        # Configure static IP for wlan0
+        subprocess.run(['sudo', 'ip', 'addr', 'flush', 'dev', 'wlan0'], check=False)
+        subprocess.run(['sudo', 'ip', 'addr', 'add', f'{ip_address}/24', 'dev', 'wlan0'], check=True)
+        subprocess.run(['sudo', 'ip', 'link', 'set', 'wlan0', 'up'], check=True)
+        
+        # Enable IP forwarding
+        subprocess.run(['sudo', 'sysctl', 'net.ipv4.ip_forward=1'], check=True)
+        
+        # Configure iptables for NAT (if eth0 is available)
+        subprocess.run(['sudo', 'iptables', '-t', 'nat', '-A', 'POSTROUTING', '-o', 'eth0', '-j', 'MASQUERADE'], check=False)
+        subprocess.run(['sudo', 'iptables', '-A', 'FORWARD', '-i', 'eth0', '-o', 'wlan0', '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'], check=False)
+        subprocess.run(['sudo', 'iptables', '-A', 'FORWARD', '-i', 'wlan0', '-o', 'eth0', '-j', 'ACCEPT'], check=False)
+        
+        # Start services
+        subprocess.run(['sudo', 'systemctl', 'start', 'hostapd'], check=True)
+        subprocess.run(['sudo', 'systemctl', 'start', 'dnsmasq'], check=True)
+        
+        # Enable services for boot
+        subprocess.run(['sudo', 'systemctl', 'enable', 'hostapd'], check=True)
+        subprocess.run(['sudo', 'systemctl', 'enable', 'dnsmasq'], check=True)
+        
+        return True, "Hotspot configured successfully"
+        
+    except subprocess.CalledProcessError as e:
+        return False, f"Failed to configure hotspot: {e}"
+    except Exception as e:
+        return False, f"Error configuring hotspot: {e}"
+
+def configure_wifi_client():
+    """Switch back to WiFi client mode"""
+    try:
+        # Stop hotspot services
+        subprocess.run(['sudo', 'systemctl', 'stop', 'hostapd'], check=False)
+        subprocess.run(['sudo', 'systemctl', 'stop', 'dnsmasq'], check=False)
+        subprocess.run(['sudo', 'systemctl', 'disable', 'hostapd'], check=False)
+        subprocess.run(['sudo', 'systemctl', 'disable', 'dnsmasq'], check=False)
+        
+        # Clear iptables rules
+        subprocess.run(['sudo', 'iptables', '-t', 'nat', '-F'], check=False)
+        subprocess.run(['sudo', 'iptables', '-F'], check=False)
+        
+        # Reset wlan0 interface
+        subprocess.run(['sudo', 'ip', 'addr', 'flush', 'dev', 'wlan0'], check=False)
+        subprocess.run(['sudo', 'ip', 'link', 'set', 'wlan0', 'down'], check=False)
+        
+        # Start NetworkManager
+        subprocess.run(['sudo', 'systemctl', 'start', 'NetworkManager'], check=True)
+        subprocess.run(['sudo', 'systemctl', 'enable', 'NetworkManager'], check=True)
+        
+        # Wait a moment for NetworkManager to initialize
+        time.sleep(3)
+        
+        # Try to reconnect to saved WiFi networks
+        subprocess.run(['sudo', 'nmcli', 'device', 'set', 'wlan0', 'autoconnect', 'yes'], check=False)
+        subprocess.run(['sudo', 'nmcli', 'connection', 'up', '--help'], check=False)  # Wake up nmcli
+        
+        return True, "Switched to client mode successfully"
+        
+    except subprocess.CalledProcessError as e:
+        return False, f"Failed to switch to client mode: {e}"
+    except Exception as e:
+        return False, f"Error switching to client mode: {e}"
+
+@app.route('/system-settings-wifi-mode', methods=['POST'])
+def system_settings_wifi_mode():
+    """Handle WiFi mode switching between client and hotspot"""
+    data = request.get_json()
+    mode = data.get('mode', 'client')
+    
+    # Load current settings
+    settings = load_settings()
+    
+    if mode == 'hotspot':
+        ssid = data.get('hotspot_ssid', settings['hotspot_ssid'])
+        password = data.get('hotspot_password', settings['hotspot_password'])
+        channel = int(data.get('hotspot_channel', settings['hotspot_channel']))
+        ip_address = data.get('hotspot_ip', settings['hotspot_ip'])
+        
+        if len(password) < 8:
+            return jsonify({'success': False, 'error': 'Hotspot password must be at least 8 characters'})
+        
+        # Update settings
+        settings.update({
+            'wifi_mode': 'hotspot',
+            'hotspot_ssid': ssid,
+            'hotspot_password': password,
+            'hotspot_channel': channel,
+            'hotspot_ip': ip_address
+        })
+        save_settings(settings)
+        
+        # Configure hotspot
+        success, message = configure_wifi_hotspot(ssid, password, channel, ip_address)
+        
+        if success:
+            return jsonify({'success': True, 'message': f'Hotspot "{ssid}" created successfully'})
+        else:
+            return jsonify({'success': False, 'error': message})
+            
+    elif mode == 'client':
+        # Update settings
+        settings['wifi_mode'] = 'client'
+        save_settings(settings)
+        
+        # Switch to client mode
+        success, message = configure_wifi_client()
+        
+        if success:
+            return jsonify({'success': True, 'message': 'Switched to WiFi client mode'})
+        else:
+            return jsonify({'success': False, 'error': message})
+    
+    else:
+        return jsonify({'success': False, 'error': 'Invalid WiFi mode'})
+
+@app.route('/system-settings-wifi-status')
+def system_settings_wifi_status():
+    """Get current WiFi mode status"""
+    status = get_wifi_mode_status()
+    return jsonify(status)
 
 @app.route('/system-settings-reboot', methods=['POST'])
 def system_settings_reboot():

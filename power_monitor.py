@@ -9,7 +9,9 @@ from subprocess import call
 from x120x import X120X
 
 import fcntl
-from utils import is_streaming
+from utils import is_streaming, is_gps_tracking, DEFAULT_SETTINGS, SETTINGS_FILE, load_settings
+from app import stop_gps_tracking
+import json
 
 # Configure logging with rotation to prevent unlimited growth
 logging.basicConfig(
@@ -75,35 +77,174 @@ try:
                 print(warning_msg)
                 logging.warning(warning_msg)
                 
-                # Check if streaming is active - if so, skip shutdown process entirely
-                if is_streaming():
-                    streaming_msg = "UPS unplugged but streaming is active. Skipping shutdown to prevent stream interruption."
-                    print(streaming_msg)
-                    logging.warning(streaming_msg)
-                else:
-                    print(f"Waiting {SLEEP_TIME} seconds before shutdown...")
-                    time.sleep(SLEEP_TIME)
-                    
-                    # Create fresh connection for recheck after sleep
-                    with X120X() as ups_recheck:
-                        ups_status_recheck = ups_recheck.get_status()
-                        recheck_ac_power = ups_status_recheck.get('ac_power_connected', False)
+                # Load current settings
+                settings = load_settings()
+                
+                # Check if streaming or GPS tracking is active
+                streaming_active = is_streaming()
+                gps_active = is_gps_tracking()
+                
+                if streaming_active or gps_active:                    
+                    # Check if GPS tracking should be stopped after timeout
+                    if (gps_active and 
+                        settings['gps_stop_on_power_loss']):
                         
-                        if not recheck_ac_power:
-                            shutdown_message = "UPS still unplugged after grace period. Initiating shutdown."
-                            print(shutdown_message)
-                            logging.critical(shutdown_message)
-                            call("sudo nohup shutdown -h now", shell=True)
+                        timeout_minutes = settings['gps_stop_power_loss_minutes']
+                        timeout_seconds = timeout_minutes * 60
+                        
+                        timeout_msg = f"GPS tracking active during power loss. Will stop GPS tracking after {timeout_minutes} minutes if power not restored."
+                        print(timeout_msg)
+                        logging.warning(timeout_msg)
+                        
+                        # Poll power status during timeout period instead of sleeping
+                        print(f"Monitoring power status for {timeout_minutes} minutes before stopping GPS tracking...")
+                        elapsed_seconds = 0
+                        check_interval = 10  # Check every 10 seconds
+                        
+                        while elapsed_seconds < timeout_seconds:
+                            time.sleep(check_interval)
+                            elapsed_seconds += check_interval
+                            
+                            # Check if power has been restored
+                            try:
+                                with X120X() as ups_timeout_check:
+                                    ups_timeout_status = ups_timeout_check.get_status()
+                                    timeout_ac_power = ups_timeout_status.get('ac_power_connected', False)
+                                    
+                                    if timeout_ac_power:
+                                        # Power restored! Exit the timeout loop
+                                        recovery_msg = f"Power restored after {elapsed_seconds//60} minutes {elapsed_seconds%60} seconds. GPS tracking continues."
+                                        print(recovery_msg)
+                                        logging.info(recovery_msg)
+                                        break
+                                    else:
+                                        # Show progress every minute
+                                        if elapsed_seconds % 60 == 0:
+                                            remaining_minutes = (timeout_seconds - elapsed_seconds) // 60
+                                            progress_msg = f"Power still lost. GPS tracking will stop in {remaining_minutes} minutes if power not restored."
+                                            print(progress_msg)
+                                            logging.info(progress_msg)
+                            except Exception as e:
+                                print(f"Error checking power during timeout: {e}")
+                                logging.error(f"Error checking power during timeout: {e}")
+                                # Continue the loop even if we can't check power status
                         else:
-                            recovery_msg = "Power restored during grace period. Continuing monitoring."
-                            print(recovery_msg)
-                            logging.info(recovery_msg)
+                            # Timeout completed without power restoration
+                            print("Timeout period completed. Power not restored.")
+                            
+                            # Final power check before stopping GPS
+                            try:
+                                with X120X() as ups_final_timeout_check:
+                                    ups_final_timeout_status = ups_final_timeout_check.get_status()
+                                    final_timeout_ac_power = ups_final_timeout_status.get('ac_power_connected', False)
+                                    
+                                    if not final_timeout_ac_power:
+                                        # Power still lost, stop GPS tracking
+                                        try:
+                                            success, message, status_code = stop_gps_tracking()
+                                            if success:
+                                                print("GPS tracking stopped due to prolonged power loss")
+                                                logging.warning("GPS tracking stopped due to prolonged power loss")
+                                            else:
+                                                print(f"Failed to stop GPS tracking: {message}")
+                                                logging.error(f"Failed to stop GPS tracking: {message}")
+                                        except Exception as e:
+                                            print(f"Error stopping GPS tracking: {e}")
+                                            logging.error(f"Error stopping GPS tracking: {e}")
+                                        
+                                        # Continue normal monitoring after stopping GPS
+                                        continue_msg = "GPS tracking stopped due to prolonged power loss. Continuing normal power monitoring."
+                                        print(continue_msg)
+                                        logging.info(continue_msg)
+                                    else:
+                                        recovery_msg = "Power restored just before GPS timeout. GPS tracking continues."
+                                        print(recovery_msg)
+                                        logging.info(recovery_msg)
+                            except Exception as e:
+                                print(f"Error during final timeout check: {e}")
+                                logging.error(f"Error during final timeout check: {e}")
+                    else:
+                        activities = []
+                        if streaming_active:
+                            activities.append("streaming")
+                        if gps_active:
+                            activities.append("GPS tracking")
+                        # Standard behavior - skip shutdown while activities are running
+                        activity_msg = f"UPS unplugged but {' and '.join(activities)} {'is' if len(activities)==1 else 'are'} active. Skipping shutdown to prevent interruption."
+                        print(activity_msg)
+                        logging.warning(activity_msg)
+                else:
+                    # No activities running, proceed with normal shutdown
+                    print(f"Waiting {SLEEP_TIME} seconds before shutdown...")
+                    
+                    # Poll for power restoration during grace period
+                    elapsed_seconds = 0
+                    check_interval = 10  # Check every 10 seconds
+                    
+                    while elapsed_seconds < SLEEP_TIME:
+                        time.sleep(check_interval)
+                        elapsed_seconds += check_interval
+                        
+                        # Check if power has been restored during grace period
+                        try:
+                            with X120X() as ups_grace_check:
+                                ups_grace_status = ups_grace_check.get_status()
+                                grace_ac_power = ups_grace_status.get('ac_power_connected', False)
+                                
+                                if grace_ac_power:
+                                    # Power restored during grace period
+                                    grace_recovery_msg = f"Power restored during grace period after {elapsed_seconds} seconds. Continuing monitoring."
+                                    print(grace_recovery_msg)
+                                    logging.info(grace_recovery_msg)
+                                    break
+                        except Exception as e:
+                            print(f"Error checking power during grace period: {e}")
+                            logging.error(f"Error checking power during grace period: {e}")
+                    else:
+                        # Grace period completed without power restoration
+                        # Create fresh connection for recheck after sleep
+                        with X120X() as ups_recheck:
+                            ups_status_recheck = ups_recheck.get_status()
+                            recheck_ac_power = ups_status_recheck.get('ac_power_connected', False)
+                            
+                            if not recheck_ac_power:
+                                shutdown_message = "UPS still unplugged after grace period. Initiating shutdown."
+                                print(shutdown_message)
+                                logging.critical(shutdown_message)
+                                call("sudo nohup shutdown -h now", shell=True)
+                            else:
+                                recovery_msg = "Power restored during grace period. Continuing monitoring."
+                                print(recovery_msg)
+                                logging.info(recovery_msg)
             else:
                 print("UPS plugged in. No action required.")
                 logging.debug("UPS plugged in.")
 
             if LOOP:
-                time.sleep(SLEEP_TIME)
+                # Poll for power changes during sleep interval instead of simple sleep
+                elapsed_seconds = 0
+                check_interval = 10  # Check every 10 seconds
+                
+                while elapsed_seconds < SLEEP_TIME:
+                    time.sleep(check_interval)
+                    elapsed_seconds += check_interval
+                    
+                    # Check if power status has changed during sleep
+                    try:
+                        with X120X() as ups_sleep_check:
+                            ups_sleep_status = ups_sleep_check.get_status()
+                            sleep_ac_power = ups_sleep_status.get('ac_power_connected', False)
+                            
+                            # If power status changed, break out of sleep to handle it immediately
+                            if sleep_ac_power != ac_power_connected:
+                                status_change_msg = f"Power status changed during monitoring interval. Breaking sleep to handle immediately."
+                                print(status_change_msg)
+                                logging.info(status_change_msg)
+                                break
+                    except Exception as e:
+                        print(f"Error checking power during sleep interval: {e}")
+                        logging.error(f"Error checking power during sleep interval: {e}")
+                        # Continue the loop even if we can't check power status
             else:
                 # Single run mode - exit after one successful check
                 exit(0)

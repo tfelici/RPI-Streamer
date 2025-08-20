@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flight Settings - RPI Streamer</title>
+</head>
+<body>
+    {% include 'navbar.html' %}
+    
+    <div class="container">
+        <div class="frame">
+            <h1>Flight Settings</h1>
+            
+            {% if message %}
+                <div class="status-message status-success">{{ message }}</div>
+            {% endif %}
+            
+            <form method="POST" action="/flight-settings">
+                <label for="gps_username">Username</label>
+                <input type="text" id="gps_username" name="gps_username" value="{{ settings.gps_username }}" placeholder="Enter your username for GPS tracking" required>
+                <small>This username will be used for GPS tracking identification.</small>
+
+                <label for="aircraft_registration">Aircraft Registration</label>
+                <input type="text" id="aircraft_registration" name="aircraft_registration" value="{{ settings.aircraft_registration }}" placeholder="e.g., N123AB, G-ABCD, D-EFGH">
+                <small>Enter your aircraft's registration number.</small>
+
+                <label for="gps_stream_link">Video Streaming Control</label>
+                <select id="gps_stream_link" name="gps_stream_link">
+                    <option value="off" {% if not settings.gps_stream_link %}selected{% endif %}>Independent control (manual start/stop)</option>
+                    <option value="on" {% if settings.gps_stream_link %}selected{% endif %}>Auto start/stop streaming with GPS tracking</option>
+                </select>
+                <small>When enabled, video streaming will automatically start when GPS tracking starts and stop when GPS tracking stops.</small>
+
+                <label for="gps_start_mode">GPS Tracking Start Mode</label>
+                <select id="gps_start_mode" name="gps_start_mode" required>
+                    <option value="manual" {% if settings.gps_start_mode == 'manual' %}selected{% endif %}>Manual start (button press)</option>
+                    <option value="boot" {% if settings.gps_start_mode == 'boot' %}selected{% endif %}>Auto start on system boot</option>
+                    <option value="motion" {% if settings.gps_start_mode == 'motion' %}selected{% endif %}>Auto start when aircraft moves</option>
+                </select>
+                <small>
+                    <strong>Manual:</strong> GPS tracking starts only when you press the "Start GPS Tracking" button.<br>
+                    <strong>Boot:</strong> GPS tracking starts automatically when the system boots up.<br>
+                    <strong>Motion:</strong> GPS tracking starts automatically when aircraft movement is detected.
+                </small>
+
+                <label for="gps_stop_on_power_loss">Stop GPS Tracking on UPS Power Loss</label>
+                <select id="gps_stop_on_power_loss" name="gps_stop_on_power_loss">
+                    <option value="off" {% if not settings.gps_stop_on_power_loss %}selected{% endif %}>No - Continue GPS tracking during power loss</option>
+                    <option value="on" {% if settings.gps_stop_on_power_loss %}selected{% endif %}>Yes - Stop GPS tracking after specified time</option>
+                </select>
+                <small>When enabled, GPS tracking will stop automatically if UPS power loss is detected for the specified duration.</small>
+
+                <label for="gps_stop_power_loss_minutes">Power Loss Timeout (minutes)</label>
+                <input type="number" id="gps_stop_power_loss_minutes" name="gps_stop_power_loss_minutes" 
+                       value="{{ settings.gps_stop_power_loss_minutes }}" 
+                       min="1" max="60" step="1" required>
+                <small>GPS tracking will stop after this many minutes of continuous UPS power loss (1-60 minutes).</small>
+                
+                <button type="submit" class="btn btn-primary">Save Flight Settings</button>
+            </form>
+        </div>
+    </div>
+
+    <style>
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .frame {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        label {
+            font-weight: bold;
+            color: #555;
+            margin-bottom: 5px;
+        }
+
+        input, select {
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+
+        small {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+            line-height: 1.4;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            margin-top: 10px;
+        }
+
+        .btn:hover {
+            background-color: #0056b3;
+        }
+
+        .status-message {
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .status-success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status-error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .frame {
+                padding: 20px;
+            }
+        }
+    </style>
+</body>
+</html>

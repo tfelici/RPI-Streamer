@@ -49,7 +49,18 @@ DEFAULT_SETTINGS = {
     "use_gstreamer": False,
     "audio_input": None,
     "video_input": None,
-    "video_stabilization": False
+    "video_stabilization": False,
+    "gps_username": "",
+    "aircraft_registration": "",
+    "gps_stream_link": False,
+    "gps_start_mode": "manual",
+    "gps_stop_on_power_loss": False,
+    "gps_stop_power_loss_minutes": 1,
+    "wifi_mode": "client",  # "client" or "hotspot"
+    "hotspot_ssid": "RPI-Streamer",
+    "hotspot_password": "rpistreamer123",
+    "hotspot_channel": 6,
+    "hotspot_ip": "192.168.4.1"
 }
 
 def list_audio_inputs():
@@ -192,6 +203,53 @@ def is_streaming():
         except Exception:
             pass
     return False
+
+def get_active_gps_tracking_info():
+    """Return (pid, username, host, track_id) if GPS tracking is active, else (None, None, None, None)"""
+    GPS_PIDFILE = "/tmp/gps-tracker.pid"
+    if os.path.exists(GPS_PIDFILE):
+        try:
+            with open(GPS_PIDFILE, 'r') as f:
+                line = f.read().strip()
+                if line:
+                    parts = line.split(':', 3)
+                    if len(parts) >= 4:
+                        pid_str, username, host, track_id = parts
+                        pid = int(pid_str)
+                        if is_pid_running(pid):
+                            return pid, username, host, track_id
+        except Exception:
+            pass
+    return None, None, None, None
+
+def is_gps_tracking():
+    """Check if GPS tracking is currently active"""
+    pid, _, _, _ = get_active_gps_tracking_info()
+    return pid is not None
+
+def load_settings():
+    """
+    Load settings from the settings.json file, merging with DEFAULT_SETTINGS.
+    Returns a dictionary with all settings, using defaults for any missing keys.
+    """
+    settings = DEFAULT_SETTINGS.copy()
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, 'r') as f:
+                settings.update(json.load(f))
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Warning: Could not parse settings.json: {e}")
+            # Keep default settings
+    return settings
+
+def save_settings(settings):
+    """
+    Save settings to the settings.json file.
+    """
+    # Ensure the directory exists
+    os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
+    with open(SETTINGS_FILE, 'w') as f:
+        json.dump(settings, f, indent=2)
 
 # =============================================================================
 # USB Storage Functions

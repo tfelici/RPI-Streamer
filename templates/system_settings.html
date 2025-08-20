@@ -33,23 +33,88 @@
         </div>
         
         <div class="frame">
-            <!-- WiFi Settings -->
-            <form id="wifi-form">
-                <h2>WiFi Settings</h2>
-                <label for="wifi-ssid">SSID</label>
-                <input type="text" id="wifi-ssid" name="ssid" required>
-                
-                <label for="wifi-pass">Password</label>
-                <div style="position: relative;">
-                    <input type="password" id="wifi-pass" name="wifi_password" required>
-                    <label style="display: inline-flex; align-items: center; margin-top: 0.5rem; font-size: 0.9rem;">
-                        <input type="checkbox" id="toggle-wifi-pass" style="margin-right: 0.5rem;"> Show Password
+            <!-- WiFi Management -->
+            <h2>WiFi Management</h2>
+            
+            <!-- WiFi Mode Selection -->
+            <div style="margin-bottom: 1.5rem;">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: bold;">WiFi Mode</label>
+                <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                    <label style="display: flex; align-items: center;">
+                        <input type="radio" name="wifi-mode" value="client" id="mode-client" style="margin-right: 0.5rem;">
+                        Client Mode (Connect to existing WiFi)
+                    </label>
+                    <label style="display: flex; align-items: center;">
+                        <input type="radio" name="wifi-mode" value="hotspot" id="mode-hotspot" style="margin-right: 0.5rem;">
+                        Hotspot Mode (Create WiFi network)
                     </label>
                 </div>
-                
-                <button type="submit" class="btn btn-primary">Save WiFi Settings</button>
-                <div id="wifi-result" class="status-message" style="display: none;"></div>
-            </form>
+                <div id="wifi-status" class="status-message" style="margin-bottom: 1rem;"></div>
+            </div>
+            
+            <!-- Client Mode Settings -->
+            <div id="client-settings" style="display: none;">
+                <form id="wifi-form">
+                    <h3>Client WiFi Settings</h3>
+                    <label for="wifi-ssid">SSID</label>
+                    <input type="text" id="wifi-ssid" name="ssid" required>
+                    
+                    <label for="wifi-pass">Password</label>
+                    <div style="position: relative;">
+                        <input type="password" id="wifi-pass" name="wifi_password" required>
+                        <label style="display: inline-flex; align-items: center; margin-top: 0.5rem; font-size: 0.9rem;">
+                            <input type="checkbox" id="toggle-wifi-pass" style="margin-right: 0.5rem;"> Show Password
+                        </label>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">Save WiFi Settings</button>
+                    <div id="wifi-result" class="status-message" style="display: none;"></div>
+                </form>
+            </div>
+            
+            <!-- Hotspot Mode Settings -->
+            <div id="hotspot-settings" style="display: none;">
+                <form id="hotspot-form">
+                    <h3>Hotspot Settings</h3>
+                    <label for="hotspot-ssid">Hotspot Name (SSID)</label>
+                    <input type="text" id="hotspot-ssid" name="hotspot_ssid" value="RPI-Streamer" required>
+                    
+                    <label for="hotspot-pass">Password</label>
+                    <div style="position: relative;">
+                        <input type="password" id="hotspot-pass" name="hotspot_password" value="rpistreamer123" required minlength="8">
+                        <label style="display: inline-flex; align-items: center; margin-top: 0.5rem; font-size: 0.9rem;">
+                            <input type="checkbox" id="toggle-hotspot-pass" style="margin-right: 0.5rem;"> Show Password
+                        </label>
+                    </div>
+                    <p class="help-text" style="margin: 0.5rem 0; font-size: 0.9rem; color: var(--text-secondary);">
+                        Password must be at least 8 characters long.
+                    </p>
+                    
+                    <div style="display: flex; gap: 1rem;">
+                        <div style="flex: 1;">
+                            <label for="hotspot-channel">WiFi Channel</label>
+                            <select id="hotspot-channel" name="hotspot_channel">
+                                <option value="1">1</option>
+                                <option value="6" selected>6</option>
+                                <option value="11">11</option>
+                            </select>
+                        </div>
+                        <div style="flex: 1;">
+                            <label for="hotspot-ip">IP Address</label>
+                            <input type="text" id="hotspot-ip" name="hotspot_ip" value="192.168.4.1" required>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">Create Hotspot</button>
+                    <div id="hotspot-result" class="status-message" style="display: none;"></div>
+                </form>
+            </div>
+            
+            <!-- Mode Switch Controls -->
+            <div id="mode-controls" style="margin-top: 1.5rem; text-align: center;">
+                <button id="apply-mode-btn" class="btn btn-success" style="display: none;">Apply WiFi Mode</button>
+                <div id="mode-result" class="status-message" style="display: none; margin-top: 1rem;"></div>
+            </div>
         </div>
         
         <div class="frame">
@@ -80,7 +145,7 @@
     </div>
     <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // Load current auth settings
+        // Load current auth settings and WiFi status
         fetch('/system-settings-data').then(r => r.json()).then(data => {
             if (data.auth) {
                 document.getElementById('auth-username').value = data.auth.username || '';
@@ -90,6 +155,132 @@
                 document.getElementById('wifi-ssid').value = data.wifi.ssid || '';
                 document.getElementById('wifi-pass').value = data.wifi.password || '';
             }
+        });
+        
+        // Load WiFi mode status
+        loadWifiStatus();
+        
+        // WiFi mode handlers
+        document.querySelectorAll('input[name="wifi-mode"]').forEach(radio => {
+            radio.addEventListener('change', handleModeChange);
+        });
+        
+        // Password toggle handlers
+        document.getElementById('toggle-wifi-pass').addEventListener('change', function() {
+            const passField = document.getElementById('wifi-pass');
+            passField.type = this.checked ? 'text' : 'password';
+        });
+        
+        document.getElementById('toggle-hotspot-pass').addEventListener('change', function() {
+            const passField = document.getElementById('hotspot-pass');
+            passField.type = this.checked ? 'text' : 'password';
+        });
+        
+        function loadWifiStatus() {
+            fetch('/system-settings-wifi-status')
+                .then(r => r.json())
+                .then(data => {
+                    // Set current mode
+                    const modeRadio = document.getElementById(data.mode === 'hotspot' ? 'mode-hotspot' : 'mode-client');
+                    modeRadio.checked = true;
+                    
+                    // Load hotspot settings
+                    document.getElementById('hotspot-ssid').value = data.hotspot_ssid || 'RPI-Streamer';
+                    document.getElementById('hotspot-ip').value = data.hotspot_ip || '192.168.4.1';
+                    
+                    // Show appropriate settings panel
+                    handleModeChange();
+                    
+                    // Update status display
+                    const statusDiv = document.getElementById('wifi-status');
+                    if (data.mode === 'hotspot' && data.hostapd_active) {
+                        statusDiv.textContent = `Hotspot "${data.hotspot_ssid}" active at ${data.current_ip || data.hotspot_ip}`;
+                        statusDiv.className = 'status-message status-success';
+                    } else if (data.mode === 'client' && data.current_ip) {
+                        statusDiv.textContent = `Connected to WiFi - IP: ${data.current_ip}`;
+                        statusDiv.className = 'status-message status-success';
+                    } else if (data.mode === 'client') {
+                        statusDiv.textContent = 'Client mode - Not connected';
+                        statusDiv.className = 'status-message status-warning';
+                    } else {
+                        statusDiv.textContent = 'Hotspot mode - Not active';
+                        statusDiv.className = 'status-message status-warning';
+                    }
+                    statusDiv.style.display = 'block';
+                })
+                .catch(error => {
+                    console.error('Error loading WiFi status:', error);
+                });
+        }
+        
+        function handleModeChange() {
+            const selectedMode = document.querySelector('input[name="wifi-mode"]:checked').value;
+            const clientSettings = document.getElementById('client-settings');
+            const hotspotSettings = document.getElementById('hotspot-settings');
+            const applyBtn = document.getElementById('apply-mode-btn');
+            
+            if (selectedMode === 'client') {
+                clientSettings.style.display = 'block';
+                hotspotSettings.style.display = 'none';
+                applyBtn.textContent = 'Switch to Client Mode';
+            } else {
+                clientSettings.style.display = 'none';
+                hotspotSettings.style.display = 'block';
+                applyBtn.textContent = 'Switch to Hotspot Mode';
+            }
+            
+            applyBtn.style.display = 'block';
+        }
+        
+        // Apply mode button handler
+        document.getElementById('apply-mode-btn').addEventListener('click', function() {
+            const selectedMode = document.querySelector('input[name="wifi-mode"]:checked').value;
+            const resultDiv = document.getElementById('mode-result');
+            const applyBtn = this;
+            
+            resultDiv.textContent = `Switching to ${selectedMode} mode...`;
+            resultDiv.className = 'status-message';
+            resultDiv.style.display = 'block';
+            applyBtn.disabled = true;
+            
+            const requestData = { mode: selectedMode };
+            
+            if (selectedMode === 'hotspot') {
+                requestData.hotspot_ssid = document.getElementById('hotspot-ssid').value;
+                requestData.hotspot_password = document.getElementById('hotspot-pass').value;
+                requestData.hotspot_channel = document.getElementById('hotspot-channel').value;
+                requestData.hotspot_ip = document.getElementById('hotspot-ip').value;
+                
+                if (requestData.hotspot_password.length < 8) {
+                    resultDiv.textContent = 'Hotspot password must be at least 8 characters';
+                    resultDiv.className = 'status-message status-error';
+                    applyBtn.disabled = false;
+                    return;
+                }
+            }
+            
+            fetch('/system-settings-wifi-mode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData)
+            })
+            .then(r => r.json())
+            .then(data => {
+                resultDiv.textContent = data.message || (data.success ? 'WiFi mode changed successfully' : data.error);
+                resultDiv.className = data.success ? 'status-message status-success' : 'status-message status-error';
+                
+                if (data.success) {
+                    // Reload status after a moment
+                    setTimeout(loadWifiStatus, 2000);
+                }
+            })
+            .catch(error => {
+                resultDiv.textContent = 'Error changing WiFi mode: ' + error.message;
+                resultDiv.className = 'status-message status-error';
+            })
+            .finally(() => {
+                applyBtn.disabled = false;
+            });
         });
           // Auth form submit
         document.getElementById('auth-form').onsubmit = function(e) {
@@ -122,7 +313,7 @@
                 submitBtn.disabled = false;
             });
         };
-          // WiFi form submit
+          // WiFi client form submit
         document.getElementById('wifi-form').onsubmit = function(e) {
             e.preventDefault();
             const resultDiv = document.getElementById('wifi-result');
@@ -145,6 +336,10 @@
                 resultDiv.textContent = data.success ? 'WiFi settings saved!' : (data.error || 'Error saving settings');
                 resultDiv.className = data.success ? 'status-message status-success' : 'status-message status-error';
                 resultDiv.style.display = 'block';
+                
+                if (data.success) {
+                    setTimeout(loadWifiStatus, 2000);
+                }
             }).catch(error => {
                 resultDiv.textContent = 'Error updating WiFi settings: ' + error.message;
                 resultDiv.className = 'status-message status-error';
@@ -152,6 +347,23 @@
             }).finally(() => {
                 submitBtn.disabled = false;
             });
+        };
+        
+        // Hotspot form submit (just saves settings, doesn't activate)
+        document.getElementById('hotspot-form').onsubmit = function(e) {
+            e.preventDefault();
+            const resultDiv = document.getElementById('hotspot-result');
+            
+            if (document.getElementById('hotspot-pass').value.length < 8) {
+                resultDiv.textContent = 'Password must be at least 8 characters';
+                resultDiv.className = 'status-message status-error';
+                resultDiv.style.display = 'block';
+                return;
+            }
+            
+            resultDiv.textContent = 'Hotspot settings saved! Use "Switch to Hotspot Mode" to activate.';
+            resultDiv.className = 'status-message status-success';
+            resultDiv.style.display = 'block';
         };
           // Reboot button
         document.getElementById('reboot-btn').onclick = function() {
@@ -298,12 +510,9 @@
             };
         }
         
-        // Password visibility toggles
+        // Auth password visibility toggle
         document.getElementById('toggle-auth-pass').onchange = function() {
             document.getElementById('auth-password').type = this.checked ? 'text' : 'password';
-        };
-        document.getElementById('toggle-wifi-pass').onchange = function() {
-            document.getElementById('wifi-pass').type = this.checked ? 'text' : 'password';
         };
     });
     </script>
