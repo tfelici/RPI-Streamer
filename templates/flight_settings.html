@@ -158,6 +158,49 @@
                 padding: 20px;
             }
         }
+        
+        /* Disabled state styling */
+        input:disabled, select:disabled {
+            background-color: #f5f5f5;
+            color: #999;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        
+        .field-disabled {
+            opacity: 0.6;
+        }
     </style>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const powerLossSelect = document.getElementById('gps_stop_on_power_loss');
+            const timeoutInput = document.getElementById('gps_stop_power_loss_minutes');
+            const timeoutLabel = timeoutInput.previousElementSibling;
+            const timeoutHelp = timeoutInput.nextElementSibling;
+            
+            function updateTimeoutFieldState() {
+                const isEnabled = powerLossSelect.value === 'on';
+                
+                timeoutInput.disabled = !isEnabled;
+                timeoutInput.required = isEnabled;
+                
+                // Add visual indication for disabled state
+                if (isEnabled) {
+                    timeoutLabel.classList.remove('field-disabled');
+                    timeoutHelp.classList.remove('field-disabled');
+                } else {
+                    timeoutLabel.classList.add('field-disabled');
+                    timeoutHelp.classList.add('field-disabled');
+                }
+            }
+            
+            // Set initial state
+            updateTimeoutFieldState();
+            
+            // Listen for changes
+            powerLossSelect.addEventListener('change', updateTimeoutFieldState);
+        });
+    </script>
 </body>
 </html>
