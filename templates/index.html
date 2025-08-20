@@ -481,22 +481,19 @@
                 {% if gps_tracking %}
                     <p><strong>Status:</strong> <span class="status-active">Active</span></p>
                     
-                    <!-- Detailed hardware status -->
+                    <!-- GPS status message with color coding -->
                     {% if gps_status.hardware_status == 'active' %}
-                        <p><em style="color: #28a745;">GPS collecting data - {{ gps_status.status_message.split('(lat:')[1].split(')')[0] if '(lat:' in gps_status.status_message else 'coordinates received' }}</em></p>
+                        <p><em style="color: #28a745;">{{ gps_status.status_message }}</em></p>
                     {% elif gps_status.hardware_status == 'connected' %}
-                        <p><em style="color: #ffc107;">GPS connected but waiting for fix</em></p>
-                        <p style="font-size: 13px; color: #6c757d;">{{ gps_status.status_message }}</p>
+                        <p><em style="color: #ffc107;">{{ gps_status.status_message }}</em></p>
                     {% elif gps_status.hardware_status == 'disconnected' %}
-                        <p><em style="color: #dc3545;">GPS hardware disconnected - attempting reconnection</em></p>
+                        <p><em style="color: #dc3545;">{{ gps_status.status_message }}</em></p>
                     {% elif gps_status.hardware_status == 'error' %}
-                        <p><em style="color: #dc3545;">GPS hardware error - attempting reconnection</em></p>
+                        <p><em style="color: #dc3545;">{{ gps_status.status_message }}</em></p>
                     {% elif gps_status.hardware_status == 'waiting' %}
-                        <p><em style="color: #6c757d;">Waiting for GPS hardware initialization</em></p>
-                    {% elif gps_status.hardware_status == 'unknown' or not gps_status.hardware_status %}
-                        <p><em style="color: #6c757d;">GPS tracking starting - checking hardware status...</em></p>
+                        <p><em style="color: #6c757d;">{{ gps_status.status_message }}</em></p>
                     {% else %}
-                        <p><em>GPS tracking is running - Status: {{ gps_status.hardware_status }}</em></p>
+                        <p><em style="color: #6c757d;">{{ gps_status.status_message }}</em></p>
                     {% endif %}
                     
                     {% if settings.gps_stream_link %}
@@ -1580,24 +1577,19 @@
                     const statusDescription = gpsStatus.querySelector('em');
                     if (!statusDescription) return;
                     
-                    // Update status message based on hardware status
+                    // Update status message based on hardware status, using actual status_message
                     if (status.hardware_status === 'active') {
-                        let coordText = 'coordinates received';
-                        if (status.status_message && status.status_message.includes('(lat:')) {
-                            const coords = status.status_message.split('(lat:')[1].split(')')[0];
-                            coordText = coords;
-                        }
-                        statusDescription.innerHTML = `<span style="color: #28a745;">GPS collecting data - ${coordText}</span>`;
+                        statusDescription.innerHTML = `<span style="color: #28a745;">${status.status_message}</span>`;
                     } else if (status.hardware_status === 'connected') {
-                        statusDescription.innerHTML = `<span style="color: #ffc107;">GPS connected but waiting for fix</span>`;
+                        statusDescription.innerHTML = `<span style="color: #ffc107;">${status.status_message}</span>`;
                     } else if (status.hardware_status === 'disconnected') {
-                        statusDescription.innerHTML = `<span style="color: #dc3545;">GPS hardware disconnected - attempting reconnection</span>`;
+                        statusDescription.innerHTML = `<span style="color: #dc3545;">${status.status_message}</span>`;
                     } else if (status.hardware_status === 'error') {
-                        statusDescription.innerHTML = `<span style="color: #dc3545;">GPS hardware error - attempting reconnection</span>`;
+                        statusDescription.innerHTML = `<span style="color: #dc3545;">${status.status_message}</span>`;
                     } else if (status.hardware_status === 'waiting') {
-                        statusDescription.innerHTML = `<span style="color: #6c757d;">Waiting for GPS hardware initialization</span>`;
+                        statusDescription.innerHTML = `<span style="color: #6c757d;">${status.status_message}</span>`;
                     } else {
-                        statusDescription.innerHTML = `<span style="color: #6c757d;">GPS tracking starting - checking hardware status...</span>`;
+                        statusDescription.innerHTML = `<span style="color: #6c757d;">${status.status_message}</span>`;
                     }
                 })
                 .catch(err => {
