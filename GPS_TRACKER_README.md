@@ -7,8 +7,9 @@ This Python script replicates the background geolocation tracking functionality 
 - **Background GPS Tracking**: Continuously tracks GPS coordinates and syncs them to the Gyropilots server
 - **Automatic Sync**: Coordinates are automatically synchronized with retry logic and error handling
 - **Non-Native Mode**: Uses custom coordinate synchronization (matches the iOS/Apple mode from the mobile app)
-- **Real GPS Support**: Can work with actual GPS hardware via gpsd
+- **Real GPS Support**: Works with SIM7600G-H 4G DONGLE hardware for actual GPS tracking
 - **Simulation Mode**: Includes GPS simulation for testing without hardware
+- **Hardware Detection**: Automatically detects and fails gracefully when GPS hardware is unavailable
 
 ## Files
 
@@ -22,11 +23,13 @@ This Python script replicates the background geolocation tracking functionality 
 pip install -r gps_requirements.txt
 ```
 
-2. For real GPS usage on Raspberry Pi, install and configure gpsd:
+2. For real GPS usage on Raspberry Pi with SIM7600G-H hardware:
 ```bash
-sudo apt-get install gpsd gpsd-clients
-sudo systemctl enable gpsd
-sudo systemctl start gpsd
+# Enable UART in raspi-config
+sudo raspi-config
+
+# Install additional hardware dependencies
+pip install pyserial RPi.GPIO
 ```
 
 ## Usage
@@ -40,16 +43,16 @@ python gps_tracker.py your_username --simulate --duration 60
 
 ### Real GPS Hardware Mode
 
-Use with actual GPS hardware (placeholder - currently uses simulation):
+Use with actual GPS hardware:
 ```bash
-python gps_tracker.py your_username --real-gps
+python gps_tracker.py your_username
 ```
 
 ### Manual Mode
 
 Run without automatic GPS collection for programmatic control:
 ```bash
-python gps_tracker.py your_username
+python gps_tracker.py your_username --interval 10
 ```
 
 ### Command Line Options
@@ -59,7 +62,6 @@ python gps_tracker.py your_username
 - `--host` - Server hostname (default: gyropilots.org)
 - `--interval` - GPS update interval in seconds (default: 5.0)
 - `--simulate` - Use simulated GPS data (Oxford Airport circular flight)
-- `--real-gps` - Use real GPS hardware (placeholder - not yet implemented)
 - `--duration` - Duration to run in seconds (for simulation mode)
 
 ### Programmatic Usage
@@ -76,7 +78,7 @@ tracker.start_tracking()
 # Option 1: Start GPS simulation mode
 tracker.start_gps_tracking(update_interval=5.0, simulate=True)
 
-# Option 2: Start real GPS mode (placeholder)
+# Option 2: Start real GPS mode
 tracker.start_gps_tracking(update_interval=5.0, simulate=False)
 
 # Option 3: Add GPS coordinates manually
@@ -146,28 +148,26 @@ Log levels: INFO, WARNING, ERROR
 
 For real GPS tracking, you'll need:
 
-1. **GPS Hardware**: USB GPS dongle or HAT with GPS module
-2. **gpsd**: GPS daemon to interface with hardware (when implemented)
-3. **Proper Permissions**: User must be in dialout group
+1. **GPS Hardware**: Waveshare SIM7600G-H 4G DONGLE properly connected
+2. **UART Connection**: Connected to Raspberry Pi UART (default: /dev/ttyS0)
+3. **Power Control**: Power key connected to GPIO pin 6 (configurable)
+4. **UART Enabled**: Ensure UART is enabled in raspi-config
+5. **Python Dependencies**: pyserial and RPi.GPIO packages
 
-Example setup for future implementation:
+Hardware setup:
 ```bash
-# Add user to dialout group
-sudo usermod -a -G dialout $USER
+# Enable UART in raspi-config
+sudo raspi-config
+# Navigate to: Interfacing Options -> Serial -> Enable
 
-# Configure gpsd (adjust device path as needed)
-sudo nano /etc/default/gpsd
-# Set: DEVICES="/dev/ttyUSB0"
-# Set: GPSD_OPTIONS="-n"
+# Install required Python packages
+pip install pyserial RPi.GPIO
 
-# Restart gpsd
-sudo systemctl restart gpsd
-
-# Test GPS connection
-cgps -s
+# Test serial connection (optional)
+sudo minicom -D /dev/ttyS0 -b 115200
 ```
 
-**Note**: Real GPS hardware support is currently a placeholder. The `--real-gps` option uses simulation data until actual GPS integration is implemented.
+**Note**: Real GPS hardware support requires proper SIM7600G-H 4G DONGLE setup and RPi.GPIO availability. The system will exit with an error if hardware is not present or properly configured.
 
 ## Integration with RPI Streamer
 
