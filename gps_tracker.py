@@ -48,7 +48,35 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout)
     ]
 )
+
 logger = logging.getLogger(__name__)
+
+# Status file for tracking GPS hardware state
+GPS_STATUS_FILE = "/tmp/gps-tracker-status.json"
+
+def write_gps_status(hardware_status, status_message, last_gps_data=None):
+    """Write GPS tracking status to status file for web interface"""
+    try:
+        status_data = {
+            'hardware_status': hardware_status,
+            'status_message': status_message,
+            'last_update': datetime.now().isoformat(),
+            'last_gps_data': last_gps_data
+        }
+        
+        with open(GPS_STATUS_FILE, 'w') as f:
+            json.dump(status_data, f)
+            
+    except Exception as e:
+        logger.debug(f"Could not write GPS status file: {e}")
+
+def cleanup_gps_status():
+    """Remove GPS status file on exit"""
+    try:
+        if os.path.exists(GPS_STATUS_FILE):
+            os.remove(GPS_STATUS_FILE)
+    except Exception:
+        pass
 
 
 class SIM7600GHardware:
@@ -550,43 +578,92 @@ class GPSTracker:
             logger.info("Starting real GPS hardware tracking")
             
             # Initialize GPS hardware
-            self.gps_hardware = SIM7600GHardware()
-            
-            if not self.gps_hardware.initialize_hardware():
-                logger.error("Failed to initialize GPS hardware")
-                return False
-                
-            if not self.gps_hardware.start_gps():
-                logger.error("Failed to start GPS")
-                self.gps_hardware.cleanup()
-                return False
-            
-            logger.info("GPS hardware initialized successfully")
+            self.gps_hardware = None
+            hardware_initialized = False
             
             try:
                 consecutive_failures = 0
                 max_consecutive_failures = 10
+                hardware_retry_counter = 0
+                max_hardware_retries = 60  # Try to reconnect every 60 cycles (5 minutes at 5-second intervals)
                 
                 while self.tracking_active:
-                    # Get real GPS data from hardware
-                    gps_data = self.gps_hardware.get_gps_data()
+                    # Check if hardware needs initialization or re-initialization
+                    if not hardware_initialized or not self.gps_hardware or not self.gps_hardware.initialized:
+                        hardware_retry_counter += 1
+                        
+                        if hardware_retry_counter >= max_hardware_retries or not hardware_initialized:
+                            logger.info("Attempting to initialize GPS hardware...")
+                            
+                            # Clean up any existing hardware
+                            if self.gps_hardware:
+                                try:
+                                    self.gps_hardware.cleanup()
+                                except:
+                                    pass
+                            
+                            # Try to initialize new hardware instance
+                            self.gps_hardware = SIM7600GHardware()
+                            
+                            if self.gps_hardware.initialize_hardware():
+                                if self.gps_hardware.start_gps():
+                                    hardware_initialized = True
+                                    consecutive_failures = 0
+                                    hardware_retry_counter = 0
+                                    logger.info("GPS hardware initialized successfully")
+                                    write_gps_status("connected", "GPS hardware connected and active")
+                                else:
+                                    logger.warning("GPS hardware initialized but failed to start GPS")
+                                    hardware_initialized = False
+                                    hardware_retry_counter = 0  # Reset to try again soon
+                                    write_gps_status("error", "GPS hardware found but failed to start GPS module")
+                            else:
+                                logger.warning("Failed to initialize GPS hardware - will retry in 5 minutes")
+                                hardware_initialized = False
+                                hardware_retry_counter = 0  # Reset retry counter
+                                write_gps_status("disconnected", "GPS hardware not found - will retry in 5 minutes")
                     
-                    if gps_data:
-                        # Reset failure counter on successful read
-                        consecutive_failures = 0
-                        
-                        # Add the location to tracking
-                        self.add_location(**gps_data)
-                        logger.debug(f"Real GPS data added: lat={gps_data['latitude']:.6f}, lon={gps_data['longitude']:.6f}")
-                        
+                    # Try to get GPS data if hardware is available
+                    if hardware_initialized and self.gps_hardware and self.gps_hardware.initialized:
+                        try:
+                            gps_data = self.gps_hardware.get_gps_data()
+                            
+                            if gps_data:
+                                # Reset failure counter on successful read
+                                consecutive_failures = 0
+                                
+                                # Add the location to tracking
+                                self.add_location(**gps_data)
+                                logger.debug(f"Real GPS data added: lat={gps_data['latitude']:.6f}, lon={gps_data['longitude']:.6f}")
+                                
+                                # Update status with successful GPS data
+                                write_gps_status("active", f"GPS active - collecting coordinates (lat: {gps_data['latitude']:.6f}, lon: {gps_data['longitude']:.6f})", gps_data)
+                                
+                            else:
+                                consecutive_failures += 1
+                                logger.debug(f"GPS data not available ({consecutive_failures}/{max_consecutive_failures})")
+                                
+                                # Update status for GPS data unavailable
+                                write_gps_status("connected", f"GPS hardware connected but no fix ({consecutive_failures}/{max_consecutive_failures} failures)")
+                                
+                                # If too many consecutive failures, hardware might be disconnected
+                                if consecutive_failures >= max_consecutive_failures:
+                                    logger.warning("Too many consecutive GPS failures - GPS hardware may be disconnected")
+                                    hardware_initialized = False  # Mark for re-initialization
+                                    consecutive_failures = 0  # Reset to avoid spam
+                                    write_gps_status("disconnected", "GPS hardware may be disconnected - will attempt reconnection")
+                                    
+                        except Exception as e:
+                            logger.error(f"Error getting GPS data: {e}")
+                            consecutive_failures += 1
+                            if consecutive_failures >= max_consecutive_failures:
+                                logger.warning("GPS hardware errors - marking for re-initialization")
+                                hardware_initialized = False  # Mark for re-initialization
+                                consecutive_failures = 0
+                                write_gps_status("error", "GPS hardware errors - will attempt reconnection")
                     else:
-                        consecutive_failures += 1
-                        logger.debug(f"GPS data not available ({consecutive_failures}/{max_consecutive_failures})")
-                        
-                        # If too many consecutive failures, something might be wrong
-                        if consecutive_failures >= max_consecutive_failures:
-                            logger.warning("Too many consecutive GPS failures - GPS may have lost fix")
-                            consecutive_failures = 0  # Reset to avoid spam
+                        logger.debug("GPS hardware not available - waiting for initialization")
+                        write_gps_status("waiting", "Waiting for GPS hardware initialization...")
                     
                     time.sleep(update_interval)
                     
@@ -678,6 +755,9 @@ def main():
                 logger.info(f"Removed PID file: {ACTIVE_PIDFILE}")
         except Exception as e:
             logger.warning(f"Could not remove active PID file on exit: {e}")
+        
+        # Also cleanup status file
+        cleanup_gps_status()
 
     def handle_exit(signum, frame):
         logger.info(f"Received exit signal {signum}, cleaning up...")
@@ -698,22 +778,29 @@ def main():
             logger.error("Failed to start tracking")
             sys.exit(1)
         
-        # Write active PID file with PID, username, and tracking info
-        try:
-            with open(ACTIVE_PIDFILE, 'w') as f:
-                f.write(f"{os.getpid()}:{args.username}:{args.host}:{tracker.track_id}\n")
-            logger.info(f"Active PID file written: {ACTIVE_PIDFILE} with PID {os.getpid()}, user {args.username}, track ID {tracker.track_id}")
-        except Exception as e:
-            logger.warning(f"Could not write active PID file: {e}")
-        
         if args.simulate:
             # Start GPS coordinate collection with simulation
             tracker.start_gps_tracking(args.interval, simulate=True)
+            
+            # Write active PID file only after successful start
+            try:
+                with open(ACTIVE_PIDFILE, 'w') as f:
+                    f.write(f"{os.getpid()}:{args.username}:{args.host}:{tracker.track_id}\n")
+                logger.info(f"Active PID file written: {ACTIVE_PIDFILE} with PID {os.getpid()}, user {args.username}, track ID {tracker.track_id}")
+            except Exception as e:
+                logger.warning(f"Could not write active PID file: {e}")
         else:
             # Start GPS coordinate collection with real hardware
-            if not tracker.start_gps_tracking(args.interval, simulate=False):
-                logger.error("Failed to start GPS tracking - exiting")
-                sys.exit(1)
+            # Always start the tracking process - it will handle hardware initialization internally
+            tracker.start_gps_tracking(args.interval, simulate=False)
+            
+            # Write active PID file after starting the tracking process
+            try:
+                with open(ACTIVE_PIDFILE, 'w') as f:
+                    f.write(f"{os.getpid()}:{args.username}:{args.host}:{tracker.track_id}\n")
+                logger.info(f"Active PID file written: {ACTIVE_PIDFILE} with PID {os.getpid()}, user {args.username}, track ID {tracker.track_id}")
+            except Exception as e:
+                logger.warning(f"Could not write active PID file: {e}")
                     
     except KeyboardInterrupt:
         logger.info("Received interrupt signal")

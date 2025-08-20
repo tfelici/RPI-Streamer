@@ -480,9 +480,31 @@
             <div id="gps-status" class="status-info" style="text-align: center;">
                 {% if gps_tracking %}
                     <p><strong>Status:</strong> <span class="status-active">Active</span></p>
-                    <p><em>GPS tracking is running</em></p>
+                    
+                    <!-- Detailed hardware status -->
+                    {% if gps_status.hardware_status == 'active' %}
+                        <p><em style="color: #28a745;">GPS collecting data - {{ gps_status.status_message.split('(lat:')[1].split(')')[0] if '(lat:' in gps_status.status_message else 'coordinates received' }}</em></p>
+                    {% elif gps_status.hardware_status == 'connected' %}
+                        <p><em style="color: #ffc107;">GPS connected but waiting for fix</em></p>
+                        <p style="font-size: 13px; color: #6c757d;">{{ gps_status.status_message }}</p>
+                    {% elif gps_status.hardware_status == 'disconnected' %}
+                        <p><em style="color: #dc3545;">GPS hardware disconnected - attempting reconnection</em></p>
+                    {% elif gps_status.hardware_status == 'error' %}
+                        <p><em style="color: #dc3545;">GPS hardware error - attempting reconnection</em></p>
+                    {% elif gps_status.hardware_status == 'waiting' %}
+                        <p><em style="color: #6c757d;">Waiting for GPS hardware initialization</em></p>
+                    {% else %}
+                        <p><em>GPS tracking is running</em></p>
+                    {% endif %}
+                    
                     {% if settings.gps_stream_link %}
                     <p><em>Video streaming will automatically control with GPS tracking</em></p>
+                    {% endif %}
+                    
+                    {% if gps_status.last_update %}
+                    <p style="font-size: 12px; color: #6c757d; margin-top: 8px;">
+                        Last update: {{ gps_status.last_update[:19].replace('T', ' ') }}
+                    </p>
                     {% endif %}
                 {% else %}
                     <p><strong>Status:</strong> <span class="status-inactive">Inactive</span></p>

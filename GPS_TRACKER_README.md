@@ -9,7 +9,8 @@ This Python script replicates the background geolocation tracking functionality 
 - **Non-Native Mode**: Uses custom coordinate synchronization (matches the iOS/Apple mode from the mobile app)
 - **Real GPS Support**: Works with SIM7600G-H 4G DONGLE hardware for actual GPS tracking
 - **Simulation Mode**: Includes GPS simulation for testing without hardware
-- **Hardware Detection**: Automatically detects and fails gracefully when GPS hardware is unavailable
+- **Hardware Resilience**: Automatically handles GPS hardware disconnection and reconnection during operation
+- **Continuous Operation**: Keeps running and attempting to reconnect when GPS hardware is temporarily unavailable
 
 ## Files
 
@@ -43,10 +44,17 @@ python gps_tracker.py your_username --simulate --duration 60
 
 ### Real GPS Hardware Mode
 
-Use with actual GPS hardware:
+Use with actual GPS hardware. The tracker will automatically handle hardware initialization and will continuously attempt to reconnect if the GPS dongle is temporarily disconnected:
+
 ```bash
 python gps_tracker.py your_username
 ```
+
+**Hardware Resilience**: If the GPS hardware is not available at startup or becomes disconnected during operation, the tracker will:
+- Continue running in the background
+- Log warnings about hardware unavailability
+- Automatically attempt to reconnect every 5 minutes
+- Resume GPS data collection once hardware is reconnected
 
 ### Manual Mode
 

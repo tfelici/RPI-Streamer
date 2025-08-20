@@ -222,6 +222,52 @@ def get_active_gps_tracking_info():
             pass
     return None, None, None, None
 
+def get_gps_tracking_status():
+    """
+    Get detailed GPS tracking status including hardware state.
+    Returns dict with: running, pid, username, host, track_id, hardware_status, last_update
+    """
+    GPS_PIDFILE = "/tmp/gps-tracker.pid"
+    GPS_STATUS_FILE = "/tmp/gps-tracker-status.json"
+    
+    # Check if process is running
+    pid, username, host, track_id = get_active_gps_tracking_info()
+    
+    if pid is None:
+        return {
+            'running': False,
+            'pid': None,
+            'username': None,
+            'host': None,
+            'track_id': None,
+            'hardware_status': 'unknown',
+            'status_message': 'GPS tracking is not active',
+            'last_update': None
+        }
+    
+    # Read detailed status from status file if available
+    status_info = {
+        'running': True,
+        'pid': pid,
+        'username': username,
+        'host': host,
+        'track_id': track_id,
+        'hardware_status': 'unknown',
+        'status_message': 'GPS tracking is running',
+        'last_update': None
+    }
+    
+    # Try to read detailed status
+    if os.path.exists(GPS_STATUS_FILE):
+        try:
+            with open(GPS_STATUS_FILE, 'r') as f:
+                detailed_status = json.load(f)
+                status_info.update(detailed_status)
+        except (json.JSONDecodeError, ValueError, IOError):
+            pass  # Use default status if file is corrupted or unreadable
+    
+    return status_info
+
 def is_gps_tracking():
     """Check if GPS tracking is currently active"""
     pid, _, _, _ = get_active_gps_tracking_info()

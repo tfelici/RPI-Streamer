@@ -21,9 +21,8 @@ import platform
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
-from subprocess import check_output
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR, is_streaming, is_pid_running, STREAM_PIDFILE, get_active_gps_tracking_info, is_gps_tracking, load_settings, save_settings
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR, is_streaming, is_pid_running, STREAM_PIDFILE, get_active_gps_tracking_info, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings
 
 # Use pymediainfo for fast video duration extraction
 try:
@@ -115,7 +114,7 @@ def power_consumption_watts():
         subprocess.run(['vcgencmd', 'version'], capture_output=True, text=True, timeout=2)
         
         # Get all PMIC ADC readings
-        output = check_output(['vcgencmd', 'pmic_read_adc'], timeout=5).decode("utf-8")
+        output = subprocess.check_output(['vcgencmd', 'pmic_read_adc'], timeout=5).decode("utf-8")
         lines = output.split('\n')
         amperages = {}
         voltages = {}
@@ -242,6 +241,7 @@ def add_files_from_path(recording_files, path, source_label="", location="Local"
 def home():
     streaming = is_streaming()
     gps_tracking = is_gps_tracking()
+    gps_status = get_gps_tracking_status()
     settings = load_settings()
 
     # Gather recording files info
@@ -258,7 +258,8 @@ def home():
         'index.html', 
         active_tab='home', 
         streaming=streaming, 
-        gps_tracking=gps_tracking, 
+        gps_tracking=gps_tracking,
+        gps_status=gps_status,
         recording_files=recording_files, 
         app_version=get_app_version(),
         settings=settings
@@ -531,8 +532,41 @@ def start_gps_tracking():
     if not username:
         return False, 'GPS username is not configured. Please set a username for GPS tracking in the flight settings.', 400
     
-    # Start GPS tracker in real mode (hardware required)
-    subprocess.Popen(['python', 'gps_tracker.py', username])
+    # Start GPS tracker in real mode (hardware will be initialized internally)
+    try:
+        process = subprocess.Popen(
+            ['python', 'gps_tracker.py', username],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        # Wait briefly to see if the process fails immediately (e.g., invalid arguments)
+        time.sleep(1)
+        
+        # Check if process is still running
+        if process.poll() is not None:
+            # Process has exited, capture error output
+            stdout, stderr = process.communicate()
+            error_output = stderr.strip() if stderr else stdout.strip()
+            
+            # Extract a meaningful error message - only for immediate startup failures
+            if "RPi.GPIO not available" in error_output:
+                error_msg = "GPS hardware support not available - RPi.GPIO package not found"
+            elif "Failed to start tracking" in error_output:
+                error_msg = "Failed to start GPS tracking session with server"
+            else:
+                # Use the last error line or a generic message
+                error_lines = [line for line in error_output.split('\n') if 'ERROR' in line]
+                if error_lines:
+                    error_msg = error_lines[-1].split('ERROR:')[-1].strip()
+                else:
+                    error_msg = "GPS tracking failed to start - check configuration"
+            
+            return False, error_msg, 400
+            
+    except Exception as e:
+        return False, f'Failed to start GPS tracker process: {e}', 500
     
     # If gps_stream_link is enabled, also start video streaming
     if settings['gps_stream_link']:
@@ -612,6 +646,12 @@ def gps_control():
         return jsonify({'status': message})
     else:
         return jsonify({'error': 'Invalid action'}), 400
+
+@app.route('/gps-status')
+def gps_status():
+    """Get current GPS tracking status including hardware details"""
+    status = get_gps_tracking_status()
+    return jsonify(status)
 
 @app.route('/upload-recording', methods=['POST'])
 def upload_recording():
@@ -814,7 +854,6 @@ def check_auth(username, password):
     return username == expected_user and password == expected_pass
 
 def authenticate():
-    from flask import Response
     return Response(
         'Authentication required', 401,
         {'WWW-Authenticate': 'Basic realm="Login Required"'
@@ -1337,9 +1376,6 @@ def get_connection_info():
     
     try:
         # Get network interfaces and their addresses
-        import socket
-        import subprocess
-        import platform
         
         # Get all network interfaces with IP addresses
         interfaces = psutil.net_if_addrs()
@@ -1515,7 +1551,6 @@ def get_connection_info():
 #sse entry point to return relay_status_webcam data
 @app.route('/relay-status-sse')
 def relay_status_sse():
-    from flask import Response
     import json, time
     def event_stream():
         last_status = None
