@@ -761,13 +761,13 @@ def main():
     args = parser.parse_args()
     
     # GPS tracker PID file - only one GPS tracker should be active at a time
-    ACTIVE_PIDFILE = "/tmp/gps-tracker.pid"
+    GPS_PIDFILE = "/tmp/gps-tracker.pid"
 
     def cleanup_pidfile():
         try:
-            if os.path.exists(ACTIVE_PIDFILE):
-                os.remove(ACTIVE_PIDFILE)
-                logger.info(f"Removed PID file: {ACTIVE_PIDFILE}")
+            if os.path.exists(GPS_PIDFILE):
+                os.remove(GPS_PIDFILE)
+                logger.info(f"Removed PID file: {GPS_PIDFILE}")
         except Exception as e:
             logger.warning(f"Could not remove active PID file on exit: {e}")
         
@@ -799,9 +799,9 @@ def main():
             
             # Write active PID file only after successful start
             try:
-                with open(ACTIVE_PIDFILE, 'w') as f:
+                with open(GPS_PIDFILE, 'w') as f:
                     f.write(f"{os.getpid()}:{args.username}:{args.host}:{tracker.track_id}\n")
-                logger.info(f"Active PID file written: {ACTIVE_PIDFILE} with PID {os.getpid()}, user {args.username}, track ID {tracker.track_id}")
+                logger.info(f"Active PID file written: {GPS_PIDFILE} with PID {os.getpid()}, user {args.username}, track ID {tracker.track_id}")
             except Exception as e:
                 logger.warning(f"Could not write active PID file: {e}")
         else:
@@ -811,9 +811,9 @@ def main():
             
             # Write active PID file after starting the tracking process
             try:
-                with open(ACTIVE_PIDFILE, 'w') as f:
+                with open(GPS_PIDFILE, 'w') as f:
                     f.write(f"{os.getpid()}:{args.username}:{args.host}:{tracker.track_id}\n")
-                logger.info(f"Active PID file written: {ACTIVE_PIDFILE} with PID {os.getpid()}, user {args.username}, track ID {tracker.track_id}")
+                logger.info(f"Active PID file written: {GPS_PIDFILE} with PID {os.getpid()}, user {args.username}, track ID {tracker.track_id}")
             except Exception as e:
                 logger.warning(f"Could not write active PID file: {e}")
                     

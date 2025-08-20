@@ -204,24 +204,6 @@ def is_streaming():
             pass
     return False
 
-def get_active_gps_tracking_info():
-    """Return (pid, username, host, track_id) if GPS tracking is active, else (None, None, None, None)"""
-    GPS_PIDFILE = "/tmp/gps-tracker.pid"
-    if os.path.exists(GPS_PIDFILE):
-        try:
-            with open(GPS_PIDFILE, 'r') as f:
-                line = f.read().strip()
-                if line:
-                    parts = line.split(':', 3)
-                    if len(parts) >= 4:
-                        pid_str, username, host, track_id = parts
-                        pid = int(pid_str)
-                        if is_pid_running(pid):
-                            return pid, username, host, track_id
-        except Exception:
-            pass
-    return None, None, None, None
-
 def get_gps_tracking_status():
     """
     Get detailed GPS tracking status including hardware state.
@@ -231,47 +213,57 @@ def get_gps_tracking_status():
     GPS_STATUS_FILE = "/tmp/gps-tracker-status.json"
     
     # Check if process is running
-    pid, username, host, track_id = get_active_gps_tracking_info()
+    pid, username, host, track_id = None, None, None, None
     
-    if pid is None:
-        return {
-            'running': False,
-            'pid': None,
-            'username': None,
-            'host': None,
-            'track_id': None,
-            'hardware_status': 'unknown',
-            'status_message': 'GPS tracking is not active',
-            'last_update': None
-        }
+    if os.path.exists(GPS_PIDFILE):
+        try:
+            with open(GPS_PIDFILE, 'r') as f:
+                line = f.read().strip()
+                if line:
+                    parts = line.split(':', 3)
+                    if len(parts) >= 4:
+                        pid_str, username, host, track_id = parts
+                        pid = int(pid_str)
+                        if not is_pid_running(pid):
+                            pid, username, host, track_id = None, None, None, None
+        except Exception:
+            pass
     
-    # Read detailed status from status file if available
-    status_info = {
-        'running': True,
+    # Start with default status - check for detailed status first before deciding if tracking is active
+    default_status = {
+        'running': pid is not None,
         'pid': pid,
         'username': username,
         'host': host,
         'track_id': track_id,
         'hardware_status': 'unknown',
-        'status_message': 'GPS tracking starting - checking hardware status...',
+        'status_message': 'GPS tracking is not active' if pid is None else 'GPS tracking starting - checking hardware status...',
         'last_update': None
     }
     
-    # Try to read detailed status
+    # Try to read detailed status from status file - this might have more recent info than PID file
     if os.path.exists(GPS_STATUS_FILE):
         try:
             with open(GPS_STATUS_FILE, 'r') as f:
                 detailed_status = json.load(f)
-                status_info.update(detailed_status)
+                # Update the default status with detailed info
+                default_status.update(detailed_status)
+                # If we have status file info but no running process, keep process info as False
+                if pid is None:
+                    default_status['running'] = False
+                    default_status['pid'] = None
+                    default_status['username'] = None
+                    default_status['host'] = None
+                    default_status['track_id'] = None
         except (json.JSONDecodeError, ValueError, IOError):
             pass  # Use default status if file is corrupted or unreadable
     
-    return status_info
+    return default_status
 
 def is_gps_tracking():
     """Check if GPS tracking is currently active"""
-    pid, _, _, _ = get_active_gps_tracking_info()
-    return pid is not None
+    status = get_gps_tracking_status()
+    return status['running']
 
 def load_settings():
     """

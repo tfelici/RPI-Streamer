@@ -22,7 +22,7 @@ from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR, is_streaming, is_pid_running, STREAM_PIDFILE, get_active_gps_tracking_info, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings
 
 # Use pymediainfo for fast video duration extraction
 try:
@@ -556,7 +556,8 @@ def stop_gps_tracking():
     if is_gps_tracking():
         print("Stopping GPS tracking...")
         try:
-            gps_pid, username, host, track_id = get_active_gps_tracking_info()
+            gps_status = get_gps_tracking_status()
+            gps_pid = gps_status['pid']
             if gps_pid:
                 print(f"Stopping GPS tracking with PID {gps_pid}")
                 if is_pid_running(gps_pid):
