@@ -531,8 +531,8 @@ def start_gps_tracking():
     if not username:
         return False, 'GPS username is not configured. Please set a username for GPS tracking in the flight settings.', 400
     
-    # Start GPS tracker with simulation mode
-    subprocess.Popen(['python', 'gps_tracker.py', username, '--simulate'])
+    # Start GPS tracker in real mode (hardware required)
+    subprocess.Popen(['python', 'gps_tracker.py', username])
     
     # If gps_stream_link is enabled, also start video streaming
     if settings['gps_stream_link']:
