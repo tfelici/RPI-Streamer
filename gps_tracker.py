@@ -711,7 +711,9 @@ def main():
             tracker.start_gps_tracking(args.interval, simulate=True)
         else:
             # Start GPS coordinate collection with real hardware
-            tracker.start_gps_tracking(args.interval, simulate=False)
+            if not tracker.start_gps_tracking(args.interval, simulate=False):
+                logger.error("Failed to start GPS tracking - exiting")
+                sys.exit(1)
                     
     except KeyboardInterrupt:
         logger.info("Received interrupt signal")

@@ -480,7 +480,7 @@
             <div id="gps-status" class="status-info" style="text-align: center;">
                 {% if gps_tracking %}
                     <p><strong>Status:</strong> <span class="status-active">Active</span></p>
-                    <p><em>GPS tracking is running in simulation mode</em></p>
+                    <p><em>GPS tracking is running</em></p>
                     {% if settings.gps_stream_link %}
                     <p><em>Video streaming will automatically control with GPS tracking</em></p>
                     {% endif %}
@@ -1582,7 +1582,7 @@
                         statusText.className = gpsTracking ? 'status-active' : 'status-inactive';
                     }
                     if (statusDescription) {
-                        statusDescription.textContent = gpsTracking ? 'GPS tracking is running in simulation mode' : 'Click "Start GPS Tracking" to begin location tracking';
+                        statusDescription.textContent = gpsTracking ? 'GPS tracking is running' : 'Click "Start GPS Tracking" to begin location tracking';
                         statusDescription.style.color = '';
                     }
                     gpsBtn.disabled = false;
