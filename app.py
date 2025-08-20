@@ -534,37 +534,7 @@ def start_gps_tracking():
     
     # Start GPS tracker in real mode (hardware will be initialized internally)
     try:
-        process = subprocess.Popen(
-            ['python', 'gps_tracker.py', username],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        
-        # Wait briefly to see if the process fails immediately (e.g., invalid arguments)
-        time.sleep(1)
-        
-        # Check if process is still running
-        if process.poll() is not None:
-            # Process has exited, capture error output
-            stdout, stderr = process.communicate()
-            error_output = stderr.strip() if stderr else stdout.strip()
-            
-            # Extract a meaningful error message - only for immediate startup failures
-            if "RPi.GPIO not available" in error_output:
-                error_msg = "GPS hardware support not available - RPi.GPIO package not found"
-            elif "Failed to start tracking" in error_output:
-                error_msg = "Failed to start GPS tracking session with server"
-            else:
-                # Use the last error line or a generic message
-                error_lines = [line for line in error_output.split('\n') if 'ERROR' in line]
-                if error_lines:
-                    error_msg = error_lines[-1].split('ERROR:')[-1].strip()
-                else:
-                    error_msg = "GPS tracking failed to start - check configuration"
-            
-            return False, error_msg, 400
-            
+        subprocess.Popen(['python', 'gps_tracker.py', username])
     except Exception as e:
         return False, f'Failed to start GPS tracker process: {e}', 500
     

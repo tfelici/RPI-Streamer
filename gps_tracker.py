@@ -571,7 +571,6 @@ class GPSTracker:
         if simulate:
             logger.info("Starting GPS simulation mode")
             logger.info("Running circular flight simulation from Oxford Airport UK")
-            logger.info("Flight path: 5km diameter circle, 60 seconds duration")
             start_time = time.time()
             
             try:
@@ -592,97 +591,43 @@ class GPSTracker:
         else:
             logger.info("Starting real GPS hardware tracking")
             
-            # Write initial status
-            write_gps_status("waiting", "GPS tracking started - checking for hardware...")
-            
-            # Initialize GPS hardware
-            self.gps_hardware = None
             hardware_initialized = False
             
             try:
-                consecutive_failures = 0
-                max_consecutive_failures = 10
-                
                 while self.tracking_active:
-                    # Check if hardware needs initialization or re-initialization
-                    if not hardware_initialized or not self.gps_hardware or not self.gps_hardware.initialized:
-                        logger.info("Attempting to initialize GPS hardware...")
-                        
-                        # Clean up any existing hardware
-                        if self.gps_hardware:
-                            try:
-                                self.gps_hardware.cleanup()
-                            except:
-                                pass
-                        
-                        # Try to initialize new hardware instance
-                        self.gps_hardware = SIM7600GHardware()
-                        
-                        if self.gps_hardware.initialize_hardware():
-                            if self.gps_hardware.start_gps():
-                                hardware_initialized = True
-                                consecutive_failures = 0
-                                logger.info("GPS hardware initialized successfully")
-                                write_gps_status("connected", "GPS hardware connected and active")
-                            else:
-                                logger.warning("GPS hardware initialized but failed to start GPS")
-                                hardware_initialized = False
-                                write_gps_status("error", "GPS hardware found but failed to start GPS module")
-                        else:
-                            logger.debug("GPS hardware not found - will retry next cycle")
-                            hardware_initialized = False
-                            write_gps_status("disconnected", "GPS hardware not found - checking again in 5 seconds")
-                    
-                    # Try to get GPS data if hardware is available
-                    if hardware_initialized and self.gps_hardware and self.gps_hardware.initialized:
-                        # First check if hardware is still physically present
-                        if not self.gps_hardware.check_hardware_presence():
-                            logger.warning("GPS hardware no longer detected - marking for re-initialization")
-                            hardware_initialized = False
-                            consecutive_failures = 0
-                            write_gps_status("disconnected", "GPS hardware disconnected - will attempt reconnection")
+                    # 1) Check if hardware needs initialization or re-initialization
+                    if not hardware_initialized or not self._is_hardware_ready():
+                        hardware_initialized = self._initialize_gps_hardware()
+                        if not hardware_initialized:
+                            # Failed to initialize, wait and try again next cycle
+                            time.sleep(update_interval)
                             continue
-                        
-                        try:
+                    
+                    # 2) Hardware is ready, attempt to get coordinates
+                    try:
+                        if self.gps_hardware:  # Additional None check for type safety
                             gps_data = self.gps_hardware.get_gps_data()
                             
                             if gps_data:
-                                # Reset failure counter on successful read
-                                consecutive_failures = 0
-                                
                                 # Add the location to tracking
                                 self.add_location(**gps_data)
-                                logger.debug(f"Real GPS data added: lat={gps_data['latitude']:.6f}, lon={gps_data['longitude']:.6f}")
-                                
-                                # Update status with successful GPS data
-                                write_gps_status("active", f"GPS active - collecting coordinates (lat: {gps_data['latitude']:.6f}, lon: {gps_data['longitude']:.6f})", gps_data)
-                                
+                                logger.debug(f"GPS coordinates: lat={gps_data['latitude']:.6f}, lon={gps_data['longitude']:.6f}")
+                                write_gps_status("active", f"GPS active - lat: {gps_data['latitude']:.6f}, lon: {gps_data['longitude']:.6f}", gps_data)
                             else:
-                                consecutive_failures += 1
-                                logger.debug(f"GPS data not available ({consecutive_failures}/{max_consecutive_failures})")
-                                
-                                # Update status for GPS data unavailable
-                                write_gps_status("connected", f"GPS hardware connected but no fix ({consecutive_failures}/{max_consecutive_failures} failures)")
-                                
-                                # If too many consecutive failures, hardware might be disconnected
-                                if consecutive_failures >= max_consecutive_failures:
-                                    logger.warning("Too many consecutive GPS failures - GPS hardware may be disconnected")
-                                    hardware_initialized = False  # Mark for re-initialization
-                                    consecutive_failures = 0  # Reset to avoid spam
-                                    write_gps_status("disconnected", "GPS hardware may be disconnected - will attempt reconnection")
-                                    
-                        except Exception as e:
-                            logger.error(f"Error getting GPS data: {e}")
-                            consecutive_failures += 1
-                            if consecutive_failures >= max_consecutive_failures:
-                                logger.warning("GPS hardware errors - marking for re-initialization")
-                                hardware_initialized = False  # Mark for re-initialization
-                                consecutive_failures = 0
-                                write_gps_status("error", "GPS hardware errors - will attempt reconnection")
-                    else:
-                        logger.debug("GPS hardware not available - waiting for initialization")
-                        write_gps_status("waiting", "Waiting for GPS hardware initialization...")
+                                logger.debug("GPS data not available (no satellite fix)")
+                                write_gps_status("connected", "GPS hardware connected but no satellite fix")
+                        else:
+                            # Hardware disappeared
+                            logger.warning("GPS hardware object is None")
+                            hardware_initialized = False
+                            
+                    except Exception as e:
+                        logger.warning(f"Error getting GPS coordinates: {e}")
+                        write_gps_status("error", f"GPS coordinate error: {e}")
+                        # Mark for re-initialization on next cycle
+                        hardware_initialized = False
                     
+                    # Always sleep at the end of each cycle
                     time.sleep(update_interval)
                     
             except KeyboardInterrupt:
@@ -694,6 +639,58 @@ class GPSTracker:
                     self.gps_hardware = None
         
         return True
+    
+    def _initialize_gps_hardware(self):
+        """Initialize or re-initialize GPS hardware"""
+        write_gps_status("waiting", "Attempting to connect to GPS hardware...")
+        logger.info("Attempting to initialize GPS hardware...")
+        
+        # Clean up any existing hardware
+        if self.gps_hardware:
+            try:
+                self.gps_hardware.cleanup()
+            except:
+                pass
+            self.gps_hardware = None
+        
+        # Try to initialize new hardware instance
+        try:
+            self.gps_hardware = SIM7600GHardware()
+            
+            if not self.gps_hardware.initialize_hardware():
+                logger.warning("Failed to initialize GPS hardware")
+                write_gps_status("disconnected", "GPS hardware not found")
+                return False
+            
+            if not self.gps_hardware.start_gps():
+                logger.warning("GPS hardware initialized but failed to start GPS module")
+                write_gps_status("error", "GPS hardware found but failed to start GPS module")
+                self.gps_hardware.cleanup()
+                self.gps_hardware = None
+                return False
+            
+            logger.info("GPS hardware initialized successfully")
+            write_gps_status("connected", "GPS hardware connected and active")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Exception during GPS hardware initialization: {e}")
+            write_gps_status("error", f"GPS hardware initialization error: {e}")
+            if self.gps_hardware:
+                try:
+                    self.gps_hardware.cleanup()
+                except:
+                    pass
+                self.gps_hardware = None
+            return False
+    
+    def _is_hardware_ready(self):
+        """Check if GPS hardware is ready and responsive"""
+        if not self.gps_hardware or not self.gps_hardware.initialized:
+            return False
+        
+        # Quick check for hardware presence
+        return self.gps_hardware.check_hardware_presence()
 
 
 def simulate_gps_data():
