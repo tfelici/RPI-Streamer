@@ -493,8 +493,10 @@
                         <p><em style="color: #dc3545;">GPS hardware error - attempting reconnection</em></p>
                     {% elif gps_status.hardware_status == 'waiting' %}
                         <p><em style="color: #6c757d;">Waiting for GPS hardware initialization</em></p>
+                    {% elif gps_status.hardware_status == 'unknown' or not gps_status.hardware_status %}
+                        <p><em style="color: #6c757d;">GPS tracking starting - checking hardware status...</em></p>
                     {% else %}
-                        <p><em>GPS tracking is running</em></p>
+                        <p><em>GPS tracking is running - Status: {{ gps_status.hardware_status }}</em></p>
                     {% endif %}
                     
                     {% if settings.gps_stream_link %}
@@ -1568,6 +1570,44 @@
                 });
         });
 
+        // Function to update GPS status display
+        function updateGPSStatus() {
+            if (!gpsTracking) return; // Only update when GPS tracking is active
+            
+            fetch('/gps-status')
+                .then(r => r.json())
+                .then(status => {
+                    const statusDescription = gpsStatus.querySelector('em');
+                    if (!statusDescription) return;
+                    
+                    // Update status message based on hardware status
+                    if (status.hardware_status === 'active') {
+                        let coordText = 'coordinates received';
+                        if (status.status_message && status.status_message.includes('(lat:')) {
+                            const coords = status.status_message.split('(lat:')[1].split(')')[0];
+                            coordText = coords;
+                        }
+                        statusDescription.innerHTML = `<span style="color: #28a745;">GPS collecting data - ${coordText}</span>`;
+                    } else if (status.hardware_status === 'connected') {
+                        statusDescription.innerHTML = `<span style="color: #ffc107;">GPS connected but waiting for fix</span>`;
+                    } else if (status.hardware_status === 'disconnected') {
+                        statusDescription.innerHTML = `<span style="color: #dc3545;">GPS hardware disconnected - attempting reconnection</span>`;
+                    } else if (status.hardware_status === 'error') {
+                        statusDescription.innerHTML = `<span style="color: #dc3545;">GPS hardware error - attempting reconnection</span>`;
+                    } else if (status.hardware_status === 'waiting') {
+                        statusDescription.innerHTML = `<span style="color: #6c757d;">Waiting for GPS hardware initialization</span>`;
+                    } else {
+                        statusDescription.innerHTML = `<span style="color: #6c757d;">GPS tracking starting - checking hardware status...</span>`;
+                    }
+                })
+                .catch(err => {
+                    console.log('GPS status update failed:', err);
+                });
+        }
+
+        // Update GPS status every 3 seconds when tracking is active
+        setInterval(updateGPSStatus, 3000);
+
         // GPS Tracking control
         const gpsBtn = document.getElementById('gps-btn');
         const gpsStatus = document.getElementById('gps-status');
@@ -1604,7 +1644,13 @@
                         statusText.className = gpsTracking ? 'status-active' : 'status-inactive';
                     }
                     if (statusDescription) {
-                        statusDescription.textContent = gpsTracking ? 'GPS tracking is running' : 'Click "Start GPS Tracking" to begin location tracking';
+                        if (gpsTracking) {
+                            statusDescription.innerHTML = '<span style="color: #6c757d;">GPS tracking starting - checking hardware status...</span>';
+                            // Update status immediately and then start periodic updates
+                            setTimeout(updateGPSStatus, 1000);
+                        } else {
+                            statusDescription.textContent = 'Click "Start GPS Tracking" to begin location tracking';
+                        }
                         statusDescription.style.color = '';
                     }
                     gpsBtn.disabled = false;

@@ -253,7 +253,7 @@ def get_gps_tracking_status():
         'host': host,
         'track_id': track_id,
         'hardware_status': 'unknown',
-        'status_message': 'GPS tracking is running',
+        'status_message': 'GPS tracking starting - checking hardware status...',
         'last_update': None
     }
     

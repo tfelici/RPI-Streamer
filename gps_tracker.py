@@ -577,6 +577,9 @@ class GPSTracker:
         else:
             logger.info("Starting real GPS hardware tracking")
             
+            # Write initial status
+            write_gps_status("waiting", "GPS tracking started - checking for hardware...")
+            
             # Initialize GPS hardware
             self.gps_hardware = None
             hardware_initialized = False
