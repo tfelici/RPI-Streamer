@@ -562,8 +562,8 @@ class GPSTracker:
             'username': self.username
         }
 
-    def start_gps_tracking(self, update_interval: float = 5.0, simulate: bool = False):
-        """Start GPS coordinate collection with either real hardware or simulation"""
+    def collect_gps_coordinates(self, update_interval: float = 5.0, simulate: bool = False):
+        """Collect GPS coordinates continuously with either real hardware or simulation"""
         if not self.tracking_active:
             logger.error("Tracking session not started. Call start_tracking() first.")
             return False
@@ -793,29 +793,21 @@ def main():
             logger.error("Failed to start tracking")
             sys.exit(1)
         
+        # Write active PID file immediately after successful tracking start
+        try:
+            with open(GPS_PIDFILE, 'w') as f:
+                f.write(f"{os.getpid()}:{args.username}:{args.host}:{tracker.track_id}\n")
+            logger.info(f"Active PID file written: {GPS_PIDFILE} with PID {os.getpid()}, user {args.username}, track ID {tracker.track_id}")
+        except Exception as e:
+            logger.warning(f"Could not write active PID file: {e}")
+        
         if args.simulate:
             # Start GPS coordinate collection with simulation
-            tracker.start_gps_tracking(args.interval, simulate=True)
-            
-            # Write active PID file only after successful start
-            try:
-                with open(GPS_PIDFILE, 'w') as f:
-                    f.write(f"{os.getpid()}:{args.username}:{args.host}:{tracker.track_id}\n")
-                logger.info(f"Active PID file written: {GPS_PIDFILE} with PID {os.getpid()}, user {args.username}, track ID {tracker.track_id}")
-            except Exception as e:
-                logger.warning(f"Could not write active PID file: {e}")
+            tracker.collect_gps_coordinates(args.interval, simulate=True)
         else:
             # Start GPS coordinate collection with real hardware
             # Always start the tracking process - it will handle hardware initialization internally
-            tracker.start_gps_tracking(args.interval, simulate=False)
-            
-            # Write active PID file after starting the tracking process
-            try:
-                with open(GPS_PIDFILE, 'w') as f:
-                    f.write(f"{os.getpid()}:{args.username}:{args.host}:{tracker.track_id}\n")
-                logger.info(f"Active PID file written: {GPS_PIDFILE} with PID {os.getpid()}, user {args.username}, track ID {tracker.track_id}")
-            except Exception as e:
-                logger.warning(f"Could not write active PID file: {e}")
+            tracker.collect_gps_coordinates(args.interval, simulate=False)
                     
     except KeyboardInterrupt:
         logger.info("Received interrupt signal")

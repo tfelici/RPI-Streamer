@@ -10,7 +10,7 @@ from x120x import X120X
 
 import fcntl
 from utils import is_streaming, is_gps_tracking, DEFAULT_SETTINGS, SETTINGS_FILE, load_settings
-from app import stop_gps_tracking
+from app import stop_flight
 import json
 
 # Configure logging with rotation to prevent unlimited growth
@@ -141,7 +141,7 @@ try:
                                     if not final_timeout_ac_power:
                                         # Power still lost, stop GPS tracking
                                         try:
-                                            success, message, status_code = stop_gps_tracking()
+                                            success, message, status_code = stop_flight()
                                             if success:
                                                 print("GPS tracking stopped due to prolonged power loss")
                                                 logging.warning("GPS tracking stopped due to prolonged power loss")

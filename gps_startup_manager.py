@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils import DEFAULT_SETTINGS, SETTINGS_FILE, is_gps_tracking, load_settings
 
 # Import GPS tracking function directly from app.py
-from app import start_gps_tracking
+from app import start_flight
 
 def detect_motion():
     """
@@ -49,7 +49,7 @@ def monitor_motion():
                 if motion_count >= motion_threshold_count:
                     if not is_gps_tracking():
                         print("Aircraft motion detected! Starting GPS tracking...")
-                        success, message, status_code = start_gps_tracking()
+                        success, message, status_code = start_flight()
                         if success:
                             print("GPS tracking started due to motion detection")
                             break
@@ -88,7 +88,7 @@ def main():
         
         if gps_start_mode == 'boot':
             print("Auto-starting GPS tracking on boot...")
-            success, message, status_code = start_gps_tracking()
+            success, message, status_code = start_flight()
             if success:
                 print("GPS tracking started successfully on boot")
             else:

@@ -520,7 +520,7 @@ def stop_streaming():
     
     return True, 'stopped', 200
 
-def start_gps_tracking():
+def start_flight():
     """Helper function to start GPS tracking. Returns (success, message, status_code)"""
     # Check if already tracking
     if is_gps_tracking():
@@ -549,7 +549,7 @@ def start_gps_tracking():
     
     return True, 'started', 200
 
-def stop_gps_tracking():
+def stop_flight():
     """Helper function to stop GPS tracking. Returns (success, message, status_code)"""
     settings = load_settings()
     
@@ -607,13 +607,13 @@ def gps_control():
     action = data.get('action')
     
     if action == 'start':
-        success, message, status_code = start_gps_tracking()
+        success, message, status_code = start_flight()
         if success:
             return jsonify({'status': message})
         else:
             return jsonify({'error': message}), status_code
     elif action == 'stop':
-        success, message, status_code = stop_gps_tracking()
+        success, message, status_code = stop_flight()
         return jsonify({'status': message})
     else:
         return jsonify({'error': 'Invalid action'}), 400
