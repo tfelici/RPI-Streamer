@@ -68,7 +68,7 @@ python gps_tracker.py your_username --interval 10
 **gps_tracker.py:**
 - `username` - Required: Your Gyropilots username
 - `--host` - Server hostname (default: gyropilots.org)
-- `--interval` - GPS update interval in seconds (default: 5.0)
+- `--interval` - GPS update interval in seconds (default: 2.0)
 - `--simulate` - Use simulated GPS data (Oxford Airport circular flight)
 - `--duration` - Duration to run in seconds (for simulation mode)
 
@@ -84,10 +84,10 @@ tracker = GPSTracker('your_username')
 tracker.start_tracking()
 
 # Option 1: Start GPS simulation mode
-tracker.start_gps_tracking(update_interval=5.0, simulate=True)
+tracker.start_gps_tracking(update_interval=2.0, simulate=True)
 
 # Option 2: Start real GPS mode
-tracker.start_gps_tracking(update_interval=5.0, simulate=False)
+tracker.start_gps_tracking(update_interval=2.0, simulate=False)
 
 # Option 3: Add GPS coordinates manually
 tracker.add_location(

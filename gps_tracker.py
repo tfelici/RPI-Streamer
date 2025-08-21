@@ -562,8 +562,8 @@ class GPSTracker:
             'username': self.username
         }
 
-    def collect_gps_coordinates(self, update_interval: float = 5.0, simulate: bool = False):
-        """Collect GPS coordinates continuously with either real hardware or simulation"""
+    def start_gps_tracking(self, update_interval: float = 2.0, simulate: bool = False):
+        """Start GPS coordinate collection with either real hardware or simulation"""
         if not self.tracking_active:
             logger.error("Tracking session not started. Call start_tracking() first.")
             return False
@@ -754,7 +754,7 @@ def main():
     parser = argparse.ArgumentParser(description='RPI Streamer GPS Tracker')
     parser.add_argument('username', help='Username for tracking session')
     parser.add_argument('--host', default='gyropilots.org', help='Server hostname')
-    parser.add_argument('--interval', type=float, default=5.0, help='GPS update interval in seconds')
+    parser.add_argument('--interval', type=float, default=2.0, help='GPS update interval in seconds')
     parser.add_argument('--simulate', action='store_true', help='Run with simulated GPS data for testing')
     parser.add_argument('--duration', type=int, help='Duration to run in seconds (for simulation)')
     
@@ -803,11 +803,11 @@ def main():
         
         if args.simulate:
             # Start GPS coordinate collection with simulation
-            tracker.collect_gps_coordinates(args.interval, simulate=True)
+            tracker.start_gps_tracking(args.interval, simulate=True)
         else:
             # Start GPS coordinate collection with real hardware
             # Always start the tracking process - it will handle hardware initialization internally
-            tracker.collect_gps_coordinates(args.interval, simulate=False)
+            tracker.start_gps_tracking(args.interval, simulate=False)
                     
     except KeyboardInterrupt:
         logger.info("Received interrupt signal")
