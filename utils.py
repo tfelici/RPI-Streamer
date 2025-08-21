@@ -230,8 +230,8 @@ def get_gps_tracking_status():
             pass
     
     # Start with default status - check for detailed status first before deciding if tracking is active
-    default_status = {
-        'running': pid is not None,
+    tracking_status = {
+        'running': pid is not None and is_pid_running(pid),
         'pid': pid,
         'username': username,
         'host': host,
@@ -247,18 +247,18 @@ def get_gps_tracking_status():
             with open(GPS_STATUS_FILE, 'r') as f:
                 detailed_status = json.load(f)
                 # Update the default status with detailed info
-                default_status.update(detailed_status)
+                tracking_status.update(detailed_status)
                 # If we have status file info but no running process, keep process info as False
                 if pid is None:
-                    default_status['running'] = False
-                    default_status['pid'] = None
-                    default_status['username'] = None
-                    default_status['host'] = None
-                    default_status['track_id'] = None
+                    tracking_status['running'] = False
+                    tracking_status['pid'] = None
+                    tracking_status['username'] = None
+                    tracking_status['host'] = None
+                    tracking_status['track_id'] = None
         except (json.JSONDecodeError, ValueError, IOError):
             pass  # Use default status if file is corrupted or unreadable
     
-    return default_status
+    return tracking_status
 
 def is_gps_tracking():
     """Check if GPS tracking is currently active"""

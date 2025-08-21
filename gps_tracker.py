@@ -571,6 +571,7 @@ class GPSTracker:
         if simulate:
             logger.info("Starting GPS simulation mode")
             logger.info("Running circular flight simulation from Oxford Airport UK")
+            write_gps_status("simulation", "GPS simulation mode active - Oxford Airport circular flight")
             start_time = time.time()
             
             try:
@@ -578,6 +579,9 @@ class GPSTracker:
                     # Generate and add simulated GPS data
                     gps_data = simulate_gps_data()
                     self.add_location(**gps_data)
+                    
+                    # Update GPS status with current simulated position
+                    write_gps_status("simulation", f"GPS simulation - lat: {gps_data['latitude']:.6f}, lon: {gps_data['longitude']:.6f}", gps_data)
                     
                     # Log progress for circular flight
                     elapsed = time.time() - start_time
@@ -588,6 +592,7 @@ class GPSTracker:
                     time.sleep(update_interval)
             except KeyboardInterrupt:
                 logger.info("GPS simulation interrupted")
+                write_gps_status("simulation", "GPS simulation interrupted")
         else:
             logger.info("Starting real GPS hardware tracking")
             
