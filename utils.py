@@ -27,7 +27,12 @@ import os
 import json
 import atexit
 import psutil
+import time
 from datetime import datetime
+
+def generate_gps_track_id() -> str:
+    """Generate a unique GPS track ID based on current timestamp"""
+    return str(int(time.time()))
 
 # Settings constants and defaults
 STREAMER_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'streamerData'))
@@ -50,7 +55,8 @@ DEFAULT_SETTINGS = {
     "audio_input": None,
     "video_input": None,
     "video_stabilization": False,
-    "gps_username": "",
+    "flightserver_domain": "gyropilots.org",
+    "flightserver_username": "",
     "aircraft_registration": "",
     "gps_stream_link": False,
     "gps_start_mode": "manual",
@@ -207,13 +213,13 @@ def is_streaming():
 def get_gps_tracking_status():
     """
     Get detailed GPS tracking status including hardware state.
-    Returns dict with: running, pid, username, host, track_id, hardware_status, last_update
+    Returns dict with: running, pid, username, domain, track_id, hardware_status, last_update
     """
     GPS_PIDFILE = "/tmp/gps-tracker.pid"
     GPS_STATUS_FILE = "/tmp/gps-tracker-status.json"
     
     # Check if process is running
-    pid, username, host, track_id = None, None, None, None
+    pid, username, domain, track_id = None, None, None, None
     
     if os.path.exists(GPS_PIDFILE):
         try:
@@ -222,10 +228,10 @@ def get_gps_tracking_status():
                 if line:
                     parts = line.split(':', 3)
                     if len(parts) >= 4:
-                        pid_str, username, host, track_id = parts
+                        pid_str, username, domain, track_id = parts
                         pid = int(pid_str)
                         if not is_pid_running(pid):
-                            pid, username, host, track_id = None, None, None, None
+                            pid, username, domain, track_id = None, None, None, None
         except Exception:
             pass
     
@@ -234,7 +240,7 @@ def get_gps_tracking_status():
         'running': pid is not None and is_pid_running(pid),
         'pid': pid,
         'username': username,
-        'host': host,
+        'domain': domain,
         'track_id': track_id,
         'hardware_status': 'unknown',
         'status_message': 'GPS tracking is not active' if pid is None else 'GPS tracking starting - checking hardware status...',
@@ -253,7 +259,7 @@ def get_gps_tracking_status():
                     tracking_status['running'] = False
                     tracking_status['pid'] = None
                     tracking_status['username'] = None
-                    tracking_status['host'] = None
+                    tracking_status['domain'] = None
                     tracking_status['track_id'] = None
         except (json.JSONDecodeError, ValueError, IOError):
             pass  # Use default status if file is corrupted or unreadable

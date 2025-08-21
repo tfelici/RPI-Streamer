@@ -17,9 +17,20 @@
             {% endif %}
             
             <form method="POST" action="/flight-settings">
-                <label for="gps_username">Username</label>
-                <input type="text" id="gps_username" name="gps_username" value="{{ settings.gps_username }}" placeholder="Enter your username for GPS tracking" required>
-                <small>This username will be used for GPS tracking identification.</small>
+                <label>Flight Server Settings</label>
+                <div style="display: flex; gap: 15px; align-items: flex-start;">
+                    <div style="flex: 2;">
+                        <input type="text" id="flightserver_username" name="flightserver_username" value="{{ settings.flightserver_username }}" placeholder="Enter your username" required>
+                        <small style="display: block;">Username for flight server authentication</small>
+                    </div>
+                    <div style="flex: 1;">
+                        <select id="flightserver_domain" name="flightserver_domain" required>
+                            <option value="gyropilots.org" {% if settings.flightserver_domain == 'gyropilots.org' %}selected{% endif %}>gyropilots.org</option>
+                            <option value="gapilots.org" {% if settings.flightserver_domain == 'gapilots.org' %}selected{% endif %}>gapilots.org</option>
+                        </select>
+                        <small style="display: block;">Server domain</small>
+                    </div>
+                </div>
 
                 <label for="aircraft_registration">Aircraft Registration</label>
                 <input type="text" id="aircraft_registration" name="aircraft_registration" value="{{ settings.aircraft_registration }}" placeholder="e.g., N123AB, G-ABCD, D-EFGH">

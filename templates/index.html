@@ -198,6 +198,53 @@
         .diag-value.warning {
             color: #ffc107;
         }
+        
+        /* Panel Header Styles */
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            flex-wrap: nowrap;
+        }
+        
+        .panel-header h2 {
+            margin: 0;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        
+        .panel-header .btn {
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+        
+        /* Responsive Styles */
+        @media (max-width: 768px) {
+            .panel-header {
+                gap: 10px;
+            }
+            
+            .panel-header h2 {
+                font-size: 1.3em;
+            }
+            
+            .panel-header .btn {
+                font-size: 0.9em !important;
+                padding: 8px 14px !important;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .panel-header h2 {
+                font-size: 1.1em;
+            }
+            
+            .panel-header .btn {
+                font-size: 0.85em !important;
+                padding: 6px 12px !important;
+            }
+        }
     </style>
 </head>
 
@@ -442,13 +489,16 @@
 
         <!-- GPS Tracking -->
         <div class="frame" id="gps-panel">
-            <h2>GPS Tracking</h2>
+            <div class="panel-header">
+                <h2>Flight Control</h2>
+                <a href="/flight-settings" class="btn btn-secondary" style="font-size: 1em; padding: 10px 18px;">⚙️ Settings</a>
+            </div>
             
             <!-- Flight Settings Info -->
             <div class="flight-info" style="background: #f8f9fa; padding: 12px; border-radius: 6px; margin-bottom: 1rem; font-size: 14px;">
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                     <div>
-                        <strong>Username:</strong> {{ settings.gps_username or 'Not configured' }}
+                        <strong>Username:</strong> {{ settings.flightserver_username or 'Not configured' }}
                     </div>
                     <div>
                         <strong>Aircraft:</strong> {{ settings.aircraft_registration or 'Not set' }}
@@ -465,7 +515,7 @@
                         <strong>Stream Link:</strong> {{ 'Enabled' if settings.gps_stream_link else 'Disabled' }}
                     </div>
                 </div>
-                {% if not settings.gps_username %}
+                {% if not settings.flightserver_username %}
                 <div style="margin-top: 8px; color: #dc3545; font-size: 13px;">
                     ?? Configure username in <a href="/flight-settings" style="color: #0d6efd;">Flight Settings</a> to enable GPS tracking
                 </div>
@@ -473,7 +523,7 @@
             </div>
             
             <div style="text-align: center; margin-bottom: 1.5rem;">
-                <button id="gps-btn" class="btn btn-primary" {% if not settings.gps_username %}disabled title="Configure username in Flight Settings first"{% endif %}>
+                <button id="gps-btn" class="btn btn-primary" {% if not settings.flightserver_username %}disabled title="Configure username in Flight Settings first"{% endif %}>
                     {{ 'Stop GPS Tracking' if gps_tracking else 'Start GPS Tracking' }}
                 </button>
             </div>
@@ -520,7 +570,10 @@
 
         <!-- Stream Control -->
         <div class="frame" id="stream-panel">
-            <h2>Stream Control</h2>
+            <div class="panel-header">
+                <h2>Stream Control</h2>
+                <a href="/stream-settings" class="btn btn-secondary" style="font-size: 1em; padding: 10px 18px;">⚙️ Settings</a>
+            </div>
             <div style="text-align: center; margin-bottom: 1.5rem;">
                 <button id="stream-btn" class="btn btn-primary">
                     {{ 'Stop Streaming' if streaming else 'Start Streaming' }}

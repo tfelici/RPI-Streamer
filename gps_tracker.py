@@ -31,6 +31,7 @@ import random
 import os
 from datetime import datetime
 from typing import Dict, List, Optional
+from utils import generate_gps_track_id
 
 try:
     import RPi.GPIO as GPIO
@@ -329,11 +330,17 @@ class SIM7600GHardware:
 
 
 class GPSTracker:
-    def __init__(self, username: str, host: str = 'gyropilots.org'):
-        self.username = username
-        self.host = host
-        self.base_url = f'https://{host}'
-        self.track_id = None
+    def __init__(self, username: str, domain: str, track_id: Optional[str] = None):
+        # Validate required parameters
+        if not username or not username.strip():
+            raise ValueError("Username is required and cannot be empty")
+        if not domain or not domain.strip():
+            raise ValueError("Domain is required and cannot be empty")
+        
+        self.username = username.strip()
+        self.domain = domain.strip()
+        self.base_url = f'https://{self.domain}'
+        self.track_id = track_id if track_id else None
         self.coordinates_to_sync = []
         self.sync_active = False
         self.tracking_active = False
@@ -352,11 +359,7 @@ class GPSTracker:
         # Platform identifier
         self.platform = "RPI-Streamer-Python/1.0"
         
-        logger.info(f"GPS Tracker initialized for user: {username}")
-
-    def generate_track_id(self) -> str:
-        """Generate a unique track ID based on current timestamp"""
-        return str(int(time.time()))
+        logger.info(f"GPS Tracker initialized for user: {username} on domain: {domain}")
 
     def start_tracking(self) -> bool:
         """Start a new tracking session"""
@@ -364,7 +367,8 @@ class GPSTracker:
             logger.warning("Tracking is already active")
             return False
             
-        self.track_id = self.generate_track_id()
+        if not self.track_id:
+            self.track_id = generate_gps_track_id()
         self.coordinates_to_sync = []
         self.tracking_active = True
         
@@ -758,10 +762,11 @@ def simulate_gps_data():
 def main():
     parser = argparse.ArgumentParser(description='RPI Streamer GPS Tracker')
     parser.add_argument('username', help='Username for tracking session')
-    parser.add_argument('--host', default='gyropilots.org', help='Server hostname')
+    parser.add_argument('--domain', required=True, help='Server domain (gyropilots.org or gapilots.org)')
     parser.add_argument('--interval', type=float, default=2.0, help='GPS update interval in seconds')
     parser.add_argument('--simulate', action='store_true', help='Run with simulated GPS data for testing')
     parser.add_argument('--duration', type=int, help='Duration to run in seconds (for simulation)')
+    parser.add_argument('--track_id', type=str, help='Optional: Use a specific track ID for the session')
     
     args = parser.parse_args()
     
@@ -790,7 +795,7 @@ def main():
     signal.signal(signal.SIGINT, handle_exit)
     
     # Create GPS tracker instance
-    tracker = GPSTracker(args.username, args.host)
+    tracker = GPSTracker(args.username, args.domain, track_id=args.track_id)
     
     try:
         # Start tracking
@@ -801,8 +806,8 @@ def main():
         # Write active PID file immediately after successful tracking start
         try:
             with open(GPS_PIDFILE, 'w') as f:
-                f.write(f"{os.getpid()}:{args.username}:{args.host}:{tracker.track_id}\n")
-            logger.info(f"Active PID file written: {GPS_PIDFILE} with PID {os.getpid()}, user {args.username}, track ID {tracker.track_id}")
+                f.write(f"{os.getpid()}:{args.username}:{args.domain}:{tracker.track_id}\n")
+            logger.info(f"Active PID file written: {GPS_PIDFILE} with PID {os.getpid()}, user {args.username}, domain {args.domain}, track ID {tracker.track_id}")
         except Exception as e:
             logger.warning(f"Could not write active PID file: {e}")
         

@@ -18,11 +18,12 @@ import uuid
 import requests
 import socket
 import platform
+import random
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, generate_gps_track_id
 
 # Use pymediainfo for fast video duration extraction
 try:
@@ -388,8 +389,9 @@ def flight_settings_save():
     settings = load_settings()
     
     # Update flight settings
-    settings['gps_username'] = request.form.get('gps_username', '').strip()
+    settings['flightserver_username'] = request.form.get('flightserver_username', '').strip()
     settings['aircraft_registration'] = request.form.get('aircraft_registration', '').strip()
+    settings['flightserver_domain'] = request.form.get('flightserver_domain', 'gyropilots.org').strip()
     settings['gps_stream_link'] = request.form.get('gps_stream_link') == 'on'
     old_gps_start_mode = settings['gps_start_mode']
     settings['gps_start_mode'] = request.form.get('gps_start_mode', 'manual')
@@ -520,23 +522,226 @@ def stop_streaming():
     
     return True, 'stopped', 200
 
+def get_gyropedia_flights(gyropedia_id, aircraft_registration=None, flightserver_domain="gyropilots.org"):
+    """
+    Get list of flights from Gyropedia similar to creategyropediaflightlist JavaScript function.
+    
+    Args:
+        gyropedia_id: The user's Gyropedia API key
+        aircraft_registration: Aircraft registration number to match flights (optional)
+        flightserver_domain: Domain to use for API calls (gyropilots.org or gapilots.org)
+    
+    Returns:
+        tuple: (success, flight_id, error_message)
+    """
+    try:
+        # Make GET request to get flight list
+        response = requests.get(
+            f'https://{flightserver_domain}/ajaxservices.php',
+            params={
+                'command': 'getgyropediaflights',
+                'key': gyropedia_id,
+                'rand': str(random.random())  # Add random parameter like in JavaScript
+            },
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            try:
+                parsed_data = response.json()
+                
+                if 'error' in parsed_data and parsed_data['error']:
+                    return False, None, f"Gyropedia API error: {parsed_data.get('errormsg', 'Unknown error')}"
+                
+                # Look for flights, prefer planned flights (status 'P')
+                if 'flight' in parsed_data and parsed_data['flight']:
+                    planned_flights = [f for f in parsed_data['flight'] if f.get('status') == 'P']
+                    
+                    if planned_flights:
+                        # If we have an aircraft registration, look for matching flights first
+                        if aircraft_registration and aircraft_registration.strip():
+                            matching_flights = [f for f in planned_flights if f.get('reg', '').strip().upper() == aircraft_registration.strip().upper()]
+                            
+                            if matching_flights:
+                                # Use first flight that matches the aircraft registration
+                                first_flight = matching_flights[0]
+                                flight_id = first_flight.get('flight_id')
+                                print(f"Found planned Gyropedia flight for aircraft {aircraft_registration}: {flight_id}")
+                                return True, flight_id, None
+                            else:
+                                print(f"No planned flights found for aircraft registration {aircraft_registration}, using first available planned flight")
+                        
+                        # Fallback: Use first planned flight (regardless of registration)
+                        first_flight = planned_flights[0]
+                        flight_id = first_flight.get('flight_id')
+                        flight_reg = first_flight.get('reg', 'Unknown')
+                        print(f"Found planned Gyropedia flight: {flight_id} (aircraft: {flight_reg})")
+                        return True, flight_id, None
+                    else:
+                        # No planned flights available
+                        return False, None, "No planned flights found in Gyropedia"
+                else:
+                    return False, None, "No flights found in Gyropedia response"
+                    
+            except json.JSONDecodeError as e:
+                return False, None, f"Failed to parse Gyropedia flight list response: {e}"
+        else:
+            return False, None, f"Gyropedia flight list request failed with HTTP {response.status_code}"
+            
+    except requests.RequestException as e:
+        return False, None, f"Network error getting Gyropedia flights: {e}"
+    except Exception as e:
+        return False, None, f"Unexpected error getting Gyropedia flights: {e}"
+
+def update_gyropedia_flight(state, settings, track_id=None, aircraft_registration=None):
+    """
+    Update Gyropedia flight status similar to updategyropediaflight JavaScript function.
+    
+    Args:
+        state: 'start' or 'stop'
+        settings: Application settings dictionary
+        track_id: GPS tracking ID if available
+        aircraft_registration: Aircraft registration number to match flights (optional)
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        # Check if Gyropedia integration is configured
+        gyropedia_id = settings.get('gyropedia_id', '').strip()
+        username = settings.get('flightserver_username', '').strip()
+        flightserver_domain = settings.get('flightserver_domain', 'gyropilots.org').strip()
+        
+        if not gyropedia_id or not username:
+            print("Gyropedia integration not configured (missing gyropedia_id or username), skipping flight update")
+            return True  # Not an error, just not configured
+        
+        # Always get the first available flight from Gyropedia dynamically
+        print(f"Getting first available flight from {flightserver_domain}...")
+        success, flight_id, error = get_gyropedia_flights(gyropedia_id, aircraft_registration, flightserver_domain)
+        
+        if not success or not flight_id:
+            print(f"Could not get Gyropedia flight list: {error}")
+            return True  # Don't fail the GPS tracking just because we can't get flight list
+        
+        print(f"Using Gyropedia flight: {flight_id}")
+        
+        # Determine flight status based on state
+        if not state:
+            status = ''
+        elif state == 'start':
+            status = 'F'  # Flying/Active
+        else:  # stop
+            status = 'L'  # Landed
+        
+        # Get current time for start/end times
+        current_time = datetime.now().strftime('%H:%M')
+        
+        # Prepare source_id similar to JavaScript version
+        source_id = f"{username}:{track_id}" if track_id else ''
+        
+        # Prepare data for POST request
+        post_data = {
+            'command': 'updategyropediaflight',
+            'key': gyropedia_id,
+            'flight_id': flight_id,
+            'source_id': source_id,
+            'starttime': current_time if status == 'F' else '',
+            'endtime': current_time if status == 'L' else '',
+            'status': status
+        }
+        
+        # Make POST request to ajaxservices.php
+        response = requests.post(
+            f'https://{flightserver_domain}/ajaxservices.php',
+            data=post_data,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            try:
+                parsed_data = response.json()
+                if 'error' in parsed_data and parsed_data['error']:
+                    print(f"Gyropedia flight update error: {parsed_data['error']}")
+                    return False
+                
+                print(f"Successfully updated Gyropedia flight {flight_id} to status '{status}'")
+                return True
+                
+            except json.JSONDecodeError as e:
+                print(f"Failed to parse Gyropedia response: {e}")
+                return False
+        else:
+            print(f"Gyropedia flight update failed with HTTP {response.status_code}")
+            return False
+            
+    except requests.RequestException as e:
+        print(f"Network error updating Gyropedia flight: {e}")
+        return False
+    except Exception as e:
+        print(f"Unexpected error updating Gyropedia flight: {e}")
+        return False
+
 def start_flight():
-    """Helper function to start GPS tracking. Returns (success, message, status_code)"""
+    """
+    Helper function to start GPS tracking. Returns (success, message, status_code)
+    
+    This function generates a track_id upfront and passes it to the GPS tracker process,
+    eliminating the need to wait for track_id generation and complex polling logic.
+    This approach is more reliable and provides immediate access to the track_id.
+    """
     # Check if already tracking
     if is_gps_tracking():
         return False, 'GPS tracking is already active.', 200
     
-    # Get username from settings and validate
+    # Get username and domain from settings and validate
     settings = load_settings()
-    username = settings['gps_username'].strip()
-    if not username:
-        return False, 'GPS username is not configured. Please set a username for GPS tracking in the flight settings.', 400
+    username = settings['flightserver_username'].strip()
+    flightserver_domain = settings.get('flightserver_domain', '').strip()
     
-    # Start GPS tracker in real mode (hardware will be initialized internally)
+    if not username:
+        return False, 'Flight server username is not configured. Please set a username for GPS tracking in the flight settings.', 400
+    
+    if not flightserver_domain:
+        return False, 'Flight server domain is not configured. Please set a domain for GPS tracking in the flight settings.', 400
+    
+    # Generate track_id upfront using centralized function
+    track_id = generate_gps_track_id()
+    print(f"Generated track ID: {track_id}")
+    
+    # Start GPS tracker with the pre-generated track_id
     try:
-        subprocess.Popen(['python', 'gps_tracker.py', username])
+        subprocess.Popen(['python', 'gps_tracker.py', username, '--domain', flightserver_domain, '--track_id', track_id])
+        print(f"Started GPS tracker process with track ID: {track_id}")
     except Exception as e:
         return False, f'Failed to start GPS tracker process: {e}', 500
+    
+    # Post aircraft registration to flight server (similar to PHP onafterstartstop)
+    aircraft_registration = settings.get('aircraft_registration', '').strip()
+    
+    if aircraft_registration:
+        try:
+            response = requests.post(
+                f'https://{flightserver_domain}/ajaxservices.php',
+                data={
+                    'command': 'setuserfield',
+                    'username': username,
+                    'field': 'aircraft_reg',
+                    'value': aircraft_registration
+                },
+                timeout=10
+            )
+            if response.status_code == 200:
+                print(f"Successfully posted aircraft registration {aircraft_registration} to flight server")
+            else:
+                print(f"Warning: Failed to post aircraft registration - HTTP {response.status_code}")
+        except requests.RequestException as e:
+            print(f"Warning: Network error posting aircraft registration: {e}")
+        except Exception as e:
+            print(f"Warning: Unexpected error posting aircraft registration: {e}")
+    
+    # Update Gyropedia flight status to "Flying" (F)
+    update_gyropedia_flight('start', settings, track_id, aircraft_registration)
     
     # If gps_stream_link is enabled, also start video streaming
     if settings['gps_stream_link']:
@@ -558,6 +763,8 @@ def stop_flight():
         try:
             gps_status = get_gps_tracking_status()
             gps_pid = gps_status['pid']
+            track_id = gps_status.get('track_id')
+            
             if gps_pid:
                 print(f"Stopping GPS tracking with PID {gps_pid}")
                 if is_pid_running(gps_pid):
@@ -568,6 +775,11 @@ def stop_flight():
                         break
                     time.sleep(0.1)
                 print("GPS tracking stopped successfully.")
+            
+            # Update Gyropedia flight status to "Landed" (L)
+            aircraft_registration = settings.get('aircraft_registration', '').strip()
+            update_gyropedia_flight('stop', settings, track_id, aircraft_registration)
+            
         except Exception as e:
             print(f"Error stopping GPS tracking: {e}")
             
@@ -581,6 +793,11 @@ def stop_flight():
                 print(f"Warning: Failed to auto-stop video streaming: {message}")
     else:
         print("No active GPS tracking to stop.")
+    
+    # Update Gyropedia flight status even if GPS tracking wasn't active
+    # (in case the tracking stopped unexpectedly but we still want to mark flight as landed)
+    aircraft_registration = settings.get('aircraft_registration', '').strip()
+    update_gyropedia_flight('stop', settings, None, aircraft_registration)
     
     return True, 'stopped', 200
 

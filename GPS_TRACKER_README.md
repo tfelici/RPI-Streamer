@@ -39,7 +39,7 @@ pip install pyserial RPi.GPIO
 
 Run with simulated GPS data (Oxford Airport circular flight):
 ```bash
-python gps_tracker.py your_username --simulate --duration 60
+python gps_tracker.py your_username --domain gyropilots.org --simulate --duration 60
 ```
 
 ### Real GPS Hardware Mode
@@ -47,7 +47,7 @@ python gps_tracker.py your_username --simulate --duration 60
 Use with actual GPS hardware. The tracker will automatically handle hardware initialization and will continuously attempt to reconnect if the GPS dongle is temporarily disconnected:
 
 ```bash
-python gps_tracker.py your_username
+python gps_tracker.py your_username --domain gyropilots.org
 ```
 
 **Hardware Resilience**: If the GPS hardware is not available at startup or becomes disconnected during operation, the tracker will:
@@ -60,14 +60,14 @@ python gps_tracker.py your_username
 
 Run without automatic GPS collection for programmatic control:
 ```bash
-python gps_tracker.py your_username --interval 10
+python gps_tracker.py your_username --domain gyropilots.org --interval 10
 ```
 
 ### Command Line Options
 
 **gps_tracker.py:**
-- `username` - Required: Your Gyropilots username
-- `--host` - Server hostname (default: gyropilots.org)
+- `username` - Required: Your flight server username
+- `--domain` - Required: Server domain (gyropilots.org or gapilots.org)
 - `--interval` - GPS update interval in seconds (default: 2.0)
 - `--simulate` - Use simulated GPS data (Oxford Airport circular flight)
 - `--duration` - Duration to run in seconds (for simulation mode)
@@ -77,8 +77,8 @@ python gps_tracker.py your_username --interval 10
 ```python
 from gps_tracker import GPSTracker
 
-# Create tracker instance
-tracker = GPSTracker('your_username')
+# Create tracker instance (both username and domain are required)
+tracker = GPSTracker('your_username', 'gyropilots.org')
 
 # Start tracking session
 tracker.start_tracking()
@@ -128,7 +128,7 @@ The simulation mode creates a realistic circular flight path:
 
 ### Server Communication
 
-The tracker communicates with `https://gyropilots.org/trackflight.php` using:
+The tracker communicates with the configured flight server domain (gyropilots.org or gapilots.org) at `/trackflight.php` using:
 
 - `command: 'addpoints'` - Sync GPS coordinates
 - `command: 'trackingended'` - Signal end of tracking session
