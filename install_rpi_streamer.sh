@@ -1,10 +1,10 @@
 #!/bin/bash
 # RPI Streamer installation script
-# Usage: bash install_rpi_streamer.sh [--tailscale] [--sim7600]
+# Usage: bash install_rpi_streamer.sh [--tailscale]
 
 # This script installs the RPI Streamer Flask app and MediaMTX on a Raspberry Pi running Raspberry Pi OS Lite.
 # It also sets up a systemd service for the Flask app and MediaMTX, and installs Tailscale for remote access.
-# Optional: --sim7600 sets up SIM7600G-H 4G dongle for internet connectivity
+# SIM7600G-H 4G dongle support is installed automatically for all deployments.
 ################################################
 
 set -e
@@ -372,7 +372,7 @@ Wants=network-online.target
 User=$USER
 Type=oneshot
 ExecStart=/usr/bin/curl -H "Cache-Control: no-cache" -L -o $HOME/flask_app/install_rpi_streamer.sh "https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh?$(date +%s)"
-ExecStartPost=/bin/bash -e $HOME/flask_app/install_rpi_streamer.sh
+ExecStartPost=/bin/bash -e $HOME/flask_app/install_rpi_streamer.sh 
 RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
@@ -389,26 +389,25 @@ sudo systemctl restart mediamtx
 # It will be automatically enabled/disabled based on Flight Settings configuration
 echo "?? GPS Startup Service: Available but not enabled (configure via Flight Settings)"
 
-# Install SIM7600G-H internet setup if specified in command line arguments
-if [[ "$@" == *"--sim7600"* ]]; then
-    echo ""
-    echo "=========================================="
-    echo "📡 SIM7600G-H 4G DONGLE Internet Setup"
-    echo "=========================================="
-    echo ""
-    
-    # Always install the basic dependencies and drivers
-    echo "📦 Installing SIM7600G-H dependencies and drivers..."
-    
-    # Install required packages for SIM7600 support
-    sudo apt-get update -qq
-    sudo apt-get install -y usb-modeswitch usb-modeswitch-data minicom screen ppp
-    
-    echo "✅ SIM7600G-H dependencies installed"
-    
-    # Create the auto-startup service regardless of hardware presence
-    echo "🔧 Creating SIM7600G-H auto-startup service..."
-    sudo tee /etc/systemd/system/sim7600-internet.service >/dev/null << 'EOFSERVICE'
+# Install SIM7600G-H internet setup (always installed)
+echo ""
+echo "=========================================="
+echo "📡 SIM7600G-H 4G DONGLE Internet Setup"
+echo "=========================================="
+echo ""
+
+# Always install the basic dependencies and drivers
+echo "📦 Installing SIM7600G-H dependencies and drivers..."
+
+# Install required packages for SIM7600 support
+sudo apt-get update -qq
+sudo apt-get install -y usb-modeswitch usb-modeswitch-data minicom screen ppp
+
+echo "✅ SIM7600G-H dependencies installed"
+
+# Create the auto-startup service regardless of hardware presence
+echo "🔧 Creating SIM7600G-H auto-startup service..."
+sudo tee /etc/systemd/system/sim7600-internet.service >/dev/null << 'EOFSERVICE'
 [Unit]
 Description=SIM7600G-H 4G Internet Connection
 After=network.target
@@ -441,30 +440,26 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOFSERVICE
-    
-    sudo systemctl daemon-reload
-    sudo systemctl enable sim7600-internet.service
-    
-    echo "✅ SIM7600G-H service created and enabled"
-    echo ""
-    echo "📋 Setup completed! The system will automatically:"
-    echo "   1. Detect the dongle when connected"
-    echo "   2. Configure RNDIS mode if needed"
-    echo "   3. Establish internet connection"
-    echo ""
-    echo "🔌 To use the dongle:"
-    echo "   1. Insert SIM card into the dongle"
-    echo "   2. Connect dongle to USB port"
-    echo "   3. Wait 30-60 seconds for auto-configuration"
-    echo "   4. Check connection: ip addr show usb0"
-    echo ""
-    echo "✅ SIM7600G-H setup completed (will auto-configure on boot/connection)"
-    
-    SIM7600_STATUS=0
-else
-    echo "Skipping SIM7600G-H 4G dongle setup. Use --sim7600 flag to enable."
-    SIM7600_STATUS=2
-fi
+
+sudo systemctl daemon-reload
+sudo systemctl enable sim7600-internet.service
+
+echo "✅ SIM7600G-H service created and enabled"
+echo ""
+echo "📋 Setup completed! The system will automatically:"
+echo "   1. Detect the dongle when connected"
+echo "   2. Configure RNDIS mode if needed"
+echo "   3. Establish internet connection"
+echo ""
+echo "🔌 To use the dongle:"
+echo "   1. Insert SIM card into the dongle"
+echo "   2. Connect dongle to USB port"
+echo "   3. Wait 30-60 seconds for auto-configuration"
+echo "   4. Check connection: ip addr show usb0"
+echo ""
+echo "✅ SIM7600G-H setup completed (will auto-configure on boot/connection)"
+
+SIM7600_STATUS=0
 
 # Install tailscale if the specified in the command line arguments
 if [[ "$@" == *"--tailscale"* ]]; then
@@ -486,20 +481,11 @@ echo "?? Services installed:"
 echo "   � Flask App (enabled & running)"
 echo "   � MediaMTX (enabled & running)" 
 echo "   � GPS Startup Manager (available, configure via web interface)"
-
-# Add SIM7600 status to completion message
-if [ "$SIM7600_STATUS" -eq 0 ]; then
-    echo "   � SIM7600G-H Internet (enabled & configured)"
-elif [ "$SIM7600_STATUS" -eq 1 ]; then
-    echo "   � SIM7600G-H Internet (attempted, check manually)"
-else
-    echo "   � SIM7600G-H Internet (not configured, use --sim7600 to enable)"
-fi
+echo "   � SIM7600G-H Internet (enabled & configured)"
 
 echo ""
 echo "?? Optional setup flags:"
 echo "   --tailscale  : Install Tailscale for remote access"
-echo "   --sim7600    : Configure SIM7600G-H 4G dongle internet"
 echo ""
 echo "?? Documentation:"
 echo "   GPS Tracker: GPS_TRACKER_README.md"

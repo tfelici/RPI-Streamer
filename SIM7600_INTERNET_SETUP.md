@@ -13,11 +13,11 @@ This guide helps you set up the Waveshare SIM7600G-H 4G DONGLE for internet acce
 ## Quick Setup
 
 ### Automated Installation
-The RPI Streamer installation script now includes SIM7600G-H support:
+The RPI Streamer installation script now includes SIM7600G-H support by default:
 
 ```bash
-# Install with SIM7600 support (recommended)
-bash install_rpi_streamer.sh --sim7600
+# Standard installation (includes SIM7600 support automatically)
+bash install_rpi_streamer.sh
 
 # The setup will:
 # ✅ Install all required drivers and dependencies
@@ -26,7 +26,7 @@ bash install_rpi_streamer.sh --sim7600
 # ✅ Work automatically when dongle is plugged in later
 ```
 
-**Important**: The installation will proceed even if the dongle is not currently connected. All drivers and services will be installed so the dongle will work immediately when plugged in later.
+**Important**: SIM7600 support is now included in every installation. All drivers and services are installed automatically so the dongle will work immediately when plugged in.
 
 ### Hardware Connection
 1. Insert your activated nano SIM card into the SIM7600G-H dongle
