@@ -31,7 +31,7 @@ import random
 import os
 from datetime import datetime
 from typing import Dict, List, Optional
-from utils import generate_gps_track_id
+from utils import generate_gps_track_id, calculate_distance
 
 try:
     import RPi.GPIO as GPIO
@@ -350,6 +350,12 @@ class GPSTracker:
         # GPS Hardware
         self.gps_hardware = None
         
+        # Movement detection
+        self.last_position = None
+        self.movement_threshold = 5.0  # meters - minimum distance to consider as movement
+        self.last_recorded_time = None
+        self.is_stationary = False  # Track current movement state
+        
         # Configuration - matching the mobile app settings
         self.sync_interval = 2.0  # seconds
         self.sync_timeout = 10.0  # seconds
@@ -371,6 +377,11 @@ class GPSTracker:
             self.track_id = generate_gps_track_id()
         self.coordinates_to_sync = []
         self.tracking_active = True
+        
+        # Reset movement detection
+        self.last_position = None
+        self.last_recorded_time = None
+        self.is_stationary = False
         
         logger.info(f"Started tracking session with ID: {self.track_id}")
         
@@ -408,15 +419,68 @@ class GPSTracker:
         logger.info("Tracking session stopped")
         return True
 
+    def _should_record_location(self, latitude: float, longitude: float) -> bool:
+        """Determine if a location should be recorded based on movement state transitions"""
+        current_time = time.time()
+        
+        # Always record the first position
+        if self.last_position is None or self.last_recorded_time is None:
+            self.last_position = (latitude, longitude)
+            self.last_recorded_time = current_time
+            self.is_stationary = False  # Assume we start moving
+            logger.debug("Recording first GPS position")
+            return True
+        
+        # Calculate distance from last recorded position
+        distance = calculate_distance(
+            self.last_position[0], self.last_position[1],
+            latitude, longitude
+        )
+        
+        # Determine if currently moving based on distance threshold
+        currently_moving = distance >= self.movement_threshold
+        
+        # Check for state transitions
+        if not self.is_stationary and not currently_moving:
+            # Transition: Moving -> Stationary
+            logger.debug(f"Aircraft stopped: recording stationary position (moved {distance:.1f}m)")
+            self.last_position = (latitude, longitude)
+            self.last_recorded_time = current_time
+            self.is_stationary = True
+            return True
+            
+        elif self.is_stationary and currently_moving:
+            # Transition: Stationary -> Moving
+            logger.debug(f"Aircraft started moving: {distance:.1f}m from stationary position")
+            self.last_position = (latitude, longitude)
+            self.last_recorded_time = current_time
+            self.is_stationary = False
+            return True
+            
+        elif not self.is_stationary and currently_moving:
+            # Continuing to move - record this position
+            logger.debug(f"Continued movement: {distance:.1f}m from last position")
+            self.last_position = (latitude, longitude)
+            self.last_recorded_time = current_time
+            return True
+        
+        # Still stationary - don't record redundant positions
+        logger.debug(f"Still stationary: movement {distance:.1f}m < {self.movement_threshold}m threshold")
+        return False
+
     def add_location(self, latitude: float, longitude: float, 
                     altitude: Optional[float] = None, 
                     accuracy: Optional[float] = None,
                     heading: Optional[float] = None, 
                     speed: Optional[float] = None) -> bool:
-        """Add a GPS location point to the tracking session"""
+        """Add a GPS location point to the tracking session (only if movement detected)"""
         if not self.tracking_active:
             logger.warning("Cannot add location - tracking is not active")
             return False
+        
+        # Check if location should be recorded based on movement
+        if not self._should_record_location(latitude, longitude):
+            return False  # Location not recorded due to insufficient movement
             
         timestamp = int(time.time())
         
@@ -434,7 +498,7 @@ class GPSTracker:
         }
         
         self.coordinates_to_sync.append(coordinate)
-        logger.info(f"Added location: lat={latitude}, lon={longitude}, alt={altitude}")
+        logger.info(f"Recorded location: lat={latitude:.6f}, lon={longitude:.6f}, alt={altitude}")
         
         # Queue sync if we have too many coordinates
         if len(self.coordinates_to_sync) >= self.sync_threshold:

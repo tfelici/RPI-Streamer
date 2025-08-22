@@ -328,21 +328,13 @@ EOF
 # Install GPS Startup Manager Service
 printf "?? Installing GPS Startup Manager Service...\n"
 
-# Check if required GPS files exist
-GPS_STARTUP_SCRIPT="$HOME/flask_app/gps_startup_manager.py"
-GPS_SERVICE_FILE="$HOME/flask_app/gps-startup.service"
+# Make the GPS startup script executable
+chmod +x "$HOME/flask_app/gps_startup_manager.py"
+echo "? Made GPS startup script executable"
 
-if [ ! -f "$GPS_STARTUP_SCRIPT" ]; then
-    echo "?? Warning: GPS startup script not found: $GPS_STARTUP_SCRIPT"
-    echo "GPS startup functionality will not be available until the script is present."
-else
-    # Make the GPS startup script executable
-    chmod +x "$GPS_STARTUP_SCRIPT"
-    echo "? Made GPS startup script executable"
-    
-    # Create the GPS startup service
-    printf "Creating systemd service for GPS Startup Manager...\n"
-    sudo tee /etc/systemd/system/gps-startup.service >/dev/null << EOF
+# Create the GPS startup service
+printf "Creating systemd service for GPS Startup Manager...\n"
+sudo tee /etc/systemd/system/gps-startup.service >/dev/null << EOF
 [Unit]
 Description=GPS Startup Manager for RPI Streamer
 After=network.target
@@ -362,13 +354,12 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 EOF
-    
-    echo "? GPS Startup Manager service installed"
-    echo "?? GPS Service Info:"
-    echo "   � Service will be enabled/disabled automatically based on Flight Settings"
-    echo "   � Configure GPS start mode in the Flight Settings page"
-    echo "   � Manual control: sudo systemctl status gps-startup.service"
-fi
+
+echo "? GPS Startup Manager service installed"
+echo "?? GPS Service Info:"
+echo "   � Service will be enabled/disabled automatically based on Flight Settings"
+echo "   � Configure GPS start mode in the Flight Settings page"
+echo "   � Manual control: sudo systemctl status gps-startup.service"
 
 #create a systemd service for this script
 printf "Creating systemd service for this script...\n"
@@ -398,8 +389,8 @@ sudo systemctl restart mediamtx
 # It will be automatically enabled/disabled based on Flight Settings configuration
 echo "?? GPS Startup Service: Available but not enabled (configure via Flight Settings)"
 
-# Function to setup SIM7600G-H 4G dongle internet connectivity
-setup_sim7600_internet() {
+# Install SIM7600G-H internet setup if specified in command line arguments
+if [[ "$@" == *"--sim7600"* ]]; then
     echo ""
     echo "=========================================="
     echo "📡 SIM7600G-H 4G DONGLE Internet Setup"
@@ -425,7 +416,25 @@ Wants=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c 'sleep 30 && if lsusb | grep -q "1e0e:9011"; then if ip link show | grep -q "usb0"; then ip link set usb0 up && timeout 30 dhclient -v usb0; elif ip link show | grep -q "eth1"; then ip link set eth1 up && timeout 30 dhclient -v eth1; fi; fi'
+ExecStart=/bin/bash -c '\
+    sleep 30 && \
+    if lsusb | grep -q "1e0e:9011"; then \
+        # Check if SIM7600 already has an active connection \
+        for iface in $(ip link show | grep "usb[0-9]" | cut -d: -f2 | tr -d " "); do \
+            if ip addr show $iface | grep -q "inet "; then \
+                echo "SIM7600 found on $iface, skipping setup"; \
+                exit 0; \
+            fi; \
+        done; \
+        # Try to establish connection on available interfaces \
+        for iface in $(ip link show | grep -E "usb[0-9]|eth1" | cut -d: -f2 | tr -d " "); do \
+            if ip link set $iface up 2>/dev/null && \
+               timeout 30 dhclient -v $iface 2>/dev/null; then \
+                echo "SIM7600 connected on $iface"; \
+                break; \
+            fi; \
+        done; \
+    fi'
 RemainAfterExit=yes
 User=root
 
@@ -437,144 +446,21 @@ EOFSERVICE
     sudo systemctl enable sim7600-internet.service
     
     echo "✅ SIM7600G-H service created and enabled"
+    echo ""
+    echo "📋 Setup completed! The system will automatically:"
+    echo "   1. Detect the dongle when connected"
+    echo "   2. Configure RNDIS mode if needed"
+    echo "   3. Establish internet connection"
+    echo ""
+    echo "🔌 To use the dongle:"
+    echo "   1. Insert SIM card into the dongle"
+    echo "   2. Connect dongle to USB port"
+    echo "   3. Wait 30-60 seconds for auto-configuration"
+    echo "   4. Check connection: ip addr show usb0"
+    echo ""
+    echo "✅ SIM7600G-H setup completed (will auto-configure on boot/connection)"
     
-    # Check if the dongle is currently connected for immediate setup
-    echo "🔍 Checking for SIM7600G-H dongle..."
-    DONGLE_DETECTED=false
-    
-    if lsusb | grep -i "1e0e:9001\|1e0e:9011"; then
-        echo "✅ SIM7600G-H dongle detected!"
-        DONGLE_DETECTED=true
-    else
-        echo "ℹ️  SIM7600G-H dongle not currently detected"
-        echo "   📋 The system is now configured to automatically"
-        echo "      connect when the dongle is plugged in later."
-        echo ""
-        echo "   🔌 To use the dongle:"
-        echo "   1. Insert SIM card into the dongle"
-        echo "   2. Connect dongle to USB port"
-        echo "   3. Wait 30-60 seconds for auto-configuration"
-        echo "   4. Check connection: ip addr show usb0"
-        echo ""
-        echo "✅ SIM7600G-H setup completed (hardware will auto-configure when connected)"
-        return 0
-    fi
-    
-    # If dongle is detected, proceed with immediate configuration
-    if [ "$DONGLE_DETECTED" = true ]; then
-        # Check for available ttyUSB ports
-        echo "🔍 Checking USB serial ports..."
-        USB_PORTS=$(ls /dev/ttyUSB* 2>/dev/null || echo "")
-        if [ -z "$USB_PORTS" ]; then
-            echo "⚠️  No ttyUSB ports found!"
-            echo "   The dongle may not be properly recognized."
-            echo "   Try disconnecting and reconnecting the dongle."
-            echo "   ℹ️  Auto-configuration will work when dongle is ready."
-            return 0
-        fi
-        
-        echo "✅ Found USB ports: $USB_PORTS"
-        
-        # Determine the AT command port (usually ttyUSB2)
-        AT_PORT="/dev/ttyUSB2"
-        if [ ! -e "$AT_PORT" ]; then
-            echo "⚠️  ttyUSB2 not found, trying ttyUSB1..."
-            AT_PORT="/dev/ttyUSB1"
-            if [ ! -e "$AT_PORT" ]; then
-                echo "⚠️  ttyUSB1 not found, trying ttyUSB0..."
-                AT_PORT="/dev/ttyUSB0"
-                if [ ! -e "$AT_PORT" ]; then
-                    echo "❌ No suitable AT command port found!"
-                    echo "   ℹ️  Auto-configuration will work when dongle is ready."
-                    return 0
-                fi
-            fi
-        fi
-        
-        echo "📱 Using AT command port: $AT_PORT"
-        
-        # Function to send AT command using screen
-        send_at_screen() {
-            local command="$1"
-            echo "📤 Sending AT command: $command"
-            
-            # Create a screen session and send the command
-            screen -dm -S sim7600_at "$AT_PORT" 115200
-            sleep 2
-            screen -S sim7600_at -p 0 -X stuff "$command^M"
-            sleep 3
-            screen -S sim7600_at -X quit 2>/dev/null || true
-        }
-        
-        echo "🔧 Configuring SIM7600G-H for RNDIS networking..."
-        
-        # Switch to RNDIS mode (9011)
-        send_at_screen "AT+CUSBPIDSWITCH=9011,1,1"
-        
-        echo "⏳ Waiting for module to restart (30 seconds)..."
-        sleep 30
-        
-        # Check if usb0 interface appeared
-        echo "🔍 Checking for USB network interface..."
-        if ip link show | grep -q "usb0"; then
-            echo "✅ usb0 interface detected!"
-            
-            # Bring up the interface
-            echo "🌐 Bringing up usb0 interface..."
-            sudo ip link set usb0 up
-            
-            # Get IP address via DHCP
-            echo "📡 Requesting IP address via DHCP..."
-            timeout 30 sudo dhclient -v usb0 2>&1 | head -20 || echo "DHCP timeout"
-            
-            # Check if we got an IP
-            USB0_IP=$(ip addr show usb0 | grep "inet " | awk '{print $2}' | cut -d/ -f1)
-            if [ -n "$USB0_IP" ]; then
-                echo "✅ Successfully obtained IP address: $USB0_IP"
-                
-                # Test internet connectivity
-                echo "🌍 Testing internet connectivity..."
-                if timeout 10 ping -c 3 8.8.8.8 >/dev/null 2>&1; then
-                    echo "✅ Internet connection successful!"
-                    echo "✅ SIM7600G-H internet setup completed successfully!"
-                    echo "   Interface: usb0"
-                    echo "   IP Address: $USB0_IP"
-                    return 0
-                else
-                    echo "⚠️  Got IP but no internet connectivity"
-                    echo "   This might be due to APN settings or network registration"
-                fi
-            else
-                echo "⚠️  Interface is up but no IP address obtained"
-                echo "   Try manually: sudo dhclient -v usb0"
-            fi
-            
-        elif ip link show | grep -q "eth1"; then
-            echo "✅ eth1 interface detected (alternative naming)!"
-            ETH_IFACE="eth1"
-            
-            # Similar setup for eth1
-            sudo ip link set $ETH_IFACE up
-            timeout 30 sudo dhclient -v $ETH_IFACE || echo "DHCP timeout"
-            
-            ETH_IP=$(ip addr show $ETH_IFACE | grep "inet " | awk '{print $2}' | cut -d/ -f1)
-            if [ -n "$ETH_IP" ]; then
-                echo "✅ Successfully obtained IP address: $ETH_IP"
-                echo "✅ SIM7600G-H internet setup completed successfully!"
-                return 0
-            fi
-        else
-            echo "❌ No USB network interface found!"
-            echo "   The dongle may need more time or manual configuration."
-            echo "   ℹ️  Auto-configuration will retry on next boot."
-        fi
-    fi
-}
-
-# Install SIM7600G-H internet setup if specified in command line arguments
-if [[ "$@" == *"--sim7600"* ]]; then
-    setup_sim7600_internet
-    SIM7600_STATUS=$?
+    SIM7600_STATUS=0
 else
     echo "Skipping SIM7600G-H 4G dongle setup. Use --sim7600 flag to enable."
     SIM7600_STATUS=2

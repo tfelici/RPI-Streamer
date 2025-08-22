@@ -28,11 +28,32 @@ import json
 import atexit
 import psutil
 import time
+import math
 from datetime import datetime
 
 def generate_gps_track_id() -> str:
     """Generate a unique GPS track ID based on current timestamp"""
     return str(int(time.time()))
+
+def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate distance between two GPS coordinates using Haversine formula (returns meters)"""
+    # Earth radius in meters
+    R = 6371000
+    
+    # Convert latitude and longitude to radians
+    lat1_rad = math.radians(lat1)
+    lat2_rad = math.radians(lat2)
+    delta_lat = math.radians(lat2 - lat1)
+    delta_lon = math.radians(lon2 - lon1)
+    
+    # Haversine formula
+    a = (math.sin(delta_lat / 2) ** 2 + 
+         math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lon / 2) ** 2)
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    
+    # Distance in meters
+    distance = R * c
+    return distance
 
 # Settings constants and defaults
 STREAMER_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'streamerData'))

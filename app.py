@@ -1316,10 +1316,53 @@ dhcp-range={ip_address.rsplit('.', 1)[0]}.10,{ip_address.rsplit('.', 1)[0]}.50,2
         # Enable IP forwarding
         subprocess.run(['sudo', 'sysctl', 'net.ipv4.ip_forward=1'], check=True)
         
-        # Configure iptables for NAT (if eth0 is available)
-        subprocess.run(['sudo', 'iptables', '-t', 'nat', '-A', 'POSTROUTING', '-o', 'eth0', '-j', 'MASQUERADE'], check=False)
-        subprocess.run(['sudo', 'iptables', '-A', 'FORWARD', '-i', 'eth0', '-o', 'wlan0', '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'], check=False)
-        subprocess.run(['sudo', 'iptables', '-A', 'FORWARD', '-i', 'wlan0', '-o', 'eth0', '-j', 'ACCEPT'], check=False)
+        # Detect available internet interface (priority: eth0, then any USB interface)
+        internet_interface = None
+        
+        # First try eth0 (wired ethernet)
+        try:
+            result = subprocess.run(['ip', 'addr', 'show', 'eth0'], capture_output=True, text=True)
+            if result.returncode == 0 and 'inet ' in result.stdout:
+                internet_interface = 'eth0'
+                print(f"Found internet interface: eth0")
+        except:
+            pass
+            
+        # If no eth0, look for any USB network interface (usb0, usb1, usb2, etc.)
+        # SIM7600 in RNDIS mode creates usbX interfaces
+        if not internet_interface:
+            try:
+                result = subprocess.run(['ip', 'link', 'show'], capture_output=True, text=True)
+                for line in result.stdout.split('\n'):
+                    # Look for usb interfaces: "2: usb0:" or "3: usb1:" etc.
+                    if ': usb' in line and '@' not in line:  # Exclude virtual interfaces
+                        iface_name = line.split(':')[1].strip().split('@')[0]
+                        # Check if this USB interface has an IP
+                        ip_result = subprocess.run(['ip', 'addr', 'show', iface_name], capture_output=True, text=True)
+                        if ip_result.returncode == 0 and 'inet ' in ip_result.stdout:
+                            internet_interface = iface_name
+                            print(f"Found internet interface: {iface_name}")
+                            break
+            except:
+                pass
+        
+        if internet_interface:
+            # Clear any existing NAT rules
+            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-F'], check=False)
+            subprocess.run(['sudo', 'iptables', '-F', 'FORWARD'], check=False)
+            
+            # Configure iptables for NAT using detected interface
+            print(f"Configuring NAT routing through {internet_interface}")
+            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-A', 'POSTROUTING', '-o', internet_interface, '-j', 'MASQUERADE'], check=True)
+            subprocess.run(['sudo', 'iptables', '-A', 'FORWARD', '-i', internet_interface, '-o', 'wlan0', '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'], check=True)
+            subprocess.run(['sudo', 'iptables', '-A', 'FORWARD', '-i', 'wlan0', '-o', internet_interface, '-j', 'ACCEPT'], check=True)
+            
+            # Save iptables rules for persistence
+            subprocess.run(['sudo', 'sh', '-c', 'iptables-save > /etc/iptables.ipv4.nat'], check=False)
+        else:
+            print("Warning: No internet interface found (eth0, usb0, or eth1). Hotspot will work but won't have internet access.")
+            print("Available interfaces:")
+            subprocess.run(['ip', 'link', 'show'], check=False)
         
         # Start services
         subprocess.run(['sudo', 'systemctl', 'start', 'hostapd'], check=True)
