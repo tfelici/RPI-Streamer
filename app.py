@@ -698,12 +698,84 @@ def start_flight():
     settings = load_settings()
     username = settings['flightserver_username'].strip()
     flightserver_domain = settings.get('flightserver_domain', '').strip()
+    aircraft_registration = settings.get('aircraft_registration', '').strip()
     
     if not username:
         return False, 'Flight server username is not configured. Please set a username for GPS tracking in the flight settings.', 400
     
     if not flightserver_domain:
         return False, 'Flight server domain is not configured. Please set a domain for GPS tracking in the flight settings.', 400
+    
+    # If gps_stream_link is enabled, validate aircraft registration and camera availability
+    if settings['gps_stream_link']:
+        if not aircraft_registration:
+            return False, 'Aircraft registration is required when GPS streaming link is enabled. Please configure aircraft registration in flight settings.', 400
+        
+        # Check if camera exists for this aircraft registration
+        try:
+            response = requests.get(
+                f'https://{flightserver_domain}/ajaxservices.php',
+                params={
+                    'command': 'getcameradata',
+                    'vehicle': aircraft_registration
+                },
+                timeout=10
+            )
+            if response.status_code != 200:
+                return False, f'Failed to validate camera for aircraft registration "{aircraft_registration}" (HTTP {response.status_code}). Please check your connection and try again.', 400
+            
+            camera_data = response.json()
+            if camera_data.get('error') != '':
+                return False, f'No camera found for aircraft registration "{aircraft_registration}". Please configure a camera for this aircraft or disable GPS streaming link.', 400
+            
+            camera_id = camera_data.get('id')
+            if not camera_id:
+                return False, f'Invalid camera data for aircraft registration "{aircraft_registration}". Please check camera configuration.', 400
+            
+            # Get rtmpkey from camera data for URL configuration
+            rtmpkey = camera_data.get('rtmpkey', '')
+            if not rtmpkey:
+                return False, f'No rtmpkey found in camera data for aircraft "{aircraft_registration}". Please check camera configuration.', 400
+            
+            # Set stream_url and upload_url based on rtmpkey
+            domain = flightserver_domain.split('.')[0] #set to gyropilots or gapilots
+            stream_url = f"srt://{flightserver_domain}:8890?streamid=publish:{domain}/{rtmpkey}&pkt_size=1316"
+            upload_url = f"https://{flightserver_domain}/ajaxservices.php?command=replacerecordings&rtmpkey={rtmpkey}"
+            
+            # Update settings with the new URLs
+            settings['stream_url'] = stream_url
+            settings['upload_url'] = upload_url
+            save_settings(settings)
+            print(f"Updated stream_url to: {stream_url}")
+            print(f"Updated upload_url to: {upload_url}")
+            
+            # Set the camera as selected camera immediately when found
+            try:
+                response = requests.post(
+                    f'https://{flightserver_domain}/ajaxservices.php',
+                    data={
+                        'command': 'setuserfield',
+                        'username': username,
+                        'field': 'selectedcamera',
+                        'value': camera_id
+                    },
+                    timeout=10
+                )
+                if response.status_code == 200:
+                    print(f"Successfully set selected camera to ID {camera_id} for aircraft {aircraft_registration}")
+                else:
+                    return False, f'Failed to update selected camera - HTTP {response.status_code}', 400
+            except requests.RequestException as e:
+                return False, f'Network error updating selected camera: {e}', 400
+            except Exception as e:
+                return False, f'Unexpected error updating selected camera: {e}', 400
+                
+            print(f"Validated camera ID {camera_id} for aircraft {aircraft_registration}")
+        except requests.RequestException as e:
+            return False, f'Network error validating camera for aircraft registration "{aircraft_registration}": {e}', 400
+        except Exception as e:
+            return False, f'Unexpected error validating camera for aircraft registration "{aircraft_registration}": {e}', 400
+        
     
     # Generate track_id upfront using centralized function
     track_id = generate_gps_track_id()
@@ -717,8 +789,6 @@ def start_flight():
         return False, f'Failed to start GPS tracker process: {e}', 500
     
     # Post aircraft registration to flight server (similar to PHP onafterstartstop)
-    aircraft_registration = settings.get('aircraft_registration', '').strip()
-    
     if aircraft_registration:
         try:
             response = requests.post(
@@ -734,11 +804,11 @@ def start_flight():
             if response.status_code == 200:
                 print(f"Successfully posted aircraft registration {aircraft_registration} to flight server")
             else:
-                print(f"Warning: Failed to post aircraft registration - HTTP {response.status_code}")
+                return False, f'Failed to post aircraft registration - HTTP {response.status_code}', 400
         except requests.RequestException as e:
-            print(f"Warning: Network error posting aircraft registration: {e}")
+            return False, f'Network error posting aircraft registration: {e}', 400
         except Exception as e:
-            print(f"Warning: Unexpected error posting aircraft registration: {e}")
+            return False, f'Unexpected error posting aircraft registration: {e}', 400
     
     # Update Gyropedia flight status to "Flying" (F)
     update_gyropedia_flight('start', settings, track_id, aircraft_registration)
@@ -750,7 +820,7 @@ def start_flight():
         if success:
             print("Video streaming started automatically with GPS tracking.")
         else:
-            print(f"Warning: Failed to auto-start video streaming: {message}")
+            return False, f'Failed to auto-start video streaming: {message}', status_code
     
     return True, 'started', 200
 
