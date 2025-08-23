@@ -303,6 +303,10 @@
                         <span class="stat-value connection-status" id="wifi">--</span>
                         <div class="stat-label">WiFi</div>
                     </div>
+                    <div class="stat-item">
+                        <span class="stat-value connection-status" id="4g">--</span>
+                        <div class="stat-label">4G Dongle</div>
+                    </div>
                 </div>
 
                 <!-- WiFi Details Section -->
@@ -320,6 +324,29 @@
                         <div class="stat-item">
                             <span class="stat-value" id="wifi-rx-bitrate">--</span>
                             <div class="stat-label">RX Bitrate</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4G Dongle Details Section -->
+                <div id="4g-details" style="margin-top: 1rem; display: none;">
+                    <h3>4G Dongle Details</h3>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <span class="stat-value" id="4g-signal">--</span>
+                            <div class="stat-label">Signal Strength</div>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value" id="4g-operator">--</span>
+                            <div class="stat-label">Operator</div>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value" id="4g-network-type">--</span>
+                            <div class="stat-label">Network Type</div>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value" id="4g-ip">--</span>
+                            <div class="stat-label">IP Address</div>
                         </div>
                     </div>
                 </div>
@@ -1280,12 +1307,18 @@
         const power = document.getElementById('power');
         const ethernet = document.getElementById('ethernet');
         const wifi = document.getElementById('wifi');
+        const dongle4g = document.getElementById('4g');
         const ipAddressesDiv = document.getElementById('ip-addresses');
         const ipList = document.getElementById('ip-list');
         const wifiDetailsDiv = document.getElementById('wifi-details');
         const wifiSignal = document.getElementById('wifi-signal');
         const wifiTxBitrate = document.getElementById('wifi-tx-bitrate');
         const wifiRxBitrate = document.getElementById('wifi-rx-bitrate');
+        const dongle4gDetailsDiv = document.getElementById('4g-details');
+        const dongle4gSignal = document.getElementById('4g-signal');
+        const dongle4gOperator = document.getElementById('4g-operator');
+        const dongle4gNetworkType = document.getElementById('4g-network-type');
+        const dongle4gIp = document.getElementById('4g-ip');
 
         const evtSource = new EventSource('/stats');
         evtSource.onmessage = function (event) {
@@ -1304,6 +1337,7 @@
                     // Update ethernet and wifi status
                     ethernet.textContent = connection.ethernet || 'Disconnected';
                     wifi.textContent = connection.wifi || 'Disconnected';
+                    dongle4g.textContent = connection['4g'] || 'No device';
 
                     // Update WiFi details if available
                     // Show panel if WiFi is connected, even if details are temporarily unavailable
@@ -1312,37 +1346,51 @@
                     if (isWifiConnected) {
                         wifiDetailsDiv.style.display = 'block';
                         
-                        // Signal strength
-                        if (connection.wifi_details && connection.wifi_details.signal_percent !== undefined) {
-                            const signalPercent = connection.wifi_details.signal_percent;
-                            const signalDbm = connection.wifi_details.signal_dbm || '';
-                            wifiSignal.textContent = `${signalPercent}%${signalDbm ? ` (${signalDbm} dBm)` : ''}`;
+                        // Check if we're in hotspot mode
+                        if (connection.wifi_details && connection.wifi_details.mode === 'hotspot') {
+                            // Hotspot mode - show client count and SSID
+                            wifiSignal.textContent = `${connection.wifi_details.clients_count} clients`;
+                            wifiSignal.style.color = connection.wifi_details.clients_count > 0 ? '#28a745' : '#6c757d'; // green if clients, gray if none
                             
-                            // Color code signal strength
-                            if (signalPercent >= 70) {
-                                wifiSignal.style.color = '#28a745'; // green
-                            } else if (signalPercent >= 40) {
-                                wifiSignal.style.color = '#ffc107'; // yellow
+                            // Show hotspot SSID in TX field
+                            wifiTxBitrate.textContent = connection.wifi_details.ssid || '--';
+                            
+                            // Show hotspot mode in RX field
+                            wifiRxBitrate.textContent = 'Hotspot Mode';
+                        } else {
+                            // Regular WiFi client mode - show signal, bitrates
+                            // Signal strength
+                            if (connection.wifi_details && connection.wifi_details.signal_percent !== undefined) {
+                                const signalPercent = connection.wifi_details.signal_percent;
+                                const signalDbm = connection.wifi_details.signal_dbm || '';
+                                wifiSignal.textContent = `${signalPercent}%${signalDbm ? ` (${signalDbm} dBm)` : ''}`;
+                                
+                                // Color code signal strength
+                                if (signalPercent >= 70) {
+                                    wifiSignal.style.color = '#28a745'; // green
+                                } else if (signalPercent >= 40) {
+                                    wifiSignal.style.color = '#ffc107'; // yellow
+                                } else {
+                                    wifiSignal.style.color = '#dc3545'; // red
+                                }
                             } else {
-                                wifiSignal.style.color = '#dc3545'; // red
+                                wifiSignal.textContent = '--';
+                                wifiSignal.style.color = '';
                             }
-                        } else {
-                            wifiSignal.textContent = '--';
-                            wifiSignal.style.color = '';
-                        }
-                        
-                        // TX Bitrate
-                        if (connection.wifi_details && connection.wifi_details.tx_bitrate !== undefined) {
-                            wifiTxBitrate.textContent = `${connection.wifi_details.tx_bitrate} Mbps`;
-                        } else {
-                            wifiTxBitrate.textContent = '--';
-                        }
-                        
-                        // RX Bitrate
-                        if (connection.wifi_details && connection.wifi_details.rx_bitrate !== undefined) {
-                            wifiRxBitrate.textContent = `${connection.wifi_details.rx_bitrate} Mbps`;
-                        } else {
-                            wifiRxBitrate.textContent = '--';
+                            
+                            // TX Bitrate
+                            if (connection.wifi_details && connection.wifi_details.tx_bitrate !== undefined) {
+                                wifiTxBitrate.textContent = `${connection.wifi_details.tx_bitrate} Mbps`;
+                            } else {
+                                wifiTxBitrate.textContent = '--';
+                            }
+                            
+                            // RX Bitrate
+                            if (connection.wifi_details && connection.wifi_details.rx_bitrate !== undefined) {
+                                wifiRxBitrate.textContent = `${connection.wifi_details.rx_bitrate} Mbps`;
+                            } else {
+                                wifiRxBitrate.textContent = '--';
+                            }
                         }
                     } else {
                         wifiDetailsDiv.style.display = 'none';
@@ -1350,6 +1398,56 @@
                         wifiTxBitrate.textContent = '--';
                         wifiRxBitrate.textContent = '--';
                         wifiSignal.style.color = '';
+                    }
+
+                    // Update 4G dongle details if available
+                    const is4gConnected = connection['4g'] && connection['4g'] !== 'No device' && !connection['4g'].includes('Error');
+                    
+                    if (is4gConnected && connection['4g_dongle']) {
+                        dongle4gDetailsDiv.style.display = 'block';
+                        
+                        const dongleInfo = connection['4g_dongle'];
+                        
+                        // Signal strength
+                        if (dongleInfo.signal_strength) {
+                            dongle4gSignal.textContent = dongleInfo.signal_strength;
+                            
+                            // Color code signal strength for dBm values
+                            if (dongleInfo.signal_strength.includes('dBm')) {
+                                const dbmMatch = dongleInfo.signal_strength.match(/-?\d+/);
+                                if (dbmMatch) {
+                                    const dbm = parseInt(dbmMatch[0]);
+                                    if (dbm >= -70) {
+                                        dongle4gSignal.style.color = '#28a745'; // green
+                                    } else if (dbm >= -85) {
+                                        dongle4gSignal.style.color = '#ffc107'; // yellow
+                                    } else {
+                                        dongle4gSignal.style.color = '#dc3545'; // red
+                                    }
+                                }
+                            } else {
+                                dongle4gSignal.style.color = '';
+                            }
+                        } else {
+                            dongle4gSignal.textContent = '--';
+                            dongle4gSignal.style.color = '';
+                        }
+                        
+                        // Operator
+                        dongle4gOperator.textContent = dongleInfo.operator || '--';
+                        
+                        // Network type
+                        dongle4gNetworkType.textContent = dongleInfo.network_type || '--';
+                        
+                        // IP address
+                        dongle4gIp.textContent = dongleInfo.ip_address || '--';
+                    } else {
+                        dongle4gDetailsDiv.style.display = 'none';
+                        dongle4gSignal.textContent = '--';
+                        dongle4gOperator.textContent = '--';
+                        dongle4gNetworkType.textContent = '--';
+                        dongle4gIp.textContent = '--';
+                        dongle4gSignal.style.color = '';
                     }
 
                     // Update IP addresses
@@ -1370,7 +1468,9 @@
                     console.error('Error parsing connection data:', e);
                     ethernet.textContent = 'Error';
                     wifi.textContent = 'Error';
+                    dongle4g.textContent = 'Error';
                     wifiDetailsDiv.style.display = 'none';
+                    dongle4gDetailsDiv.style.display = 'none';
                 }
             }
         };

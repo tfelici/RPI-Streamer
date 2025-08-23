@@ -1329,7 +1329,6 @@ dhcp-range={ip_address.rsplit('.', 1)[0]}.10,{ip_address.rsplit('.', 1)[0]}.50,2
             pass
             
         # If no eth0, look for any USB network interface (usb0, usb1, usb2, etc.)
-        # SIM7600 in RNDIS mode creates usbX interfaces
         if not internet_interface:
             try:
                 result = subprocess.run(['ip', 'link', 'show'], capture_output=True, text=True)
@@ -1343,6 +1342,16 @@ dhcp-range={ip_address.rsplit('.', 1)[0]}.10,{ip_address.rsplit('.', 1)[0]}.50,2
                             internet_interface = iface_name
                             print(f"Found internet interface: {iface_name}")
                             break
+            except:
+                pass
+                
+        # Fallback to eth1 if nothing else found
+        if not internet_interface:
+            try:
+                result = subprocess.run(['ip', 'addr', 'show', 'eth1'], capture_output=True, text=True)
+                if result.returncode == 0 and 'inet ' in result.stdout:
+                    internet_interface = 'eth1'
+                    print(f"Found internet interface: eth1")
             except:
                 pass
         
@@ -1593,6 +1602,164 @@ def delete_recording():
     except Exception as e:
         return jsonify({'error': f'Failed to delete: {e}'}), 500
 
+def get_4g_dongle_status():
+    """
+    Get 4G dongle connection status using AT commands and system information.
+    Returns a dictionary with 4G connection details.
+    """
+    status = {
+        "connected": False,
+        "signal_strength": None,
+        "operator": None,
+        "network_type": None,
+        "ip_address": None,
+        "device_present": False
+    }
+    
+    try:
+        # Check if SIM7600 device is present on ttyUSB2 (standard for SIM7600G-H)
+        device_found = '/dev/ttyUSB2'
+        
+        if not os.path.exists(device_found):
+            return status
+        
+        status["device_present"] = True
+        
+        # Try to communicate with the dongle using AT commands
+        try:
+            import serial
+            ser = serial.Serial(device_found, 115200, timeout=2)
+            
+            def send_at_command(command, expected_response='OK'):
+                try:
+                    ser.reset_input_buffer()
+                    ser.write((command + '\r\n').encode())
+                    time.sleep(0.5)
+                    
+                    response = ""
+                    if ser.in_waiting:
+                        time.sleep(0.1)
+                        response = ser.read(ser.in_waiting).decode()
+                    
+                    return expected_response in response, response
+                except Exception:
+                    return False, ""
+            
+            # Test basic AT communication
+            success, _ = send_at_command('AT')
+            if not success:
+                ser.close()
+                return status
+            
+            # Check network registration status
+            success, response = send_at_command('AT+CREG?', '+CREG:')
+            if success and '+CREG:' in response:
+                # Parse registration status (0,1 = registered home, 0,5 = registered roaming)
+                creg_match = re.search(r'\+CREG:\s*\d+,(\d+)', response)
+                if creg_match:
+                    reg_status = int(creg_match.group(1))
+                    if reg_status in [1, 5]:  # 1=home network, 5=roaming
+                        status["connected"] = True
+            
+            # Get signal strength
+            success, response = send_at_command('AT+CSQ', '+CSQ:')
+            if success and '+CSQ:' in response:
+                csq_match = re.search(r'\+CSQ:\s*(\d+),\d+', response)
+                if csq_match:
+                    rssi = int(csq_match.group(1))
+                    if rssi != 99:  # 99 = unknown
+                        # Convert RSSI to dBm: -113 + (rssi * 2)
+                        signal_dbm = -113 + (rssi * 2)
+                        status["signal_strength"] = f"{signal_dbm} dBm"
+            
+            # Get operator name
+            success, response = send_at_command('AT+COPS?', '+COPS:')
+            if success and '+COPS:' in response:
+                # Parse operator name from response like: +COPS: 0,0,"Verizon",7
+                cops_match = re.search(r'\+COPS:\s*\d+,\d+,"([^"]+)"', response)
+                if cops_match:
+                    status["operator"] = cops_match.group(1)
+            
+            # Get network type
+            success, response = send_at_command('AT+COPS?', '+COPS:')
+            if success and '+COPS:' in response:
+                # The last number indicates network type: 7=LTE, 2=3G, etc.
+                cops_match = re.search(r'\+COPS:\s*\d+,\d+,"[^"]+",(\d+)', response)
+                if cops_match:
+                    net_type = int(cops_match.group(1))
+                    if net_type == 7:
+                        status["network_type"] = "LTE"
+                    elif net_type == 2:
+                        status["network_type"] = "3G"
+                    elif net_type == 0:
+                        status["network_type"] = "2G"
+                    else:
+                        status["network_type"] = f"Type {net_type}"
+            
+            ser.close()
+            
+        except ImportError:
+            # pyserial not available, fall back to system commands
+            pass
+        except Exception:
+            # Serial communication failed, fall back to system commands
+            pass
+        
+        # Alternative: Check for 4G interface using system commands
+        if not status["connected"]:
+            try:
+                # Check for active cellular interfaces
+                interfaces = psutil.net_if_addrs()
+                for interface_name, addresses in interfaces.items():
+                    interface_lower = interface_name.lower()
+                    # Look for common cellular interface names
+                    if any(keyword in interface_lower for keyword in ['ppp', 'wwan', 'usb0', 'usb1']):
+                        for addr in addresses:
+                            if addr.family == socket.AF_INET and not addr.address.startswith('127.'):
+                                status["connected"] = True
+                                status["ip_address"] = addr.address
+                                break
+                        if status["connected"]:
+                            break
+                
+                # Try mmcli if available (ModemManager)
+                try:
+                    result = subprocess.run(['mmcli', '-L'], capture_output=True, text=True, timeout=3)
+                    if result.returncode == 0 and 'modem' in result.stdout.lower():
+                        status["device_present"] = True
+                        
+                        # Get modem details
+                        modem_match = re.search(r'/org/freedesktop/ModemManager1/Modem/(\d+)', result.stdout)
+                        if modem_match:
+                            modem_id = modem_match.group(1)
+                            result = subprocess.run(['mmcli', '-m', modem_id], capture_output=True, text=True, timeout=3)
+                            if result.returncode == 0:
+                                modem_info = result.stdout
+                                
+                                # Check connection state
+                                if 'connected' in modem_info.lower():
+                                    status["connected"] = True
+                                
+                                # Extract signal strength
+                                signal_match = re.search(r'signal quality:\s*(\d+)%', modem_info, re.IGNORECASE)
+                                if signal_match:
+                                    status["signal_strength"] = f"{signal_match.group(1)}%"
+                                
+                                # Extract operator
+                                operator_match = re.search(r'operator name:\s*\'([^\']+)\'', modem_info, re.IGNORECASE)
+                                if operator_match:
+                                    status["operator"] = operator_match.group(1)
+                except FileNotFoundError:
+                    pass  # mmcli not available
+                
+            except Exception:
+                pass
+                
+    except Exception as e:
+        status["error"] = str(e)
+    
+    return status
+
 def get_connection_info():
     """
     Get current network connection information including IP addresses and connection types.
@@ -1678,101 +1845,180 @@ def get_connection_info():
               # Try to get WiFi SSID, signal strength, and bitrates if connected
         try:
             if connection_info["wifi"] == "Connected":
-                wifi_details = {}
+                # First check if we're in hotspot mode
+                is_hotspot = False
+                hotspot_clients = 0
                 
-                if platform.system() == "Windows":
-                    # Try netsh on Windows to get WiFi SSID
-                    result = subprocess.run(['netsh', 'wlan', 'show', 'profiles'], capture_output=True, text=True, timeout=3)
-                    if result.returncode == 0:
-                        # Get currently connected profile
-                        interfaces_result = subprocess.run(['netsh', 'wlan', 'show', 'interfaces'], capture_output=True, text=True, timeout=3)
-                        if interfaces_result.returncode == 0:
-                            for line in interfaces_result.stdout.split('\n'):
-                                if 'SSID' in line and ':' in line:
-                                    ssid = line.split(':', 1)[1].strip()
-                                    if ssid and ssid != '':
+                # Check if hostapd is running (indicates hotspot mode)
+                try:
+                    hostapd_result = subprocess.run(['sudo', 'systemctl', 'is-active', 'hostapd'], 
+                                                  capture_output=True, text=True, timeout=2)
+                    if hostapd_result.stdout.strip() == 'active':
+                        is_hotspot = True
+                        
+                        # Count connected clients using iw command
+                        try:
+                            clients_result = subprocess.run(['sudo', 'iw', 'dev', 'wlan0', 'station', 'dump'], 
+                                                          capture_output=True, text=True, timeout=3)
+                            if clients_result.returncode == 0:
+                                # Count the number of "Station" entries
+                                hotspot_clients = clients_result.stdout.count('Station ')
+                        except Exception:
+                            # Fallback: check DHCP leases file
+                            try:
+                                with open('/var/lib/dhcp/dhcpd.leases', 'r') as f:
+                                    leases_content = f.read()
+                                    # Count active leases (rough estimate)
+                                    hotspot_clients = leases_content.count('binding state active')
+                            except Exception:
+                                # Fallback: check ARP table for hotspot subnet
+                                try:
+                                    settings = load_settings()
+                                    hotspot_ip = settings.get('hotspot_ip', '192.168.4.1')
+                                    subnet = '.'.join(hotspot_ip.split('.')[:-1]) + '.'
+                                    
+                                    arp_result = subprocess.run(['arp', '-a'], capture_output=True, text=True, timeout=2)
+                                    if arp_result.returncode == 0:
+                                        # Count ARP entries in hotspot subnet (excluding the AP itself)
+                                        for line in arp_result.stdout.split('\n'):
+                                            if subnet in line and hotspot_ip not in line:
+                                                hotspot_clients += 1
+                                except Exception:
+                                    hotspot_clients = 0
+                except Exception:
+                    pass
+                
+                if is_hotspot:
+                    # Show number of connected clients instead of regular WiFi info
+                    if hotspot_clients == 0:
+                        connection_info["wifi"] = "Hotspot (0 clients)"
+                    elif hotspot_clients == 1:
+                        connection_info["wifi"] = "Hotspot (1 client)"
+                    else:
+                        connection_info["wifi"] = f"Hotspot ({hotspot_clients} clients)"
+                    
+                    # Add hotspot details
+                    settings = load_settings()
+                    hotspot_details = {
+                        'ssid': settings.get('hotspot_ssid', 'RPI-Hotspot'),
+                        'clients_count': hotspot_clients,
+                        'mode': 'hotspot'
+                    }
+                    connection_info['wifi_details'] = hotspot_details
+                else:
+                    # Regular WiFi client mode - get SSID, signal strength, etc.
+                    wifi_details = {}
+                    
+                    if platform.system() == "Windows":
+                        # Try netsh on Windows to get WiFi SSID
+                        result = subprocess.run(['netsh', 'wlan', 'show', 'profiles'], capture_output=True, text=True, timeout=3)
+                        if result.returncode == 0:
+                            # Get currently connected profile
+                            interfaces_result = subprocess.run(['netsh', 'wlan', 'show', 'interfaces'], capture_output=True, text=True, timeout=3)
+                            if interfaces_result.returncode == 0:
+                                for line in interfaces_result.stdout.split('\n'):
+                                    if 'SSID' in line and ':' in line:
+                                        ssid = line.split(':', 1)[1].strip()
+                                        if ssid and ssid != '':
+                                            wifi_details['ssid'] = ssid
+                                            break
+                    else:
+                        # Linux/Unix - Get SSID and detailed WiFi info
+                        # Try nmcli first (NetworkManager) for SSID
+                        result = subprocess.run(['nmcli', '-t', '-f', 'active,ssid', 'dev', 'wifi'], capture_output=True, text=True, timeout=2)
+                        if result.returncode == 0:
+                            lines = result.stdout.strip().split('\n')
+                            for line in lines:
+                                if line.startswith('yes:'):
+                                    ssid = line.split(':', 1)[1]
+                                    if ssid:
                                         wifi_details['ssid'] = ssid
                                         break
-                else:
-                    # Linux/Unix - Get SSID and detailed WiFi info
-                    # Try nmcli first (NetworkManager) for SSID
-                    result = subprocess.run(['nmcli', '-t', '-f', 'active,ssid', 'dev', 'wifi'], capture_output=True, text=True, timeout=2)
-                    if result.returncode == 0:
-                        lines = result.stdout.strip().split('\n')
-                        for line in lines:
-                            if line.startswith('yes:'):
-                                ssid = line.split(':', 1)[1]
-                                if ssid:
-                                    wifi_details['ssid'] = ssid
-                                    break
-                    
-                    # Get detailed WiFi information using iw command
-                    # Try different interface names, including dynamic detection
-                    wifi_interfaces = ['wlan0', 'wlp2s0', 'wlp3s0', 'wlo1']
-                    
-                    # Try to detect available wireless interfaces dynamically
-                    try:
-                        iw_dev_result = subprocess.run(['iw', 'dev'], capture_output=True, text=True, timeout=2)
-                        if iw_dev_result.returncode == 0:
-                            # Parse output to find wireless interfaces
-                            for line in iw_dev_result.stdout.split('\n'):
-                                if 'Interface' in line:
-                                    iface_match = re.search(r'Interface\s+(\w+)', line)
-                                    if iface_match:
-                                        iface = iface_match.group(1)
-                                        if iface not in wifi_interfaces:
-                                            wifi_interfaces.append(iface)
-                    except Exception:
-                        pass  # Fall back to default list
-                    
-                    for iface in wifi_interfaces:
+                        
+                        # Get detailed WiFi information using iw command
+                        # Try different interface names, including dynamic detection
+                        wifi_interfaces = ['wlan0', 'wlp2s0', 'wlp3s0', 'wlo1']
+                        
+                        # Try to detect available wireless interfaces dynamically
                         try:
-                            iw_result = subprocess.run(['iw', 'dev', iface, 'link'], capture_output=True, text=True, timeout=5)
-                            if iw_result.returncode == 0 and ('Connected to' in iw_result.stdout or 'SSID:' in iw_result.stdout):
-                                lines = iw_result.stdout.split('\n')
-                                interface_found = True
-                                for line in lines:
-                                    line = line.strip()
-                                    # Parse signal strength
-                                    if 'signal:' in line:
-                                        # Extract signal strength (e.g., "signal: -45 dBm")
-                                        signal_match = re.search(r'signal:\s*(-?\d+)\s*dBm', line)
-                                        if signal_match:
-                                            signal_dbm = int(signal_match.group(1))
-                                            wifi_details['signal_dbm'] = signal_dbm
-                                            # Convert to percentage (rough estimation)
-                                            # -30 dBm = 100%, -90 dBm = 0%
-                                            signal_percent = max(0, min(100, (signal_dbm + 90) * 100 / 60))
-                                            wifi_details['signal_percent'] = int(signal_percent)
-                                    # Parse TX bitrate
-                                    elif 'tx bitrate:' in line:
-                                        # Extract TX bitrate (e.g., "tx bitrate: 72.2 MBit/s")
-                                        tx_match = re.search(r'tx bitrate:\s*([\d.]+)\s*MBit/s', line)
-                                        if tx_match:
-                                            wifi_details['tx_bitrate'] = float(tx_match.group(1))
-                                    # Parse RX bitrate
-                                    elif 'rx bitrate:' in line:
-                                        # Extract RX bitrate (e.g., "rx bitrate: 65.0 MBit/s")
-                                        rx_match = re.search(r'rx bitrate:\s*([\d.]+)\s*MBit/s', line)
-                                        if rx_match:
-                                            wifi_details['rx_bitrate'] = float(rx_match.group(1))
-                                break  # Found working interface, stop trying others
-                        except Exception as e:
-                            # Log the error for debugging but continue trying other interfaces
-                            continue
-                
-                # Update connection_info with detailed WiFi information
-                if wifi_details:
-                    connection_info['wifi_details'] = wifi_details
-                    # Update main wifi status with SSID if available
-                    if 'ssid' in wifi_details:
-                        wifi_status = f"Connected ({wifi_details['ssid']})"
-                        # Add signal strength if available
-                        if 'signal_percent' in wifi_details:
-                            wifi_status += f" - {wifi_details['signal_percent']}%"
-                        connection_info["wifi"] = wifi_status
+                            iw_dev_result = subprocess.run(['iw', 'dev'], capture_output=True, text=True, timeout=2)
+                            if iw_dev_result.returncode == 0:
+                                # Parse output to find wireless interfaces
+                                for line in iw_dev_result.stdout.split('\n'):
+                                    if 'Interface' in line:
+                                        iface_match = re.search(r'Interface\s+(\w+)', line)
+                                        if iface_match:
+                                            iface = iface_match.group(1)
+                                            if iface not in wifi_interfaces:
+                                                wifi_interfaces.append(iface)
+                        except Exception:
+                            pass  # Fall back to default list
+                        
+                        for iface in wifi_interfaces:
+                            try:
+                                iw_result = subprocess.run(['iw', 'dev', iface, 'link'], capture_output=True, text=True, timeout=5)
+                                if iw_result.returncode == 0 and ('Connected to' in iw_result.stdout or 'SSID:' in iw_result.stdout):
+                                    lines = iw_result.stdout.split('\n')
+                                    interface_found = True
+                                    for line in lines:
+                                        line = line.strip()
+                                        # Parse signal strength
+                                        if 'signal:' in line:
+                                            # Extract signal strength (e.g., "signal: -45 dBm")
+                                            signal_match = re.search(r'signal:\s*(-?\d+)\s*dBm', line)
+                                            if signal_match:
+                                                signal_dbm = int(signal_match.group(1))
+                                                wifi_details['signal_dbm'] = signal_dbm
+                                                # Convert to percentage (rough estimation)
+                                                # -30 dBm = 100%, -90 dBm = 0%
+                                                signal_percent = max(0, min(100, (signal_dbm + 90) * 100 / 60))
+                                                wifi_details['signal_percent'] = int(signal_percent)
+                                        # Parse TX bitrate
+                                        elif 'tx bitrate:' in line:
+                                            # Extract TX bitrate (e.g., "tx bitrate: 72.2 MBit/s")
+                                            tx_match = re.search(r'tx bitrate:\s*([\d.]+)\s*MBit/s', line)
+                                            if tx_match:
+                                                wifi_details['tx_bitrate'] = float(tx_match.group(1))
+                                        # Parse RX bitrate
+                                        elif 'rx bitrate:' in line:
+                                            # Extract RX bitrate (e.g., "rx bitrate: 65.0 MBit/s")
+                                            rx_match = re.search(r'rx bitrate:\s*([\d.]+)\s*MBit/s', line)
+                                            if rx_match:
+                                                wifi_details['rx_bitrate'] = float(rx_match.group(1))
+                                    break  # Found working interface, stop trying others
+                            except Exception as e:
+                                # Log the error for debugging but continue trying other interfaces
+                                continue
+                    
+                    # Update connection_info with detailed WiFi information for client mode
+                    if wifi_details:
+                        connection_info['wifi_details'] = wifi_details
+                        # Update main wifi status with SSID if available
+                        if 'ssid' in wifi_details:
+                            wifi_status = f"Connected ({wifi_details['ssid']})"
+                            # Add signal strength if available
+                            if 'signal_percent' in wifi_details:
+                                wifi_status += f" - {wifi_details['signal_percent']}%"
+                            connection_info["wifi"] = wifi_status
         except Exception:
             pass
+    
+        # Get 4G dongle status
+        dongle_status = get_4g_dongle_status()
+        connection_info["4g_dongle"] = dongle_status
+        
+        # Add simplified 4G status for main display
+        if dongle_status["connected"]:
+            status_text = "Connected"
+            if dongle_status["operator"]:
+                status_text += f" ({dongle_status['operator']})"
+            if dongle_status["signal_strength"]:
+                status_text += f" - {dongle_status['signal_strength']}"
+            connection_info["4g"] = status_text
+        elif dongle_status["device_present"]:
+            connection_info["4g"] = "Device present, not connected"
+        else:
+            connection_info["4g"] = "No device"
             
     except Exception as e:
         connection_info["error"] = str(e)
