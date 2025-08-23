@@ -852,11 +852,8 @@ def upload_recording():
     
     # Ensure command=replacerecordings is present
     if 'command=replacerecordings' not in upload_url:
-        if '?' in upload_url:
-            upload_url += '&command=replacerecordings'
-        else:
-            upload_url += '?command=replacerecordings'
-    
+        return jsonify({'error': 'Upload URL is incorrect. Please configure it in Settings.'}), 400
+
     file_path = request.form.get('file_path')
     if not file_path or not os.path.isfile(file_path):
         return jsonify({'error': 'Recording file not found.'}), 400
