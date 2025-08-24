@@ -490,3 +490,22 @@ echo ""
 echo "?? Documentation:"
 echo "   GPS Tracker: GPS_TRACKER_README.md"
 echo "   SIM7600 Setup: SIM7600_INTERNET_SETUP.md"
+
+# Generate unique hardware identifier and register hardware
+echo ""
+echo "=========================================="
+echo "🔧 HARDWARE REGISTRATION"
+echo "=========================================="
+
+# Generate unique hardware ID using multiple system identifiers
+HARDWARE_ID=$(cat /proc/cpuinfo | grep Serial | cut -d ' ' -f 2 2>/dev/null || echo "unknown")
+if [ "$HARDWARE_ID" = "unknown" ] || [ -z "$HARDWARE_ID" ]; then
+    # Fallback to MAC address if no serial number
+    HARDWARE_ID=$(cat /sys/class/net/*/address 2>/dev/null | head -1 | tr -d ':' || echo "fallback-$(date +%s)")
+fi
+
+echo "📋 Hardware ID: $HARDWARE_ID"
+echo ""
+echo "🌐 To complete registration, click the following link:"
+echo "   https://gyropilots.org/manage-hardware/?hardwareid=$HARDWARE_ID"
+echo ""

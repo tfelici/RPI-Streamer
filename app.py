@@ -699,7 +699,8 @@ def start_flight():
     username = settings['flightserver_username'].strip()
     flightserver_domain = settings.get('flightserver_domain', '').strip()
     aircraft_registration = settings.get('aircraft_registration', '').strip()
-    
+    rtmpkey = settings.get('rtmpkey', '').strip()
+
     if not username:
         return False, 'Flight server username is not configured. Please set a username for GPS tracking in the flight settings.', 400
     
@@ -707,49 +708,62 @@ def start_flight():
         return False, 'Flight server domain is not configured. Please set a domain for GPS tracking in the flight settings.', 400
     
     # If gps_stream_link is enabled, validate aircraft registration and camera availability
-    if settings['gps_stream_link']:
-        if not aircraft_registration:
-            return False, 'Aircraft registration is required when GPS streaming link is enabled. Please configure aircraft registration in flight settings.', 400
-        
-        # Check if camera exists for this aircraft registration
+    if settings['gps_stream_link']:        
+        # Use findorcreatecamera to get or create camera for this aircraft registration
         try:
-            response = requests.get(
+            camera_creation_response = requests.post(
                 f'https://{flightserver_domain}/ajaxservices.php',
-                params={
-                    'command': 'getcameradata',
-                    'vehicle': aircraft_registration
+                data={
+                    'command': 'findorcreatecamera',
+                    'username': username,
+                    'alias': 'RPI Streamer',
+                    'vehicle': aircraft_registration,
+                    'rtmpkey': rtmpkey if rtmpkey else ''
                 },
                 timeout=10
             )
-            if response.status_code != 200:
-                return False, f'Failed to validate camera for aircraft registration "{aircraft_registration}" (HTTP {response.status_code}). Please check your connection and try again.', 400
+            if camera_creation_response.status_code != 200:
+                return False, f'Failed to get camera for aircraft registration "{aircraft_registration}" (HTTP {camera_creation_response.status_code}). Please check your connection and try again.', 400
             
-            camera_data = response.json()
+            camera_data = camera_creation_response.json()
             if camera_data.get('error') != '':
-                return False, f'No camera found for aircraft registration "{aircraft_registration}". Please configure a camera for this aircraft or disable GPS streaming link.', 400
+                return False, f'Error getting camera for aircraft registration "{aircraft_registration}": {camera_data["error"]}', 400
             
             camera_id = camera_data.get('id')
             if not camera_id:
                 return False, f'Invalid camera data for aircraft registration "{aircraft_registration}". Please check camera configuration.', 400
             
-            # Get rtmpkey from camera data for URL configuration
-            rtmpkey = camera_data.get('rtmpkey', '')
-            if not rtmpkey:
+            # Get rtmpkey from camera data
+            returned_rtmpkey = camera_data.get('rtmpkey', '')
+            if not returned_rtmpkey:
                 return False, f'No rtmpkey found in camera data for aircraft "{aircraft_registration}". Please check camera configuration.', 400
             
-            # Set stream_url and upload_url based on rtmpkey
+            # Update settings with rtmpkey if it was undefined or different
+            if not rtmpkey or rtmpkey != returned_rtmpkey:
+                settings['rtmpkey'] = returned_rtmpkey
+                print(f"Updated rtmpkey to: {returned_rtmpkey}")
+            
+            # Set stream_url and upload_url based on returned rtmpkey
             domain = flightserver_domain.split('.')[0] #set to gyropilots or gapilots
-            stream_url = f"srt://{flightserver_domain}:8890?streamid=publish:{domain}/{rtmpkey}&pkt_size=1316"
-            upload_url = f"https://{flightserver_domain}/ajaxservices.php?command=replacerecordings&rtmpkey={rtmpkey}"
+            new_stream_url = f"srt://{flightserver_domain}:8890?streamid=publish:{domain}/{returned_rtmpkey}&pkt_size=1316"
+            new_upload_url = f"https://{flightserver_domain}/ajaxservices.php?command=replacerecordings&rtmpkey={returned_rtmpkey}"
             
-            # Update settings with the new URLs
-            settings['stream_url'] = stream_url
-            settings['upload_url'] = upload_url
-            save_settings(settings)
-            print(f"Updated stream_url to: {stream_url}")
-            print(f"Updated upload_url to: {upload_url}")
+            # Only update URLs if they have changed
+            if settings.get('stream_url') != new_stream_url:
+                settings['stream_url'] = new_stream_url
+                print(f"Updated stream_url to: {new_stream_url}")
             
-            # Set the camera as selected camera immediately when found
+            if settings.get('upload_url') != new_upload_url:
+                settings['upload_url'] = new_upload_url
+                print(f"Updated upload_url to: {new_upload_url}")
+            
+            # Save settings only if something changed
+            if (not rtmpkey or rtmpkey != returned_rtmpkey or 
+                settings.get('stream_url') != new_stream_url or 
+                settings.get('upload_url') != new_upload_url):
+                save_settings(settings)
+            
+            # Set the camera as selected camera
             try:
                 response = requests.post(
                     f'https://{flightserver_domain}/ajaxservices.php',
@@ -770,12 +784,11 @@ def start_flight():
             except Exception as e:
                 return False, f'Unexpected error updating selected camera: {e}', 400
                 
-            print(f"Validated camera ID {camera_id} for aircraft {aircraft_registration}")
+            print(f"Camera setup complete - ID {camera_id} for aircraft {aircraft_registration}")
         except requests.RequestException as e:
-            return False, f'Network error validating camera for aircraft registration "{aircraft_registration}": {e}', 400
+            return False, f'Network error setting up camera for aircraft registration "{aircraft_registration}": {e}', 400
         except Exception as e:
-            return False, f'Unexpected error validating camera for aircraft registration "{aircraft_registration}": {e}', 400
-        
+            return False, f'Unexpected error setting up camera for aircraft registration "{aircraft_registration}": {e}', 400
     
     # Generate track_id upfront using centralized function
     track_id = generate_gps_track_id()
