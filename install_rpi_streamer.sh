@@ -510,14 +510,30 @@ register_device_with_console() {
         
         echo "📤 Sending device registration and SSH key to server..."
         
-        # Send device setup request to the new API endpoint
-        local response=$(curl -s -X POST "https://gyropilots.org/ajaxservices.php" \
-            -d "command=setup_hardware_device" \
-            -d "hardware_id=$hardware_id" \
-            -d "public_key=$public_key" \
-            -d "device_hostname=$(hostname)" \
-            -d "tunnel_http_port=$http_port" \
-            -d "tunnel_ssh_port=$ssh_port" 2>/dev/null)
+        # Invite the user to click on this link to register the hardware
+        local encoded_public_key=$(echo "$public_key" | sed 's/ /%20/g' | sed 's/+/%2B/g' | sed 's/=/%3D/g' | sed 's/\//%2F/g')
+        echo "🌐 To complete device registration, please visit this link:"
+        echo "   https://gyropilots.org/manage-hardware/?command=setup_hardware_device&hardware_id=$hardware_id&public_key=$encoded_public_key&device_hostname=$(hostname)&tunnel_http_port=$http_port&tunnel_ssh_port=$ssh_port"
+        echo ""
+        echo "📋 Or copy and paste the above URL into your web browser"
+        echo ""
+```
+        # Verify registration by checking the hardware device
+        echo "🔍 Awaiting device registration..."
+        local check_url="https://gyropilots.org/ajaxservices.php?command=check_hardware_device&hardware_id=$hardware_id&public_key=$encoded_public_key&device_hostname=$(hostname)&tunnel_http_port=$http_port&tunnel_ssh_port=$ssh_port"
+        
+        local response=$(curl -s "$check_url" 2>/dev/null || echo "false")
+        
+        # Check if response indicates successful registration (not "false")
+        if [ "$response" != "false" ] && [ -n "$response" ] && [ "$response" != "null" ]; then
+            echo "✅ Device registration verified successfully!"
+            response='{"status":"success","message":"Device registration verified via check_hardware_device"}'
+        else
+            echo "❌ Device registration verification failed"
+            echo "   Response: $response"
+            echo "   This may indicate the registration was not completed successfully"
+            response='{"status":"error","message":"Device registration verification failed"}'
+        fi
         
         if [ $? -eq 0 ] && [ -n "$response" ]; then
             # Parse JSON response
