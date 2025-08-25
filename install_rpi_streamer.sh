@@ -21,9 +21,7 @@ done
 
 # If still no connection, exit with error
 if ! ping -c 1 github.com &>/dev/null; then
-    echo "No internet connection after 20 seconds, aborting iif systemctl is-active --quiet reverse-ssh-tunnel.service; then
-    echo "   🔧 AutoSSH Reverse Tunnel (reliable secure remote access)"
-fiall."
+    echo "No internet connection after 20 seconds, aborting installation."
     exit 1
 fi
 
