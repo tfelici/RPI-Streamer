@@ -21,7 +21,9 @@ done
 
 # If still no connection, exit with error
 if ! ping -c 1 github.com &>/dev/null; then
-    echo "No internet connection after 20 seconds, aborting install."
+    echo "No internet connection after 20 seconds, aborting iif systemctl is-active --quiet reverse-ssh-tunnel.service; then
+    echo "   🔧 AutoSSH Reverse Tunnel (reliable secure remote access)"
+fiall."
     exit 1
 fi
 
@@ -55,6 +57,9 @@ sudo apt-get install minicom screen ppp usb-modeswitch usb-modeswitch-data -y
 
 # WiFi hotspot dependencies (for hotspot mode functionality)
 sudo apt-get install hostapd dnsmasq -y
+
+# AutoSSH for reliable reverse tunnel management
+sudo apt-get install autossh -y
 
 #also add gstreamer dependencies
 sudo apt install gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-alsa gstreamer1.0-pulseaudio -y
@@ -461,33 +466,370 @@ echo "✅ SIM7600G-H setup completed (will auto-configure on boot/connection)"
 
 SIM7600_STATUS=0
 
-# Install tailscale if the specified in the command line arguments
-if [[ "$@" == *"--tailscale"* ]]; then
-    echo "Installing Tailscale..."
-    curl -fsSL https://tailscale.com/install.sh | sh
-    sudo tailscale up
+# Remote Access Setup
+if [[ "$@" == *"--reverse-ssh"* ]]; then
+    setup_reverse_ssh_tunnel
+elif [[ "$@" == *"--tailscale"* ]]; then
+    setup_tailscale_vpn
+elif [[ "$@" == *"--remote"* ]]; then
+    setup_remote_access_menu
 else
-    echo "Skipping Tailscale installation."
+    echo ""
+    echo "🌐 For remote access setup, run with one of these flags:"
+    echo "   --reverse-ssh  : Reverse SSH tunnel to your server (recommended)"
+    echo "   --tailscale    : Tailscale VPN mesh networking"
+    echo "   --remote       : Interactive remote access menu"
 fi
 
+# Function to register device with hardware console and setup SSH key
+register_device_with_console() {
+    local hardware_id=$1
+    local http_port=$2
+    local ssh_port=$3
+    local server_host=$4
+    
+    echo "🔗 Registering device and SSH key with hardware console..."
+    
+    # Generate SSH key if it doesn't exist (needed for registration)
+    if [ ! -f "/home/$USER/.ssh/id_rsa" ]; then
+        echo "🔑 Generating SSH key pair..."
+        sudo -u $USER ssh-keygen -t rsa -b 4096 -f "/home/$USER/.ssh/id_rsa" -N "" -C "rpi-streamer@$(hostname)"
+        echo "✅ SSH key pair generated"
+    fi
+    
+    # Try to register device with gyropilots.org hardware console
+    if command -v curl >/dev/null 2>&1; then
+        # Read the public key (should exist now)
+        local public_key=""
+        if [ -f "/home/$USER/.ssh/id_rsa.pub" ]; then
+            public_key=$(cat "/home/$USER/.ssh/id_rsa.pub")
+        else
+            echo "❌ SSH public key not found after generation, setup failed"
+            return 1
+        fi
+        
+        echo "📤 Sending device registration and SSH key to server..."
+        
+        # Send device setup request to the new API endpoint
+        local response=$(curl -s -X POST "https://gyropilots.org/ajaxservices.php" \
+            -d "command=setup_hardware_device" \
+            -d "hardware_id=$hardware_id" \
+            -d "public_key=$public_key" \
+            -d "device_hostname=$(hostname)" \
+            -d "tunnel_http_port=$http_port" \
+            -d "tunnel_ssh_port=$ssh_port" 2>/dev/null)
+        
+        if [ $? -eq 0 ] && [ -n "$response" ]; then
+            # Parse JSON response
+            local error=$(echo "$response" | grep -o '"error":"[^"]*"' | cut -d'"' -f4)
+            local status=$(echo "$response" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+            local message=$(echo "$response" | grep -o '"message":"[^"]*"' | cut -d'"' -f4)
+            
+            if [ -z "$error" ]; then
+                echo "✅ Device registration and SSH key setup successful!"
+                echo "📋 Status: $status"
+                echo "💬 Message: $message"                
+            else
+                echo "❌ Server setup failed: $error"
+                echo "🔄 Falling back to manual setup instructions..."
+                return 1
+            fi
+        else
+            echo "⚠️  Failed to communicate with server, skipping automated setup"
+            return 1
+        fi
+        
+        # Create device info file for server management
+        cat > "/home/$USER/device-info.json" << EOF
+{
+    "hardware_id": "$hardware_id",
+    "hostname": "$(hostname)",
+    "http_port": $http_port,
+    "ssh_port": $ssh_port,
+    "server_host": "$server_host",
+    "local_ip": "$(hostname -I | awk '{print $1}')",
+    "registration_date": "$(date -Iseconds)",
+    "ssh_command": "ssh $USER@$server_host -p $ssh_port",
+    "ssh_forward_command": "ssh -L 8080:localhost:$http_port $server_user@$server_host -p $ssh_port",
+    "device_url": "http://localhost:8080",
+    "setup_status": "automated"
+}
+EOF
+        echo "📄 Device info saved to: /home/$USER/device-info.json"
+    else
+        echo "⚠️  curl not available, skipping automatic registration"
+        return 1
+    fi
+}
+
+# Function to setup reverse SSH tunnel
+setup_reverse_ssh_tunnel() {
+    echo ""
+    echo "=========================================="
+    echo "🔒 REVERSE SSH TUNNEL SETUP"
+    echo "=========================================="
+    echo ""
+    echo "This creates a secure tunnel from your RPI to your AlmaLinux server"
+    echo "allowing SSH port forwarding access without any server configuration."
+    echo ""
+    
+    read -p "Enter your AlmaLinux server hostname/IP: " server_host
+    read -p "Enter SSH port on your server [22]: " server_port
+    server_port=${server_port:-22}
+    read -p "Enter SSH username on your server: " server_user
+    
+    # Auto-generate unique ports based on device hardware ID
+    HARDWARE_ID=$(cat /proc/cpuinfo | grep Serial | cut -d ' ' -f 2 2>/dev/null || echo "unknown")
+    if [ "$HARDWARE_ID" = "unknown" ] || [ -z "$HARDWARE_ID" ]; then
+        HARDWARE_ID=$(cat /sys/class/net/*/address 2>/dev/null | head -1 | tr -d ':' || echo "fallback-$(date +%s)")
+    fi
+    
+    # Generate unique ports based on hardware ID hash
+    PORT_BASE=$(echo "$HARDWARE_ID" | sha256sum | cut -c1-4)
+    PORT_BASE=$((16#$PORT_BASE % 25000 + 15000))  # Port range 15000-40000 (avoids Webmin/Usermin)
+    
+    # Internal tunnel ports (server-side, not exposed) - safe range
+    tunnel_http_port=$((PORT_BASE + 30000))  # Internal: 45000-70000 range (safe)
+    tunnel_ssh_port=$((PORT_BASE + 30001))
+    
+    echo ""
+    echo "🎯 AUTO-GENERATED UNIQUE PORTS FOR THIS DEVICE:"
+    echo "   Hardware ID: $HARDWARE_ID"
+    echo "   Internal HTTP Tunnel: $tunnel_http_port (server-side only, safe range)"
+    echo "   Internal SSH Tunnel: $tunnel_ssh_port (server-side only, safe range)"
+    echo "   Access via SSH port forwarding: ssh -L 8080:localhost:80 user@server -p $tunnel_ssh_port"
+    echo ""
+    
+    read -p "Use these auto-generated ports? [Y/n]: " use_auto_ports
+    if [[ $use_auto_ports =~ ^[Nn] ]]; then
+        read -p "Enter internal tunnel port for HTTP (server-side): " tunnel_http_port
+        read -p "Enter internal tunnel port for SSH (server-side): " tunnel_ssh_port
+    fi
+    
+    echo ""
+    echo "🌐 Access method: SSH port forwarding (no public HTTPS ports needed)"
+    echo "   Command: ssh -L 8080:localhost:$tunnel_http_port user@server -p $tunnel_ssh_port"
+    echo "   Then visit: http://localhost:8080"
+    
+    # Register device with hardware console (includes SSH key generation)
+    echo ""
+    echo "📝 REGISTERING DEVICE WITH HARDWARE CONSOLE..."
+    if register_device_with_console "$HARDWARE_ID" "$tunnel_http_port" "$tunnel_ssh_port" "$server_host"; then
+        echo ""
+        echo "🎉 AUTOMATED SETUP COMPLETE!"
+        echo "✅ SSH key automatically registered on your AlmaLinux server"
+        
+        echo ""
+        echo "📋 Your SSH public key:"
+        echo "============================================================"
+        cat "/home/$USER/.ssh/id_rsa.pub"
+        echo "============================================================"
+        
+        echo ""
+        echo "🔧 Creating reverse SSH tunnel service..."
+        
+        # Create the tunnel service after successful registration
+        sudo tee /etc/systemd/system/reverse-ssh-tunnel.service >/dev/null << EOF
+[Unit]
+Description=AutoSSH Reverse Tunnel to $server_host
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$USER
+Environment="AUTOSSH_GATETIME=30"
+Environment="AUTOSSH_POLL=30"
+Environment="AUTOSSH_FIRST_POLL=30"
+Restart=always
+RestartSec=10
+ExecStart=/usr/bin/autossh -M 0 -N -T \\
+    -o ServerAliveInterval=60 \\
+    -o ServerAliveCountMax=3 \\
+    -o ExitOnForwardFailure=yes \\
+    -o StrictHostKeyChecking=no \\
+    -o UserKnownHostsFile=/dev/null \\
+    -R 127.0.0.1:$tunnel_http_port:localhost:80 \\
+    -R 127.0.0.1:$tunnel_ssh_port:localhost:22 \\
+    $server_user@$server_host -p $server_port
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        
+        # Enable and start the service
+        sudo systemctl daemon-reload
+        sudo systemctl enable reverse-ssh-tunnel.service
+        sudo systemctl start reverse-ssh-tunnel.service
+        
+        echo "✅ Reverse SSH tunnel service created and started"
+        echo "✅ AutoSSH will maintain persistent tunnel with automatic reconnection"
+        echo "⚡ Your RPI Streamer tunnel should connect automatically!"
+    else
+        echo ""
+        echo "❌ AUTOMATED SETUP FAILED"
+        echo ""
+        echo "The device registration with the hardware console failed."
+        echo "Please check your internet connection and try again."
+        echo ""
+        echo "If the problem persists, contact support with your hardware ID: $HARDWARE_ID"
+        return 1
+    fi
+    
+    echo ""
+    echo "✅ REVERSE SSH TUNNEL SETUP COMPLETE!"
+    echo ""
+    echo "� ACCESS YOUR DEVICE WEB INTERFACE:"
+    echo "======================================"
+    echo "Use SSH port forwarding (no Apache configuration needed):"
+    echo ""
+    echo "💻 Command: ssh -L 8080:localhost:$tunnel_http_port $server_user@$server_host -p $tunnel_ssh_port"
+    echo "🌐 Then visit: http://localhost:8080"
+    echo "   Direct SSH: ssh $USER@$server_host -p $tunnel_ssh_port"
+    echo ""
+    echo "📋 For multiple devices, use different local ports:"
+    echo "   Device 1: ssh -L 8081:localhost:$tunnel_http_port $server_user@$server_host -p $tunnel_ssh_port"
+    echo "   Device 2: ssh -L 8082:localhost:[other_device_tunnel_http_port] $server_user@$server_host -p [other_device_ssh_port]"
+    echo ""
+    echo "📊 AutoSSH Tunnel Status:"
+    echo "   Service: systemctl status reverse-ssh-tunnel.service"
+    echo "   Logs:    journalctl -u reverse-ssh-tunnel.service -f"
+    echo "   AutoSSH will automatically reconnect if connection drops"
+    echo ""
+    echo "🔧 On your AlmaLinux server:"
+    echo "   Internal HTTP Tunnel: localhost:$tunnel_http_port"
+    echo "   Internal SSH Tunnel:  localhost:$tunnel_ssh_port"
+    
+    # Store configuration for later reference
+    cat > "/home/$USER/tunnel-config.txt" << EOF
+# RPI Streamer Reverse SSH Tunnel Configuration
+Server: $server_host:$server_port
+User: $server_user
+Internal HTTP Tunnel: localhost:$tunnel_http_port
+Internal SSH Tunnel: localhost:$tunnel_ssh_port
+Service: reverse-ssh-tunnel.service (AutoSSH)
+
+# Test tunnel locally on server:
+curl http://localhost:$tunnel_http_port
+
+# Connect to RPI via SSH through tunnel:
+ssh $USER@localhost -p $tunnel_ssh_port
+
+# Access web interface via port forwarding:
+ssh -L 8080:localhost:$tunnel_http_port $server_user@$server_host -p $tunnel_ssh_port
+# Then visit: http://localhost:8080
+
+# AutoSSH will automatically maintain the connection and reconnect if needed
+EOF
+    
+    echo "📄 Configuration saved to: /home/$USER/tunnel-config.txt"
+}
+
+# Function for Tailscale setup
+setup_tailscale_vpn() {
+    echo ""
+    echo "=========================================="
+    echo "🔐 TAILSCALE VPN SETUP"
+    echo "=========================================="
+    echo ""
+    echo "📦 Installing Tailscale..."
+    curl -fsSL https://tailscale.com/install.sh | sh
+    echo "✅ Tailscale installed successfully!"
+    echo ""
+    echo "🚀 Starting Tailscale connection..."
+    sudo tailscale up --accept-routes --accept-dns
+    echo ""
+    echo "📋 Your Tailscale IP address:"
+    tailscale ip -4 2>/dev/null || echo "   Run 'tailscale ip' after authentication"
+    echo ""
+    echo "🌐 Remote Access URLs (after Tailscale authentication):"
+    echo "   HTTP: http://$(tailscale ip -4 2>/dev/null || echo '[TAILSCALE-IP]')"
+    echo "   SSH:  ssh $(whoami)@$(tailscale ip -4 2>/dev/null || echo '[TAILSCALE-IP]')"
+    echo ""
+    echo "📱 Complete setup:"
+    echo "   1. Install Tailscale on your phone/computer"
+    echo "   2. Login with the same account"
+    echo "   3. Access your RPI Streamer from anywhere!"
+    TAILSCALE_INSTALLED=true
+}
+
+# Function for interactive remote access menu
+setup_remote_access_menu() {
+    echo ""
+    echo "🌐 REMOTE ACCESS SETUP"
+    echo "======================================"
+    echo ""
+    echo "Choose your remote access method:"
+    echo "1) Reverse SSH Tunnel (to your AlmaLinux server) - Recommended"
+    echo "2) Tailscale VPN (mesh networking)"
+    echo "3) Skip remote access setup"
+    echo ""
+    
+    read -p "Enter your choice [1-3]: " access_choice
+    
+    case $access_choice in
+        1)
+            setup_reverse_ssh_tunnel
+            ;;
+        2)
+            setup_tailscale_vpn
+            ;;
+        3)
+            echo "Skipping remote access setup"
+            return
+            ;;
+        *)
+            echo "Invalid choice, skipping remote access setup"
+            return
+            ;;
+    esac
+}
+
 # Print completion message
-echo "?? RPI Streamer installation completed successfully!"
 echo ""
-echo "?? Access your RPI Streamer at: http://$(hostname -I | awk '{print $1}')"
-echo "?? New Flight Settings available for GPS tracking configuration"
-echo "??  Configure GPS username and tracking modes in Flight Settings"
+echo "🎉 RPI STREAMER INSTALLATION COMPLETED!"
+echo "=========================================="
 echo ""
-echo "?? Services installed:"
-echo "   � Flask App (enabled & running)"
-echo "   � MediaMTX (enabled & running)" 
-echo "   � GPS Startup Manager (available, configure via web interface)"
-echo "   � SIM7600G-H Internet (enabled & configured)"
+echo "🏠 Local Access:"
+echo "   HTTP: http://$(hostname -I | awk '{print $1}')"
+echo "   SSH:  ssh $USER@$(hostname -I | awk '{print $1}')"
+echo ""
+
+if [ "$TAILSCALE_INSTALLED" = true ]; then
+    echo "🔐 Remote Access (Tailscale VPN):"
+    echo "   HTTP: http://$(tailscale ip -4 2>/dev/null || echo '[TAILSCALE-IP-AFTER-AUTH]')"
+    echo "   SSH:  ssh $USER@$(tailscale ip -4 2>/dev/null || echo '[TAILSCALE-IP-AFTER-AUTH]')"
+    echo "   📱 Install Tailscale app on your devices and login"
+    echo ""
+fi
+
+echo "⚙️ Flight Settings available for GPS tracking configuration"
+echo "🔧 Configure GPS username and tracking modes in Flight Settings"
+echo ""
+echo "🚀 Services installed and running:"
+echo "   ✅ Flask App (HTTP server on port 80)"
+echo "   ✅ MediaMTX (Streaming server)" 
+echo "   ⚙️ GPS Startup Manager (configure via web interface)"
+echo "   📡 SIM7600G-H Internet (auto-configured)"
+if [ "$TAILSCALE_INSTALLED" = true ]; then
+    echo "   🔐 Tailscale VPN (secure remote access)"
+fi
+if systemctl is-active --quiet reverse-ssh-tunnel.service; then
+    echo "   � Reverse SSH Tunnel (secure remote access)"
+fi
+echo "   �🔑 SSH Server (remote terminal access)"
 
 echo ""
-echo "?? Optional setup flags:"
-echo "   --tailscale  : Install Tailscale for remote access"
+echo "🛠️ Remote Access Setup Commands:"
+echo "   --reverse-ssh  : Reverse SSH tunnel to your AlmaLinux server"
+echo "   --tailscale    : Tailscale VPN for secure mesh networking"
+echo "   --remote       : Interactive remote access menu"
 echo ""
-echo "?? Documentation:"
+echo "🌐 Examples:"
+echo "   bash install_rpi_streamer.sh --reverse-ssh"
+echo "   bash install_rpi_streamer.sh --tailscale"
+echo ""
+echo "📚 Documentation:"
 echo "   GPS Tracker: GPS_TRACKER_README.md"
 echo "   SIM7600 Setup: SIM7600_INTERNET_SETUP.md"
 

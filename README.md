@@ -15,6 +15,37 @@ bash install_rpi_streamer.sh --tailscale
 
 **Note**: The installation automatically includes SIM7600G-H 4G dongle support and all necessary drivers/services. This provides plug-and-play functionality when a dongle is connected later.
 
+### Multi-Device Setup with Reverse SSH Tunnels
+
+For managing multiple RPI Streamer devices from a central server, use the reverse SSH tunnel installation:
+
+```sh
+curl -sSL https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh | bash -s -- --reverse-ssh
+```
+
+This enhanced installation provides:
+
+- **Automatic device registration** with gyropilots.org hardware console
+- **Secure reverse SSH tunnels** with AutoSSH reliability
+- **Unique port allocation** (no conflicts between devices)
+- **SSH key management** (RSA 4096-bit keys auto-generated)
+- **Central server access** via SSH port forwarding
+- **Hardware ID-based identification** for consistent device tracking
+
+#### Access Your Devices
+
+After installation, access your devices through your central server:
+
+```bash
+# SSH to your server with port forwarding
+ssh -L 8080:localhost:45001 user@your-server.com -p 45002
+
+# Open browser to: http://localhost:8080
+# This gives you direct access to the RPI Streamer web interface
+```
+
+**For complete multi-device setup instructions**, see [MULTI_DEVICE_SETUP.md](MULTI_DEVICE_SETUP.md)
+
 ### UPS Management (Optional)
 
 If you have a UPS hardware HAT installed, you can optionally install the UPS management system:
@@ -39,6 +70,8 @@ The UPS management system provides:
 - MediaMTX streaming server
 - Audio/video device selection
 - **System diagnostics panel** with real-time hardware monitoring
+- **Multi-device management** with reverse SSH tunnels and central server access
+- **Automatic device registration** with hardware console integration
 - **UPS monitoring and management** (optional, requires UPS HAT)
 - **4G cellular internet** (built-in support for Waveshare SIM7600G-H dongle)
 - **WiFi hotspot mode** for standalone operation
