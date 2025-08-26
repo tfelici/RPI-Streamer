@@ -93,9 +93,14 @@ fi
 # If repository exists, force update it
 # If not, clone it fresh
 if [ -d .git ]; then
-    sudo git fetch --all
-    sudo git reset --hard origin/main
-    sudo git clean -f -d
+    #only force an update if --force-update is passed
+    if [[ "$@" == *"--force-update"* ]]; then
+        sudo git fetch --all
+        sudo git reset --hard origin/main
+        sudo git clean -f -d
+    else
+        echo "Skipping repository update (use --force-update to update codebase)"
+    fi
 else
     rm -rf *
     echo "Repository not found, cloning fresh copy..."
@@ -464,27 +469,14 @@ echo "✅ SIM7600G-H setup completed (will auto-configure on boot/connection)"
 
 SIM7600_STATUS=0
 
-# Remote Access Setup
-if [[ "$@" == *"--reverse-ssh"* ]]; then
-    setup_reverse_ssh_tunnel
-elif [[ "$@" == *"--tailscale"* ]]; then
-    setup_tailscale_vpn
-elif [[ "$@" == *"--remote"* ]]; then
-    setup_remote_access_menu
-else
-    echo ""
-    echo "🌐 For remote access setup, run with one of these flags:"
-    echo "   --reverse-ssh  : Reverse SSH tunnel to your server (recommended)"
-    echo "   --tailscale    : Tailscale VPN mesh networking"
-    echo "   --remote       : Interactive remote access menu"
-fi
-
 # Function to register device with hardware console and setup SSH key
 register_device_with_console() {
     local hardware_id=$1
     local http_port=$2
     local ssh_port=$3
     local server_host=$4
+    local server_user=$5
+    local server_port=$6
     
     echo "🔗 Registering device and SSH key with hardware console..."
     
@@ -515,7 +507,8 @@ register_device_with_console() {
         echo ""
         echo "📋 Or copy and paste the above URL into your web browser"
         echo ""
-```
+        #read -p "Press Enter after completing registration on the website..."
+        
         # Verify registration by checking the hardware device
         echo "🔍 Awaiting device registration..."
         local check_url="https://gyropilots.org/ajaxservices.php?command=check_hardware_device&hardware_id=$hardware_id&public_key=$encoded_public_key&device_hostname=$(hostname)&tunnel_http_port=$http_port&tunnel_ssh_port=$ssh_port"
@@ -564,7 +557,7 @@ register_device_with_console() {
     "local_ip": "$(hostname -I | awk '{print $1}')",
     "registration_date": "$(date -Iseconds)",
     "ssh_command": "ssh $USER@$server_host -p $ssh_port",
-    "ssh_forward_command": "ssh -L 8080:localhost:$http_port $server_user@$server_host -p $ssh_port",
+    "ssh_forward_command": "ssh -L 8080:localhost:$http_port $server_user@$server_host -p $server_port",
     "device_url": "http://localhost:8080",
     "setup_status": "automated"
 }
@@ -583,11 +576,11 @@ setup_reverse_ssh_tunnel() {
     echo "🔒 REVERSE SSH TUNNEL SETUP"
     echo "=========================================="
     echo ""
-    echo "This creates a secure tunnel from your RPI to your AlmaLinux server"
+    echo "This creates a secure tunnel from your RPI to your server"
     echo "allowing SSH port forwarding access without any server configuration."
     echo ""
     
-    read -p "Enter your AlmaLinux server hostname/IP: " server_host
+    read -p "Enter your server hostname/IP: " server_host
     read -p "Enter SSH port on your server [22]: " server_port
     server_port=${server_port:-22}
     read -p "Enter SSH username on your server: " server_user
@@ -611,7 +604,7 @@ setup_reverse_ssh_tunnel() {
     echo "   Hardware ID: $HARDWARE_ID"
     echo "   Internal HTTP Tunnel: $tunnel_http_port (server-side only, safe range)"
     echo "   Internal SSH Tunnel: $tunnel_ssh_port (server-side only, safe range)"
-    echo "   Access via SSH port forwarding: ssh -L 8080:localhost:80 user@server -p $tunnel_ssh_port"
+    echo "   Access via SSH port forwarding: ssh -L 8080:localhost:80 user@server -p $server_port"
     echo ""
     
     read -p "Use these auto-generated ports? [Y/n]: " use_auto_ports
@@ -619,19 +612,14 @@ setup_reverse_ssh_tunnel() {
         read -p "Enter internal tunnel port for HTTP (server-side): " tunnel_http_port
         read -p "Enter internal tunnel port for SSH (server-side): " tunnel_ssh_port
     fi
-    
-    echo ""
-    echo "🌐 Access method: SSH port forwarding (no public HTTPS ports needed)"
-    echo "   Command: ssh -L 8080:localhost:$tunnel_http_port user@server -p $tunnel_ssh_port"
-    echo "   Then visit: http://localhost:8080"
-    
+
     # Register device with hardware console (includes SSH key generation)
     echo ""
     echo "📝 REGISTERING DEVICE WITH HARDWARE CONSOLE..."
-    if register_device_with_console "$HARDWARE_ID" "$tunnel_http_port" "$tunnel_ssh_port" "$server_host"; then
+    if register_device_with_console "$HARDWARE_ID" "$tunnel_http_port" "$tunnel_ssh_port" "$server_host" "$server_user" "$server_port"; then
         echo ""
         echo "🎉 AUTOMATED SETUP COMPLETE!"
-        echo "✅ SSH key automatically registered on your AlmaLinux server"
+        echo "✅ SSH key automatically registered on your server"
         
         echo ""
         echo "📋 Your SSH public key:"
@@ -693,24 +681,23 @@ EOF
     echo ""
     echo "✅ REVERSE SSH TUNNEL SETUP COMPLETE!"
     echo ""
-    echo "� ACCESS YOUR DEVICE WEB INTERFACE:"
+    echo "📋 ACCESS YOUR DEVICE WEB INTERFACE:"
     echo "======================================"
-    echo "Use SSH port forwarding (no Apache configuration needed):"
     echo ""
-    echo "💻 Command: ssh -L 8080:localhost:$tunnel_http_port $server_user@$server_host -p $tunnel_ssh_port"
+    echo "💻 Command: ssh -L 8080:localhost:$tunnel_http_port $server_user@$server_host -p $server_port"
     echo "🌐 Then visit: http://localhost:8080"
-    echo "   Direct SSH: ssh $USER@$server_host -p $tunnel_ssh_port"
+    echo "   Direct SSH: ssh $USER@localhost -p $tunnel_ssh_port (run this on the server)"
     echo ""
     echo "📋 For multiple devices, use different local ports:"
-    echo "   Device 1: ssh -L 8081:localhost:$tunnel_http_port $server_user@$server_host -p $tunnel_ssh_port"
-    echo "   Device 2: ssh -L 8082:localhost:[other_device_tunnel_http_port] $server_user@$server_host -p [other_device_ssh_port]"
+    echo "   Device 1: ssh -L 8081:localhost:$tunnel_http_port $server_user@$server_host -p $server_port"
+    echo "   Device 2: ssh -L 8082:localhost:[other_device_tunnel_http_port] $server_user@$server_host -p $server_port"
     echo ""
     echo "📊 AutoSSH Tunnel Status:"
     echo "   Service: systemctl status reverse-ssh-tunnel.service"
     echo "   Logs:    journalctl -u reverse-ssh-tunnel.service -f"
     echo "   AutoSSH will automatically reconnect if connection drops"
     echo ""
-    echo "🔧 On your AlmaLinux server:"
+    echo "🔧 On your server:"
     echo "   Internal HTTP Tunnel: localhost:$tunnel_http_port"
     echo "   Internal SSH Tunnel:  localhost:$tunnel_ssh_port"
     
@@ -730,7 +717,7 @@ curl http://localhost:$tunnel_http_port
 ssh $USER@localhost -p $tunnel_ssh_port
 
 # Access web interface via port forwarding:
-ssh -L 8080:localhost:$tunnel_http_port $server_user@$server_host -p $tunnel_ssh_port
+ssh -L 8080:localhost:$tunnel_http_port $server_user@$server_host -p $server_port
 # Then visit: http://localhost:8080
 
 # AutoSSH will automatically maintain the connection and reconnect if needed
@@ -774,7 +761,7 @@ setup_remote_access_menu() {
     echo "======================================"
     echo ""
     echo "Choose your remote access method:"
-    echo "1) Reverse SSH Tunnel (to your AlmaLinux server) - Recommended"
+    echo "1) Reverse SSH Tunnel (to your server) - Recommended"
     echo "2) Tailscale VPN (mesh networking)"
     echo "3) Skip remote access setup"
     echo ""
@@ -835,7 +822,7 @@ echo "   �🔑 SSH Server (remote terminal access)"
 
 echo ""
 echo "🛠️ Remote Access Setup Commands:"
-echo "   --reverse-ssh  : Reverse SSH tunnel to your AlmaLinux server"
+echo "   --reverse-ssh  : Reverse SSH tunnel to your server"
 echo "   --tailscale    : Tailscale VPN for secure mesh networking"
 echo "   --remote       : Interactive remote access menu"
 echo ""
@@ -865,3 +852,18 @@ echo ""
 echo "🌐 To complete registration, click the following link:"
 echo "   https://gyropilots.org/manage-hardware/?hardwareid=$HARDWARE_ID"
 echo ""
+
+# Remote Access Setup
+if [[ "$@" == *"--reverse-ssh"* ]]; then
+    setup_reverse_ssh_tunnel
+elif [[ "$@" == *"--tailscale"* ]]; then
+    setup_tailscale_vpn
+elif [[ "$@" == *"--remote"* ]]; then
+    setup_remote_access_menu
+else
+    echo ""
+    echo "🌐 For remote access setup, run with one of these flags:"
+    echo "   --reverse-ssh  : Reverse SSH tunnel to your server (recommended)"
+    echo "   --tailscale    : Tailscale VPN mesh networking"
+    echo "   --remote       : Interactive remote access menu"
+fi
