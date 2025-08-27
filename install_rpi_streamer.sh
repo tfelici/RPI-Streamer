@@ -503,7 +503,7 @@ register_device_with_console() {
         # Invite the user to click on this link to register the hardware
         local encoded_public_key=$(echo "$public_key" | sed 's/ /%20/g' | sed 's/+/%2B/g' | sed 's/=/%3D/g' | sed 's/\//%2F/g')
         echo "🌐 To complete device registration, please visit this link:"
-        echo "   https://gyropilots.org/manage-hardware/?command=setup_hardware_device&hardware_id=$hardware_id&public_key=$encoded_public_key&device_hostname=$(hostname)&tunnel_http_port=$http_port&tunnel_ssh_port=$ssh_port"
+        echo "   https://streamer.lambda-tek.com/admin?command=setup_hardware_device&hardware_id=$hardware_id&public_key=$encoded_public_key&device_hostname=$(hostname)&tunnel_http_port=$http_port&tunnel_ssh_port=$ssh_port"
         echo ""
         echo "📋 Or copy and paste the above URL into your web browser"
         echo ""
@@ -511,8 +511,8 @@ register_device_with_console() {
         
         # Verify registration by checking the hardware device
         echo "🔍 Awaiting device registration..."
-        local check_url="https://gyropilots.org/ajaxservices.php?command=check_hardware_device&hardware_id=$hardware_id&public_key=$encoded_public_key&device_hostname=$(hostname)&tunnel_http_port=$http_port&tunnel_ssh_port=$ssh_port"
-        
+        local check_url="https://streamer.lambda-tek.com?command=check_hardware_device&hardware_id=$hardware_id&public_key=$encoded_public_key&device_hostname=$(hostname)&tunnel_http_port=$http_port&tunnel_ssh_port=$ssh_port"
+
         local response=$(curl -s "$check_url" 2>/dev/null || echo "false")
         
         # Check if response indicates successful registration (not "false")
@@ -580,10 +580,12 @@ setup_reverse_ssh_tunnel() {
     echo "allowing SSH port forwarding access without any server configuration."
     echo ""
     
-    read -p "Enter your server hostname/IP: " server_host
-    read -p "Enter SSH port on your server [22]: " server_port
-    server_port=${server_port:-22}
-    read -p "Enter SSH username on your server: " server_user
+    # Hardcoded server configuration
+    server_host="main.lambda-tek.com"
+    server_port="2024"
+    server_user="streamer"
+    echo "Using server: $server_user@$server_host:$server_port"
+    echo ""
     
     # Auto-generate unique ports based on device hardware ID
     HARDWARE_ID=$(cat /proc/cpuinfo | grep Serial | cut -d ' ' -f 2 2>/dev/null || echo "unknown")
@@ -848,11 +850,7 @@ if [ "$HARDWARE_ID" = "unknown" ] || [ -z "$HARDWARE_ID" ]; then
 fi
 
 echo "📋 Hardware ID: $HARDWARE_ID"
-echo ""
-echo "🌐 To complete registration, click the following link:"
-echo "   https://gyropilots.org/manage-hardware/?hardwareid=$HARDWARE_ID"
-echo ""
-
+echo "🔗 Registering device with hardware console..."
 # Remote Access Setup
 if [[ "$@" == *"--reverse-ssh"* ]]; then
     setup_reverse_ssh_tunnel
