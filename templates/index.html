@@ -525,10 +525,10 @@
             <div class="flight-info" style="background: #f8f9fa; padding: 12px; border-radius: 6px; margin-bottom: 1rem; font-size: 14px;">
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                     <div>
-                        <strong>Username:</strong> {{ settings.flightserver_username or 'Not configured' }}
+                        <strong>Username:</strong> {{ settings.username or 'Not configured' }}
                     </div>
                     <div>
-                        <strong>Aircraft:</strong> {{ settings.aircraft_registration or 'Not set' }}
+                        <strong>Vehicle:</strong> {{ settings.vehicle or 'Not set' }}
                     </div>
                     <div>
                         <strong>Start Mode:</strong> 
@@ -542,7 +542,7 @@
                         <strong>Stream Link:</strong> {{ 'Enabled' if settings.gps_stream_link else 'Disabled' }}
                     </div>
                 </div>
-                {% if not settings.flightserver_username %}
+                {% if not settings.username %}
                 <div style="margin-top: 8px; color: #dc3545; font-size: 13px;">
                     ?? Configure username in <a href="/flight-settings" style="color: #0d6efd;">Flight Settings</a> to enable GPS tracking
                 </div>
@@ -550,7 +550,7 @@
             </div>
             
             <div style="text-align: center; margin-bottom: 1.5rem;">
-                <button id="gps-btn" class="btn btn-primary" {% if not settings.flightserver_username %}disabled title="Configure username in Flight Settings first"{% endif %}>
+                <button id="gps-btn" class="btn btn-primary" {% if not settings.username %}disabled title="Configure username in Flight Settings first"{% endif %}>
                     {{ 'Stop GPS Tracking' if gps_tracking else 'Start GPS Tracking' }}
                 </button>
             </div>

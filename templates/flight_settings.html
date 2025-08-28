@@ -20,21 +20,21 @@
                 <label>Flight Server Settings</label>
                 <div style="display: flex; gap: 15px; align-items: flex-start;">
                     <div style="flex: 2;">
-                        <input type="text" id="flightserver_username" name="flightserver_username" value="{{ settings.flightserver_username }}" placeholder="Enter your username" required>
+                        <input type="text" id="username" name="username" value="{{ settings.username }}" placeholder="Enter your username" required>
                         <small style="display: block;">Username for flight server authentication</small>
                     </div>
                     <div style="flex: 1;">
-                        <select id="flightserver_domain" name="flightserver_domain" required>
-                            <option value="gyropilots.org" {% if settings.flightserver_domain == 'gyropilots.org' %}selected{% endif %}>gyropilots.org</option>
-                            <option value="gapilots.org" {% if settings.flightserver_domain == 'gapilots.org' %}selected{% endif %}>gapilots.org</option>
+                        <select id="domain" name="domain" required>
+                            <option value="gyropilots.org" {% if settings.domain == 'gyropilots.org' %}selected{% endif %}>gyropilots.org</option>
+                            <option value="gapilots.org" {% if settings.domain == 'gapilots.org' %}selected{% endif %}>gapilots.org</option>
                         </select>
                         <small style="display: block;">Server domain</small>
                     </div>
                 </div>
 
-                <label for="aircraft_registration">Aircraft Registration</label>
-                <input type="text" id="aircraft_registration" name="aircraft_registration" value="{{ settings.aircraft_registration }}" placeholder="e.g., N123AB, G-ABCD, D-EFGH">
-                <small>Enter your aircraft's registration number.</small>
+                <label for="vehicle">Vehicle Registration</label>
+                <input type="text" id="vehicle" name="vehicle" value="{{ settings.vehicle }}" placeholder="e.g., N123AB, G-ABCD, D-EFGH">
+                <small>Enter your vehicle's registration number.</small>
 
                 <label for="gps_stream_link">Video Streaming Control</label>
                 <select id="gps_stream_link" name="gps_stream_link">

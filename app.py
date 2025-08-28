@@ -19,6 +19,7 @@ import requests
 import socket
 import platform
 import random
+import glob
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
@@ -45,6 +46,74 @@ def add_no_cache_headers(response):
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+
+def get_hardware_id():
+    """
+    Get the hardware ID using the same logic as the installation script.
+    First tries to get CPU serial from /proc/cpuinfo, then falls back to MAC address.
+    """
+    try:
+        # First try to get CPU serial from /proc/cpuinfo (Raspberry Pi)
+        with open('/proc/cpuinfo', 'r') as f:
+            for line in f:
+                if line.startswith('Serial'):
+                    serial = line.split(':')[1].strip()
+                    if serial and serial != '0000000000000000':
+                        return serial
+    except (FileNotFoundError, IOError, IndexError):
+        pass
+    
+    # Fallback to MAC address
+    try:
+        for interface_path in glob.glob('/sys/class/net/*/address'):
+            try:
+                with open(interface_path, 'r') as f:
+                    mac = f.read().strip()
+                    if mac and mac != '00:00:00:00:00:00':
+                        # Remove colons like in the installation script
+                        return mac.replace(':', '')
+            except (IOError, OSError):
+                continue
+    except Exception:
+        pass
+    
+    # Final fallback - generate based on timestamp like installation script
+    return f"fallback-{int(time.time())}"
+
+def get_flight_parameters():
+    """
+    Retrieve flight parameters from the server using the hardware ID.
+    Returns the response data or None if failed.
+    """
+    try:
+        hardware_id = get_hardware_id()
+        url = f"https://streamer.lambda-tek.com/command=getflightpars?hardware_id={hardware_id}"
+        
+        print(f"Retrieving flight parameters for hardware ID: {hardware_id}")
+        print(f"Request URL: {url}")
+        
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()  # Raises an HTTPError for bad responses
+        
+        print(f"Response status: {response.status_code}")
+        print(f"Response content: {response.text[:500]}...")  # First 500 chars for debugging
+        
+        # Try to parse as JSON first
+        try:
+            json_data = response.json()
+            print(f"Parsed JSON response: {json_data}")
+            return json_data
+        except json.JSONDecodeError:
+            print("Response is not valid JSON, returning as text")
+            # If not JSON, return the text content
+            return {"text_response": response.text}
+            
+    except requests.exceptions.RequestException as e:
+        print(f"Error retrieving flight parameters: {e}")
+        return None
+    except Exception as e:
+        print(f"Unexpected error in get_flight_parameters: {e}")
+        return None
 
 def get_temperature():
     # Use vcgencmd like in get_system_diagnostics for consistency
@@ -389,9 +458,9 @@ def flight_settings_save():
     settings = load_settings()
     
     # Update flight settings
-    settings['flightserver_username'] = request.form.get('flightserver_username', '').strip()
-    settings['aircraft_registration'] = request.form.get('aircraft_registration', '').strip()
-    settings['flightserver_domain'] = request.form.get('flightserver_domain', 'gyropilots.org').strip()
+    settings['username'] = request.form.get('username', '').strip()
+    settings['vehicle'] = request.form.get('vehicle', '').strip()
+    settings['domain'] = request.form.get('domain', 'gyropilots.org').strip()
     settings['gps_stream_link'] = request.form.get('gps_stream_link') == 'on'
     old_gps_start_mode = settings['gps_start_mode']
     settings['gps_start_mode'] = request.form.get('gps_start_mode', 'manual')
@@ -522,14 +591,14 @@ def stop_streaming():
     
     return True, 'stopped', 200
 
-def get_gyropedia_flights(gyropedia_id, aircraft_registration=None, flightserver_domain="gyropilots.org"):
+def get_gyropedia_flights(gyropedia_id, vehicle=None, domain="gyropilots.org"):
     """
     Get list of flights from Gyropedia similar to creategyropediaflightlist JavaScript function.
     
     Args:
         gyropedia_id: The user's Gyropedia API key
-        aircraft_registration: Aircraft registration number to match flights (optional)
-        flightserver_domain: Domain to use for API calls (gyropilots.org or gapilots.org)
+        vehicle: Vehicle registration number to match flights (optional)
+        domain: Domain to use for API calls (gyropilots.org or gapilots.org)
     
     Returns:
         tuple: (success, flight_id, error_message)
@@ -537,7 +606,7 @@ def get_gyropedia_flights(gyropedia_id, aircraft_registration=None, flightserver
     try:
         # Make GET request to get flight list
         response = requests.get(
-            f'https://{flightserver_domain}/ajaxservices.php',
+            f'https://{domain}/ajaxservices.php',
             params={
                 'command': 'getgyropediaflights',
                 'key': gyropedia_id,
@@ -558,18 +627,18 @@ def get_gyropedia_flights(gyropedia_id, aircraft_registration=None, flightserver
                     planned_flights = [f for f in parsed_data['flight'] if f.get('status') == 'P']
                     
                     if planned_flights:
-                        # If we have an aircraft registration, look for matching flights first
-                        if aircraft_registration and aircraft_registration.strip():
-                            matching_flights = [f for f in planned_flights if f.get('reg', '').strip().upper() == aircraft_registration.strip().upper()]
+                        # If we have a vehicle, look for matching flights first
+                        if vehicle and vehicle.strip():
+                            matching_flights = [f for f in planned_flights if f.get('reg', '').strip().upper() == vehicle.strip().upper()]
                             
                             if matching_flights:
-                                # Use first flight that matches the aircraft registration
+                                # Use first flight that matches the vehicle registration
                                 first_flight = matching_flights[0]
                                 flight_id = first_flight.get('flight_id')
-                                print(f"Found planned Gyropedia flight for aircraft {aircraft_registration}: {flight_id}")
+                                print(f"Found planned Gyropedia flight for vehicle {vehicle}: {flight_id}")
                                 return True, flight_id, None
                             else:
-                                print(f"No planned flights found for aircraft registration {aircraft_registration}, using first available planned flight")
+                                print(f"No planned flights found for vehicle registration {vehicle}, using first available planned flight")
                         
                         # Fallback: Use first planned flight (regardless of registration)
                         first_flight = planned_flights[0]
@@ -593,7 +662,7 @@ def get_gyropedia_flights(gyropedia_id, aircraft_registration=None, flightserver
     except Exception as e:
         return False, None, f"Unexpected error getting Gyropedia flights: {e}"
 
-def update_gyropedia_flight(state, settings, track_id=None, aircraft_registration=None):
+def update_gyropedia_flight(gyropedia_id, state, settings, track_id=None, vehicle=None, flight_id=None):
     """
     Update Gyropedia flight status similar to updategyropediaflight JavaScript function.
     
@@ -601,28 +670,29 @@ def update_gyropedia_flight(state, settings, track_id=None, aircraft_registratio
         state: 'start' or 'stop'
         settings: Application settings dictionary
         track_id: GPS tracking ID if available
-        aircraft_registration: Aircraft registration number to match flights (optional)
+        vehicle: Vehicle registration number to match flights (optional)
+        flight_id: Specific flight_id to update (if None, will get first available)
     
     Returns:
-        bool: True if successful, False otherwise
+        tuple: (success, flight_id_used) - success boolean and the flight_id that was used
     """
     try:
         # Check if Gyropedia integration is configured
-        gyropedia_id = settings.get('gyropedia_id', '').strip()
-        username = settings.get('flightserver_username', '').strip()
-        flightserver_domain = settings.get('flightserver_domain', 'gyropilots.org').strip()
+        username = settings.get('username', '').strip()
+        domain = settings.get('domain', 'gyropilots.org').strip()
         
         if not gyropedia_id or not username:
             print("Gyropedia integration not configured (missing gyropedia_id or username), skipping flight update")
-            return True  # Not an error, just not configured
+            return True, None  # Not an error, just not configured
         
-        # Always get the first available flight from Gyropedia dynamically
-        print(f"Getting first available flight from {flightserver_domain}...")
-        success, flight_id, error = get_gyropedia_flights(gyropedia_id, aircraft_registration, flightserver_domain)
-        
-        if not success or not flight_id:
-            print(f"Could not get Gyropedia flight list: {error}")
-            return True  # Don't fail the GPS tracking just because we can't get flight list
+        # If no flight_id provided, get the first available flight from Gyropedia
+        if not flight_id:
+            print(f"Getting first available flight from {domain}...")
+            success, flight_id, error = get_gyropedia_flights(gyropedia_id, vehicle, domain)
+            
+            if not success or not flight_id:
+                print(f"Could not get Gyropedia flight list: {error}")
+                return True, None  # Don't fail the GPS tracking just because we can't get flight list
         
         print(f"Using Gyropedia flight: {flight_id}")
         
@@ -653,7 +723,7 @@ def update_gyropedia_flight(state, settings, track_id=None, aircraft_registratio
         
         # Make POST request to ajaxservices.php
         response = requests.post(
-            f'https://{flightserver_domain}/ajaxservices.php',
+            f'https://{domain}/ajaxservices.php',
             data=post_data,
             timeout=10
         )
@@ -663,24 +733,58 @@ def update_gyropedia_flight(state, settings, track_id=None, aircraft_registratio
                 parsed_data = response.json()
                 if 'error' in parsed_data and parsed_data['error']:
                     print(f"Gyropedia flight update error: {parsed_data['error']}")
-                    return False
+                    return False, flight_id
                 
                 print(f"Successfully updated Gyropedia flight {flight_id} to status '{status}'")
-                return True
+                return True, flight_id
                 
             except json.JSONDecodeError as e:
                 print(f"Failed to parse Gyropedia response: {e}")
-                return False
+                return False, flight_id
         else:
             print(f"Gyropedia flight update failed with HTTP {response.status_code}")
-            return False
+            return False, flight_id
             
     except requests.RequestException as e:
         print(f"Network error updating Gyropedia flight: {e}")
-        return False
+        return False, flight_id
     except Exception as e:
         print(f"Unexpected error updating Gyropedia flight: {e}")
-        return False
+        return False, flight_id
+
+def save_gyropedia_flight_id(flight_id):
+    """Save the current gyropedia flight_id to a file for persistence"""
+    try:
+        flight_id_file = os.path.join(STREAMER_DATA_DIR, 'current_gyropedia_flight_id.txt')
+        with open(flight_id_file, 'w') as f:
+            f.write(str(flight_id))
+        print(f"Saved gyropedia flight_id: {flight_id}")
+    except Exception as e:
+        print(f"Error saving gyropedia flight_id: {e}")
+
+def load_gyropedia_flight_id():
+    """Load the current gyropedia flight_id from file"""
+    try:
+        flight_id_file = os.path.join(STREAMER_DATA_DIR, 'current_gyropedia_flight_id.txt')
+        if os.path.exists(flight_id_file):
+            with open(flight_id_file, 'r') as f:
+                flight_id = f.read().strip()
+                if flight_id:
+                    print(f"Loaded gyropedia flight_id: {flight_id}")
+                    return flight_id
+    except Exception as e:
+        print(f"Error loading gyropedia flight_id: {e}")
+    return None
+
+def clear_gyropedia_flight_id():
+    """Clear the stored gyropedia flight_id"""
+    try:
+        flight_id_file = os.path.join(STREAMER_DATA_DIR, 'current_gyropedia_flight_id.txt')
+        if os.path.exists(flight_id_file):
+            os.remove(flight_id_file)
+            print("Cleared stored gyropedia flight_id")
+    except Exception as e:
+        print(f"Error clearing gyropedia flight_id: {e}")
 
 def start_flight():
     """
@@ -696,135 +800,108 @@ def start_flight():
     
     # Get username and domain from settings and validate
     settings = load_settings()
-    username = settings['flightserver_username'].strip()
-    flightserver_domain = settings.get('flightserver_domain', '').strip()
-    aircraft_registration = settings.get('aircraft_registration', '').strip()
-    rtmpkey = settings.get('rtmpkey', '').strip()
+    # Get flight parameters from server and update settings
+    flight_params = get_flight_parameters()
+    if flight_params:
+        # Update settings with flight parameters if they exist in the response
+        if isinstance(flight_params, dict) and 'text_response' not in flight_params:
+            # Handle JSON response with expected fields: domain, username, rtmpkey, vehicle
+            if 'rtmpkey' in flight_params:
+                settings['rtmpkey'] = flight_params['rtmpkey']
+                print(f"Updated rtmpkey: {flight_params['rtmpkey']}")
+            
+            if 'vehicle' in flight_params:
+                # 'vehicle' maps to 'vehicle'
+                settings['vehicle'] = flight_params['vehicle']
+                print(f"Updated vehicle: {flight_params['vehicle']}")
+            
+            if 'domain' in flight_params:
+                settings['domain'] = flight_params['domain']
+                print(f"Updated domain: {flight_params['domain']}")
+            
+            if 'username' in flight_params:
+                settings['username'] = flight_params['username']
+                print(f"Updated username: {flight_params['username']}")
+            
+            # Save updated settings
+            save_settings(settings)
+            print(f"Updated settings with flight parameters from server")
+        else:
+            print(f"Flight parameters response format not recognized: {type(flight_params)}")
+    else:
+        print("No flight parameters received from server, using existing settings")
 
+    username = settings['username'].strip()
+    domain = settings.get('domain', '').strip()
+    vehicle = settings.get('vehicle', '').strip()
+    rtmpkey = settings.get('rtmpkey', '').strip()
+    
     if not username:
         return False, 'Flight server username is not configured. Please set a username for GPS tracking in the flight settings.', 400
     
-    if not flightserver_domain:
+    if not domain:
         return False, 'Flight server domain is not configured. Please set a domain for GPS tracking in the flight settings.', 400
     
-    # If gps_stream_link is enabled, validate aircraft registration and camera availability
-    if settings['gps_stream_link']:        
-        # Use findorcreatecamera to get or create camera for this aircraft registration
-        try:
-            camera_creation_response = requests.post(
-                f'https://{flightserver_domain}/ajaxservices.php',
-                data={
-                    'command': 'findorcreatecamera',
-                    'username': username,
-                    'alias': 'RPI Streamer',
-                    'vehicle': aircraft_registration,
-                    'rtmpkey': rtmpkey if rtmpkey else ''
-                },
-                timeout=10
-            )
-            if camera_creation_response.status_code != 200:
-                return False, f'Failed to get camera for aircraft registration "{aircraft_registration}" (HTTP {camera_creation_response.status_code}). Please check your connection and try again.', 400
-            
-            camera_data = camera_creation_response.json()
-            if camera_data.get('error') != '':
-                return False, f'Error getting camera for aircraft registration "{aircraft_registration}": {camera_data["error"]}', 400
-            
-            camera_id = camera_data.get('id')
-            if not camera_id:
-                return False, f'Invalid camera data for aircraft registration "{aircraft_registration}". Please check camera configuration.', 400
-            
-            # Get rtmpkey from camera data
-            returned_rtmpkey = camera_data.get('rtmpkey', '')
-            if not returned_rtmpkey:
-                return False, f'No rtmpkey found in camera data for aircraft "{aircraft_registration}". Please check camera configuration.', 400
-            
-            # Update settings with rtmpkey if it was undefined or different
-            if not rtmpkey or rtmpkey != returned_rtmpkey:
-                settings['rtmpkey'] = returned_rtmpkey
-                print(f"Updated rtmpkey to: {returned_rtmpkey}")
-            
-            # Set stream_url and upload_url based on returned rtmpkey
-            domain = flightserver_domain.split('.')[0] #set to gyropilots or gapilots
-            new_stream_url = f"srt://{flightserver_domain}:8890?streamid=publish:{domain}/{returned_rtmpkey}&pkt_size=1316"
-            new_upload_url = f"https://{flightserver_domain}/ajaxservices.php?command=replacerecordings&rtmpkey={returned_rtmpkey}"
-            
-            # Only update URLs if they have changed
-            if settings.get('stream_url') != new_stream_url:
-                settings['stream_url'] = new_stream_url
-                print(f"Updated stream_url to: {new_stream_url}")
-            
-            if settings.get('upload_url') != new_upload_url:
-                settings['upload_url'] = new_upload_url
-                print(f"Updated upload_url to: {new_upload_url}")
-            
-            # Save settings only if something changed
-            if (not rtmpkey or rtmpkey != returned_rtmpkey or 
-                settings.get('stream_url') != new_stream_url or 
-                settings.get('upload_url') != new_upload_url):
+    # Sync flight parameters from hardware database to flight server.
+    # Sets the selectedcamera and aicraft_reg
+    # cannot use setuserfield as this is protected by login
+    try:
+        hardware_id = get_hardware_id()
+        response = requests.post(
+            f'https://{domain}/ajaxservices.php',
+            data={
+                'command': 'init_streamer_flightpars',
+                'value': hardware_id
+            },
+            timeout=10
+        )
+        if response.status_code == 200:
+            resp_json = response.json()
+            if 'gyropedia_id' in resp_json:
+                settings['gyropedia_id'] = resp_json['gyropedia_id']
+                print(f"Updated gyropedia_id: {resp_json['gyropedia_id']}")
+                # Save updated settings
                 save_settings(settings)
-            
-            # Set the camera as selected camera
-            try:
-                response = requests.post(
-                    f'https://{flightserver_domain}/ajaxservices.php',
-                    data={
-                        'command': 'setuserfield',
-                        'username': username,
-                        'field': 'selectedcamera',
-                        'value': camera_id
-                    },
-                    timeout=10
-                )
-                if response.status_code == 200:
-                    print(f"Successfully set selected camera to ID {camera_id} for aircraft {aircraft_registration}")
-                else:
-                    return False, f'Failed to update selected camera - HTTP {response.status_code}', 400
-            except requests.RequestException as e:
-                return False, f'Network error updating selected camera: {e}', 400
-            except Exception as e:
-                return False, f'Unexpected error updating selected camera: {e}', 400
-                
-            print(f"Camera setup complete - ID {camera_id} for aircraft {aircraft_registration}")
-        except requests.RequestException as e:
-            return False, f'Network error setting up camera for aircraft registration "{aircraft_registration}": {e}', 400
-        except Exception as e:
-            return False, f'Unexpected error setting up camera for aircraft registration "{aircraft_registration}": {e}', 400
-    
+            print(f"Successfully initialized flight parameters")
+        else:
+            return False, f'Failed to initialize flight parameters - HTTP {response.status_code}', 400
+    except requests.RequestException as e:
+        return False, f'Network error initializing flight parameters: {e}', 400
+    except Exception as e:
+        return False, f'Unexpected error initializing flight parameters: {e}', 400
+
+    # If gps_stream_link is enabled, validate rtmpkey and set up streaming URLs
+    if settings['gps_stream_link']:
+        if not rtmpkey:
+            return False, 'RTMP key is not configured. Please ensure your vehicle registration is set and valid on the flight server.', 400
+        
+        # Set stream_url and upload_url based on rtmpkey
+        domain_prefix = domain.split('.')[0] #set to gyropilots or gapilots
+        settings['stream_url'] = f"srt://{domain}:8890?streamid=publish:{domain_prefix}/{rtmpkey}&pkt_size=1316"
+        settings['upload_url'] = f"https://{domain}/ajaxservices.php?command=replacerecordings&rtmpkey={rtmpkey}"
+        save_settings(settings)
+        
     # Generate track_id upfront using centralized function
     track_id = generate_gps_track_id()
     print(f"Generated track ID: {track_id}")
     
     # Start GPS tracker with the pre-generated track_id
     try:
-        subprocess.Popen(['python', 'gps_tracker.py', username, '--domain', flightserver_domain, '--track_id', track_id])
+        subprocess.Popen(['python', 'gps_tracker.py', username, '--domain', domain, '--track_id', track_id])
         print(f"Started GPS tracker process with track ID: {track_id}")
     except Exception as e:
         return False, f'Failed to start GPS tracker process: {e}', 500
-    
-    # Post aircraft registration to flight server (similar to PHP onafterstartstop)
-    if aircraft_registration:
-        try:
-            response = requests.post(
-                f'https://{flightserver_domain}/ajaxservices.php',
-                data={
-                    'command': 'setuserfield',
-                    'username': username,
-                    'field': 'aircraft_reg',
-                    'value': aircraft_registration
-                },
-                timeout=10
-            )
-            if response.status_code == 200:
-                print(f"Successfully posted aircraft registration {aircraft_registration} to flight server")
-            else:
-                return False, f'Failed to post aircraft registration - HTTP {response.status_code}', 400
-        except requests.RequestException as e:
-            return False, f'Network error posting aircraft registration: {e}', 400
-        except Exception as e:
-            return False, f'Unexpected error posting aircraft registration: {e}', 400
-    
-    # Update Gyropedia flight status to "Flying" (F)
-    update_gyropedia_flight('start', settings, track_id, aircraft_registration)
+        
+    gyropedia_id = settings.get('gyropedia_id', '').strip()
+    if (gyropedia_id):
+        # Update Gyropedia flight status to "Flying" (F) and store the flight_id
+        vehicle = settings.get('vehicle', '').strip()
+        success, flight_id = update_gyropedia_flight(gyropedia_id, 'start', settings, track_id, vehicle)
+        # Store the flight_id for use when stopping the flight
+        if success and flight_id:
+            save_gyropedia_flight_id(flight_id)
+        else:
+            print("Warning: Could not get flight_id from Gyropedia, flight ending may not work properly")
     
     # If gps_stream_link is enabled, also start video streaming
     if settings['gps_stream_link']:
@@ -859,9 +936,14 @@ def stop_flight():
                     time.sleep(0.1)
                 print("GPS tracking stopped successfully.")
             
-            # Update Gyropedia flight status to "Landed" (L)
-            aircraft_registration = settings.get('aircraft_registration', '').strip()
-            update_gyropedia_flight('stop', settings, track_id, aircraft_registration)
+            # Update Gyropedia flight status to "Landed" (L) using the stored flight_id
+            gyropedia_id = settings.get('gyropedia_id', '').strip()
+            if (gyropedia_id):
+                vehicle = settings.get('vehicle', '').strip()
+                stored_flight_id = load_gyropedia_flight_id()
+                update_gyropedia_flight(gyropedia_id, 'stop', settings, track_id, vehicle, stored_flight_id)
+                # Clear the stored flight_id since the flight has ended
+                clear_gyropedia_flight_id()
             
         except Exception as e:
             print(f"Error stopping GPS tracking: {e}")
@@ -877,10 +959,15 @@ def stop_flight():
     else:
         print("No active GPS tracking to stop.")
     
-    # Update Gyropedia flight status even if GPS tracking wasn't active
-    # (in case the tracking stopped unexpectedly but we still want to mark flight as landed)
-    aircraft_registration = settings.get('aircraft_registration', '').strip()
-    update_gyropedia_flight('stop', settings, None, aircraft_registration)
+    gyropedia_id = settings.get('gyropedia_id', '').strip()
+    if (gyropedia_id):
+        # Update Gyropedia flight status even if GPS tracking wasn't active
+        # (in case the tracking stopped unexpectedly but we still want to mark flight as landed)
+        vehicle = settings.get('vehicle', '').strip()
+        stored_flight_id = load_gyropedia_flight_id()
+        update_gyropedia_flight(gyropedia_id, 'stop', settings, None, vehicle, stored_flight_id)
+        # Always clear the stored flight_id when stopping flight
+        clear_gyropedia_flight_id()
     
     return True, 'stopped', 200
 
@@ -923,6 +1010,21 @@ def gps_status():
     """Get current GPS tracking status including hardware details"""
     status = get_gps_tracking_status()
     return jsonify(status)
+
+@app.route('/hardware-id')
+def hardware_id():
+    """Get the hardware ID for this device"""
+    try:
+        hw_id = get_hardware_id()
+        return jsonify({
+            'hardware_id': hw_id,
+            'status': 'success'
+        })
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'status': 'error'
+        }), 500
 
 @app.route('/upload-recording', methods=['POST'])
 def upload_recording():

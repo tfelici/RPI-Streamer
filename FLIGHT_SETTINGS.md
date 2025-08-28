@@ -8,7 +8,7 @@ The Flight Settings feature provides comprehensive GPS tracking configuration an
 
 ### 1. User Configuration
 - **Username**: Set the username for GPS tracking identification
-- **Aircraft Registration**: Record your aircraft's registration number (e.g., N123AB, G-ABCD)
+- **Vehicle**: Record your vehicle's registration number (e.g., N123AB, G-ABCD)
 
 ### 2. Video Streaming Integration
 - **Auto Start/Stop Streaming**: Option to automatically control video streaming when GPS tracking starts/stops
@@ -51,7 +51,7 @@ This installer will:
 
 1. Navigate to the "Flight Settings" page in the web interface
 2. Set your GPS username (required for GPS tracking)
-3. Optionally set your aircraft registration
+3. Optionally set your vehicle registration
 4. Choose your preferred GPS start mode
 5. Enable/disable automatic streaming control
 6. Save your settings
@@ -63,14 +63,14 @@ This installer will:
 The Flight Settings page (`/flight-settings`) provides a user-friendly interface to configure all options:
 
 - **Username**: Required for GPS tracking functionality
-- **Aircraft Registration**: Optional identification field
+- **Vehicle**: Optional identification field
 - **Video Streaming Control**: Toggle automatic streaming integration
 - **GPS Start Mode**: Choose from Manual, Auto (Boot), or Auto (Motion)
 
 ### Home Dashboard
 
 The home page displays current flight settings and GPS status:
-- Username and aircraft registration
+- Username and vehicle registration
 - Current start mode
 - Stream link status
 - Real-time GPS tracking status
@@ -117,8 +117,9 @@ Settings are stored in `streamerData/settings.json`:
 
 ```json
 {
-  "gps_username": "your_username",
-  "aircraft_registration": "N123AB",
+  "username": "your_username",
+  "domain": "gyropilots.org",
+  "vehicle": "N123AB",
   "gps_stream_link": false,
   "gps_start_mode": "manual"
 }
