@@ -3,15 +3,15 @@
 # Usage: bash install_rpi_streamer.sh [OPTIONS]
 #
 # Options:
-#   --force-update    Force update the codebase to match the remote GitHub repository 
-#                     (overwriting local changes, restoring missing files, removing extra tracked files)
+#   --skip-update     Skip updating the codebase from GitHub repository
+#                     (use existing local files without checking for updates)
 #   --reverse-ssh     Setup reverse SSH tunnel to your server for remote access
 #   --tailscale       Setup Tailscale VPN for secure mesh networking
 #   --remote          Interactive remote access menu
 #
 # Examples:
-#   bash install_rpi_streamer.sh                     # Basic installation
-#   bash install_rpi_streamer.sh --force-update     # Installation with codebase reset
+#   bash install_rpi_streamer.sh                     # Basic installation with update check
+#   bash install_rpi_streamer.sh --skip-update      # Installation without updating codebase
 #   bash install_rpi_streamer.sh --reverse-ssh      # Installation with reverse SSH tunnel
 #   bash install_rpi_streamer.sh --tailscale        # Installation with Tailscale VPN
 
@@ -92,21 +92,21 @@ mkdir -p "$HOME/streamerData"
 cd "$HOME/flask_app"
 
 
-#     Force update the codebase to match the remote GitHub repository (overwriting local changes, restoring missing files, removing extra tracked files), fix permissions, and restart services.
-#     This is useful if the codebase has been modified locally and you want to reset it to the latest version from the remote repository.
-#     If the repository is not already cloned, it will clone it.
+#     Update the codebase to match the remote GitHub repository if changes are available.
+#     This ensures the device has the latest version from the remote repository.
+#     If the repository is not already cloned, it will clone it fresh.
 #     
-#     WARNING: The --force-update option will:
-#       - Overwrite ALL local changes to tracked files
-#       - Remove any untracked files that are being ignored
-#       - Reset the repository to exactly match the remote main branch
-#       - This action is IRREVERSIBLE - any local modifications will be permanently lost
+#     The --skip-update option allows you to:
+#       - Use existing local files without checking for updates
+#       - Skip the git fetch and reset operations
+#       - Maintain any local modifications you may have made
+#       - Avoid network calls to GitHub during installation
 #
-#     Use --force-update when:
-#       - You want to ensure the device has the exact latest codebase
-#       - Local files have been corrupted or modified incorrectly  
-#       - You're troubleshooting issues and want a clean slate
-#       - Setting up the device from a known good state
+#     Use --skip-update when:
+#       - You want to use a specific local version of the code
+#       - You have made local modifications you want to preserve
+#       - You're in an environment with limited internet connectivity
+#       - You're testing local changes and don't want them overwritten
 echo "Updating RPI Streamer codebase..."
 
 # Check if git is installed
@@ -115,16 +115,17 @@ if ! command -v git &> /dev/null; then
     sudo apt-get install git -y
 fi
 
-# If repository exists, force update it
+# If repository exists, update it unless --skip-update is specified
 # If not, clone it fresh
 if [ -d .git ]; then
-    #only force an update if --force-update is passed
-    if [[ "$@" == *"--force-update"* ]]; then
+    #only skip update if --skip-update is passed
+    if [[ "$@" == *"--skip-update"* ]]; then
+        echo "Skipping repository update (--skip-update specified)"
+    else
         sudo git fetch --all
         sudo git reset --hard origin/main
         sudo git clean -f -d
-    else
-        echo "Skipping repository update (use --force-update to update codebase)"
+        echo "Repository updated to latest version"
     fi
 else
     rm -rf *
@@ -405,7 +406,7 @@ Wants=network-online.target
 User=$USER
 Type=oneshot
 ExecStart=/usr/bin/curl -H "Cache-Control: no-cache" -L -o $HOME/flask_app/install_rpi_streamer.sh "https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh?$(date +%s)"
-ExecStartPost=/bin/bash -e $HOME/flask_app/install_rpi_streamer.sh --force-update
+ExecStartPost=/bin/bash -e $HOME/flask_app/install_rpi_streamer.sh
 RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
@@ -849,7 +850,7 @@ echo "   �🔑 SSH Server (remote terminal access)"
 
 echo ""
 echo "🛠️ Installation Script Options:"
-echo "   --force-update : Force reset codebase to latest version (WARNING: overwrites local changes)"
+echo "   --skip-update  : Skip updating codebase from GitHub (use existing local files)"
 echo "   --reverse-ssh  : Reverse SSH tunnel to your server"
 echo "   --tailscale    : Tailscale VPN for secure mesh networking"
 echo "   --remote       : Interactive remote access menu"
@@ -857,7 +858,7 @@ echo ""
 echo "🌐 Examples:"
 echo "   bash install_rpi_streamer.sh --reverse-ssh"
 echo "   bash install_rpi_streamer.sh --tailscale"
-echo "   bash install_rpi_streamer.sh --force-update"
+echo "   bash install_rpi_streamer.sh --skip-update"
 echo ""
 echo "📚 Documentation:"
 echo "   GPS Tracker: GPS_TRACKER_README.md"

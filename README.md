@@ -18,7 +18,7 @@ bash install_rpi_streamer.sh --tailscale
 The installation script supports several options:
 
 ```sh
-# Basic installation
+# Basic installation (includes automatic updates)
 bash install_rpi_streamer.sh
 
 # Installation with Tailscale VPN
@@ -30,26 +30,26 @@ bash install_rpi_streamer.sh --reverse-ssh
 # Interactive remote access menu
 bash install_rpi_streamer.sh --remote
 
-# Force update codebase (WARNING: overwrites local changes)
-bash install_rpi_streamer.sh --force-update
+# Skip codebase update (use existing local files)
+bash install_rpi_streamer.sh --skip-update
 ```
 
-#### Force Update Option
+#### Skip Update Option
 
-The `--force-update` option performs a complete reset of the RPI Streamer codebase:
+The `--skip-update` option allows you to skip updating the codebase from GitHub:
 
-- **Overwrites ALL local changes** to tracked files
-- **Removes untracked files** that are being ignored
-- **Resets repository** to exactly match the remote main branch
-- **Irreversible action** - local modifications will be permanently lost
+- **Preserves local modifications** to files
+- **Uses existing local files** without checking for updates
+- **Skips git fetch and reset operations**
+- **Avoids network calls** to GitHub during installation
 
-**Use `--force-update` when:**
-- Ensuring the device has the exact latest codebase
-- Local files have been corrupted or modified incorrectly
-- Troubleshooting issues and need a clean slate
-- Setting up the device from a known good state
+**Use `--skip-update` when:**
+- You want to use a specific local version of the code
+- You have made local modifications you want to preserve
+- You're in an environment with limited internet connectivity
+- You're testing local changes and don't want them overwritten
 
-**Warning:** Only use `--force-update` if you're certain you want to lose any local modifications.
+**Note:** By default, the installation will automatically update to the latest version from GitHub unless `--skip-update` is specified.
 
 **Note**: The installation automatically includes SIM7600G-H 4G dongle support and all necessary drivers/services. This provides plug-and-play functionality when a dongle is connected later.
 
