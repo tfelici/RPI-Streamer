@@ -456,76 +456,126 @@ def mount_usb_device(device_path, fstype):
         # Create mount point directory
         os.makedirs(mount_point, exist_ok=True)
         
-        # First try: Use auto-detection with options for common filesystems
+        # Determine mount options based on filesystem type
+        def get_mount_options(fs_type):
+            """Get appropriate mount options for the filesystem type"""
+            if fs_type in ['vfat', 'fat32', 'fat16', 'msdos', 'ntfs', 'exfat']:
+                # FAT/NTFS filesystems support uid/gid/umask options
+                return 'uid=1000,gid=1000,umask=022'
+            elif fs_type in ['ext4', 'ext3', 'ext2', 'ext']:
+                # Linux native filesystems use different ownership approach
+                return 'defaults'
+            else:
+                # Unknown filesystem - use minimal options
+                return 'defaults'
+        
+        # First try: Use auto-detection with appropriate options
+        mount_options = get_mount_options(fstype or 'auto')
         mount_cmd = [
             'sudo', 'mount', 
             '-t', 'auto',
-            '-o', 'uid=1000,gid=1000,umask=022',
+            '-o', mount_options,
             device_path, mount_point
         ]
         
-        log_message(f"Mounting {device_path} at {mount_point} using auto-detection")
+        log_message(f"Mounting {device_path} at {mount_point} using auto-detection with options: {mount_options}")
         log_message(f"Mount command: {' '.join(mount_cmd)}")
         
         result = subprocess.run(mount_cmd, capture_output=True, text=True, timeout=10)
         
         if result.returncode == 0:
-            # Verify the mount was successful and is writable
-            if os.path.ismount(mount_point) and os.access(mount_point, os.W_OK):
-                log_message(f"Successfully mounted {device_path} at {mount_point} using auto-detection")
-                return mount_point
-            else:
-                log_message(f"Mount succeeded but directory not writable: {mount_point}")
-                # Try to unmount if not writable
-                subprocess.run(['sudo', 'umount', mount_point], capture_output=True)
+            # Verify the mount was successful
+            if os.path.ismount(mount_point):
+                # For ext filesystems, fix ownership after mounting
+                if fstype and fstype.startswith('ext'):
+                    try:
+                        subprocess.run(['sudo', 'chown', '-R', '1000:1000', mount_point], 
+                                     capture_output=True, timeout=5)
+                        subprocess.run(['sudo', 'chmod', '-R', '755', mount_point], 
+                                     capture_output=True, timeout=5)
+                    except Exception as e:
+                        log_message(f"Warning: Could not fix ownership for {mount_point}: {e}")
+                
+                # Check if writable
+                if os.access(mount_point, os.W_OK):
+                    log_message(f"Successfully mounted {device_path} at {mount_point} using auto-detection")
+                    return mount_point
+                else:
+                    log_message(f"Mount succeeded but directory not writable: {mount_point}")
+                    # Try to unmount if not writable
+                    subprocess.run(['sudo', 'umount', mount_point], capture_output=True)
         else:
             log_message(f"Auto-detection mount failed: {result.stderr}")
             
             # Fallback: Try with detected filesystem type if available
             if fstype:
                 log_message(f"Trying fallback mount with detected filesystem type: {fstype}")
+                fs_mount_options = get_mount_options(fstype)
                 mount_cmd_fs = [
                     'sudo', 'mount', 
                     '-t', fstype,
-                    '-o', 'uid=1000,gid=1000,umask=022',
+                    '-o', fs_mount_options,
                     device_path, mount_point
                 ]
                 
                 result_fs = subprocess.run(mount_cmd_fs, capture_output=True, text=True, timeout=10)
                 
                 if result_fs.returncode == 0:
-                    if os.path.ismount(mount_point) and os.access(mount_point, os.W_OK):
-                        log_message(f"Successfully mounted {device_path} at {mount_point} using {fstype}")
-                        return mount_point
-                    else:
-                        log_message(f"Filesystem-specific mount succeeded but directory not writable")
-                        subprocess.run(['sudo', 'umount', mount_point], capture_output=True)
+                    if os.path.ismount(mount_point):
+                        # Fix ownership for ext filesystems
+                        if fstype.startswith('ext'):
+                            try:
+                                subprocess.run(['sudo', 'chown', '-R', '1000:1000', mount_point], 
+                                             capture_output=True, timeout=5)
+                                subprocess.run(['sudo', 'chmod', '-R', '755', mount_point], 
+                                             capture_output=True, timeout=5)
+                            except Exception as e:
+                                log_message(f"Warning: Could not fix ownership for {mount_point}: {e}")
+                        
+                        if os.access(mount_point, os.W_OK):
+                            log_message(f"Successfully mounted {device_path} at {mount_point} using {fstype}")
+                            return mount_point
+                        else:
+                            log_message(f"Filesystem-specific mount succeeded but directory not writable")
+                            subprocess.run(['sudo', 'umount', mount_point], capture_output=True)
                 else:
                     log_message(f"Filesystem-specific mount failed: {result_fs.stderr}")
             
-            # Final fallback: Try common filesystem types
+            # Final fallback: Try common filesystem types with appropriate options
             common_fs_types = ['vfat', 'exfat', 'ntfs', 'ext4', 'ext3', 'ext2']
             for fs_type in common_fs_types:
                 if fs_type == fstype:  # Skip if we already tried this
                     continue
                     
                 log_message(f"Trying fallback mount with filesystem type: {fs_type}")
+                fs_mount_options = get_mount_options(fs_type)
                 mount_cmd_fallback = [
                     'sudo', 'mount', 
                     '-t', fs_type,
-                    '-o', 'uid=1000,gid=1000,umask=022',
+                    '-o', fs_mount_options,
                     device_path, mount_point
                 ]
                 
                 result_fallback = subprocess.run(mount_cmd_fallback, capture_output=True, text=True, timeout=10)
                 
                 if result_fallback.returncode == 0:
-                    if os.path.ismount(mount_point) and os.access(mount_point, os.W_OK):
-                        log_message(f"Successfully mounted {device_path} at {mount_point} using {fs_type}")
-                        return mount_point
-                    else:
-                        log_message(f"Mount with {fs_type} succeeded but directory not writable")
-                        subprocess.run(['sudo', 'umount', mount_point], capture_output=True)
+                    if os.path.ismount(mount_point):
+                        # Fix ownership for ext filesystems
+                        if fs_type.startswith('ext'):
+                            try:
+                                subprocess.run(['sudo', 'chown', '-R', '1000:1000', mount_point], 
+                                             capture_output=True, timeout=5)
+                                subprocess.run(['sudo', 'chmod', '-R', '755', mount_point], 
+                                             capture_output=True, timeout=5)
+                            except Exception as e:
+                                log_message(f"Warning: Could not fix ownership for {mount_point}: {e}")
+                        
+                        if os.access(mount_point, os.W_OK):
+                            log_message(f"Successfully mounted {device_path} at {mount_point} using {fs_type}")
+                            return mount_point
+                        else:
+                            log_message(f"Mount with {fs_type} succeeded but directory not writable")
+                            subprocess.run(['sudo', 'umount', mount_point], capture_output=True)
                         
     except Exception as e:
         log_message(f"Error mounting {device_path}: {e}")
