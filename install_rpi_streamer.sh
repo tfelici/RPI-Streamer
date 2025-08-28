@@ -1,6 +1,19 @@
 #!/bin/bash
 # RPI Streamer installation script
-# Usage: bash install_rpi_streamer.sh [--tailscale]
+# Usage: bash install_rpi_streamer.sh [OPTIONS]
+#
+# Options:
+#   --force-update    Force update the codebase to match the remote GitHub repository 
+#                     (overwriting local changes, restoring missing files, removing extra tracked files)
+#   --reverse-ssh     Setup reverse SSH tunnel to your server for remote access
+#   --tailscale       Setup Tailscale VPN for secure mesh networking
+#   --remote          Interactive remote access menu
+#
+# Examples:
+#   bash install_rpi_streamer.sh                     # Basic installation
+#   bash install_rpi_streamer.sh --force-update     # Installation with codebase reset
+#   bash install_rpi_streamer.sh --reverse-ssh      # Installation with reverse SSH tunnel
+#   bash install_rpi_streamer.sh --tailscale        # Installation with Tailscale VPN
 
 # This script installs the RPI Streamer Flask app and MediaMTX on a Raspberry Pi running Raspberry Pi OS Lite.
 # It also sets up a systemd service for the Flask app and MediaMTX, and installs Tailscale for remote access.
@@ -82,6 +95,18 @@ cd "$HOME/flask_app"
 #     Force update the codebase to match the remote GitHub repository (overwriting local changes, restoring missing files, removing extra tracked files), fix permissions, and restart services.
 #     This is useful if the codebase has been modified locally and you want to reset it to the latest version from the remote repository.
 #     If the repository is not already cloned, it will clone it.
+#     
+#     WARNING: The --force-update option will:
+#       - Overwrite ALL local changes to tracked files
+#       - Remove any untracked files that are being ignored
+#       - Reset the repository to exactly match the remote main branch
+#       - This action is IRREVERSIBLE - any local modifications will be permanently lost
+#
+#     Use --force-update when:
+#       - You want to ensure the device has the exact latest codebase
+#       - Local files have been corrupted or modified incorrectly  
+#       - You're troubleshooting issues and want a clean slate
+#       - Setting up the device from a known good state
 echo "Updating RPI Streamer codebase..."
 
 # Check if git is installed
@@ -380,7 +405,7 @@ Wants=network-online.target
 User=$USER
 Type=oneshot
 ExecStart=/usr/bin/curl -H "Cache-Control: no-cache" -L -o $HOME/flask_app/install_rpi_streamer.sh "https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh?$(date +%s)"
-ExecStartPost=/bin/bash -e $HOME/flask_app/install_rpi_streamer.sh 
+ExecStartPost=/bin/bash -e $HOME/flask_app/install_rpi_streamer.sh --force-update
 RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
@@ -823,7 +848,8 @@ fi
 echo "   �🔑 SSH Server (remote terminal access)"
 
 echo ""
-echo "🛠️ Remote Access Setup Commands:"
+echo "🛠️ Installation Script Options:"
+echo "   --force-update : Force reset codebase to latest version (WARNING: overwrites local changes)"
 echo "   --reverse-ssh  : Reverse SSH tunnel to your server"
 echo "   --tailscale    : Tailscale VPN for secure mesh networking"
 echo "   --remote       : Interactive remote access menu"
@@ -831,6 +857,7 @@ echo ""
 echo "🌐 Examples:"
 echo "   bash install_rpi_streamer.sh --reverse-ssh"
 echo "   bash install_rpi_streamer.sh --tailscale"
+echo "   bash install_rpi_streamer.sh --force-update"
 echo ""
 echo "📚 Documentation:"
 echo "   GPS Tracker: GPS_TRACKER_README.md"
