@@ -87,8 +87,8 @@ def get_flight_parameters():
     """
     try:
         hardware_id = get_hardware_id()
-        url = f"https://streamer.lambda-tek.com/command=getflightpars?hardware_id={hardware_id}"
-        
+        url = f"https://streamer.lambda-tek.com/?command=getflightpars&hardware_id={hardware_id}"
+
         print(f"Retrieving flight parameters for hardware ID: {hardware_id}")
         print(f"Request URL: {url}")
         
