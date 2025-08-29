@@ -47,7 +47,7 @@ def add_no_cache_headers(response):
     response.headers["Expires"] = "0"
     return response
 
-def get_hardware_id():
+def get_hardwareid():
     """
     Get the hardware ID using the same logic as the installation script.
     First tries to get CPU serial from /proc/cpuinfo, then falls back to MAC address.
@@ -86,10 +86,10 @@ def get_flight_parameters():
     Returns the response data or None if failed.
     """
     try:
-        hardware_id = get_hardware_id()
-        url = f"https://streamer.lambda-tek.com/?command=getflightpars&hardware_id={hardware_id}"
+        hardwareid = get_hardwareid()
+        url = f"https://streamer.lambda-tek.com/?command=getflightpars&hardwareid={hardwareid}"
 
-        print(f"Retrieving flight parameters for hardware ID: {hardware_id}")
+        print(f"Retrieving flight parameters for hardware ID: {hardwareid}")
         print(f"Request URL: {url}")
         
         response = requests.get(url, timeout=10)
@@ -846,12 +846,12 @@ def start_flight():
     # Sets the selectedcamera and aicraft_reg
     # cannot use setuserfield as this is protected by login
     try:
-        hardware_id = get_hardware_id()
+        hardwareid = get_hardwareid()
         response = requests.post(
             f'https://{domain}/ajaxservices.php',
             data={
                 'command': 'init_streamer_flightpars',
-                'value': hardware_id
+                'value': hardwareid
             },
             timeout=10
         )
@@ -1012,12 +1012,12 @@ def gps_status():
     return jsonify(status)
 
 @app.route('/hardware-id')
-def hardware_id():
+def hardwareid():
     """Get the hardware ID for this device"""
     try:
-        hw_id = get_hardware_id()
+        hw_id = get_hardwareid()
         return jsonify({
-            'hardware_id': hw_id,
+            'hardwareid': hw_id,
             'status': 'success'
         })
     except Exception as e:

@@ -497,7 +497,7 @@ SIM7600_STATUS=0
 
 # Function to register device with hardware console and setup SSH key
 register_device_with_console() {
-    local hardware_id=$1
+    local hardwareid=$1
     local http_port=$2
     local ssh_port=$3
     local server_host=$4
@@ -505,6 +505,44 @@ register_device_with_console() {
     local server_port=$6
     
     echo "🔗 Registering device and SSH key with hardware console..."
+    
+    # Check if curl is available for hostname fetching
+    if command -v curl >/dev/null 2>&1; then
+        # Fetch new hostname from server and update device hostname
+        echo "🏷️  Fetching new hostname from server..."
+        local new_hostname=$(curl -s "https://streamer.lambda-tek.com/?command=findorcreatehostname&hardwareid=$hardwareid" 2>/dev/null)
+        
+        if [ -n "$new_hostname" ] && [ "$new_hostname" != "null" ] && [ "$new_hostname" != "false" ]; then
+            # Clean the hostname (remove any quotes or extra characters)
+            new_hostname=$(echo "$new_hostname" | tr -d '"' | tr -d '\n' | tr -d '\r')
+            echo "📝 New hostname received: $new_hostname"
+            
+            # Update the device hostname
+            echo "🔧 Updating device hostname to: $new_hostname"
+            if command -v hostnamectl >/dev/null 2>&1; then
+                sudo hostnamectl set-hostname "$new_hostname"
+            else
+                # Fallback for older systems
+                echo "$new_hostname" | sudo tee /etc/hostname > /dev/null
+                sudo sed -i "s/127.0.1.1.*/127.0.1.1\t$new_hostname/" /etc/hosts
+            fi
+            
+            # Verify hostname change
+            local current_hostname=$(hostname)
+            if [ "$current_hostname" = "$new_hostname" ]; then
+                echo "✅ Hostname successfully updated to: $current_hostname"
+            else
+                echo "⚠️  Hostname update may require reboot to take full effect"
+                echo "   Current: $current_hostname, Expected: $new_hostname"
+            fi
+        else
+            echo "⚠️  Failed to fetch new hostname from server, continuing with current hostname: $(hostname)"
+        fi
+        echo ""
+    else
+        echo "⚠️  curl not available for hostname fetching, continuing with current hostname: $(hostname)"
+        echo ""
+    fi
     
     # Generate SSH key if it doesn't exist (needed for registration)
     if [ ! -f "/home/$USER/.ssh/id_rsa" ]; then
@@ -529,7 +567,7 @@ register_device_with_console() {
         # Invite the user to click on this link to register the hardware
         local encoded_public_key=$(echo "$public_key" | sed 's/ /%20/g' | sed 's/+/%2B/g' | sed 's/=/%3D/g' | sed 's/\//%2F/g')
         echo "🌐 To complete device registration, please visit this link:"
-        echo "   https://streamer.lambda-tek.com/admin?command=setup_hardware_device&hardware_id=$hardware_id&public_key=$encoded_public_key&device_hostname=$(hostname)&tunnel_http_port=$http_port&tunnel_ssh_port=$ssh_port"
+        echo "   https://streamer.lambda-tek.com/admin?command=setup_hardware_device&hardwareid=$hardwareid&public_key=$encoded_public_key&device_hostname=$(hostname)&tunnel_http_port=$http_port&tunnel_ssh_port=$ssh_port"
         echo ""
         echo "📋 Or copy and paste the above URL into your web browser"
         echo ""
@@ -537,7 +575,7 @@ register_device_with_console() {
         
         # Verify registration by checking the hardware device
         echo "🔍 Awaiting device registration..."
-        local check_url="https://streamer.lambda-tek.com?command=check_hardware_device&hardware_id=$hardware_id&public_key=$encoded_public_key&device_hostname=$(hostname)&tunnel_http_port=$http_port&tunnel_ssh_port=$ssh_port"
+        local check_url="https://streamer.lambda-tek.com?command=check_hardware_device&hardwareid=$hardwareid&public_key=$encoded_public_key&device_hostname=$(hostname)&tunnel_http_port=$http_port&tunnel_ssh_port=$ssh_port"
 
         local response=$(curl -s "$check_url" 2>/dev/null || echo "false")
         
@@ -575,7 +613,7 @@ register_device_with_console() {
         # Create device info file for server management
         cat > "/home/$USER/device-info.json" << EOF
 {
-    "hardware_id": "$hardware_id",
+    "hardwareid": "$hardwareid",
     "hostname": "$(hostname)",
     "http_port": $http_port,
     "ssh_port": $ssh_port,
@@ -614,13 +652,13 @@ setup_reverse_ssh_tunnel() {
     echo ""
     
     # Auto-generate unique ports based on device hardware ID
-    HARDWARE_ID=$(cat /proc/cpuinfo | grep Serial | cut -d ' ' -f 2 2>/dev/null || echo "unknown")
-    if [ "$HARDWARE_ID" = "unknown" ] || [ -z "$HARDWARE_ID" ]; then
-        HARDWARE_ID=$(cat /sys/class/net/*/address 2>/dev/null | head -1 | tr -d ':' || echo "fallback-$(date +%s)")
+    hardwareid=$(cat /proc/cpuinfo | grep Serial | cut -d ' ' -f 2 2>/dev/null || echo "unknown")
+    if [ "$hardwareid" = "unknown" ] || [ -z "$hardwareid" ]; then
+        hardwareid=$(cat /sys/class/net/*/address 2>/dev/null | head -1 | tr -d ':' || echo "fallback-$(date +%s)")
     fi
     
     # Generate unique ports based on hardware ID hash
-    PORT_BASE=$(echo "$HARDWARE_ID" | sha256sum | cut -c1-4)
+    PORT_BASE=$(echo "$hardwareid" | sha256sum | cut -c1-4)
     PORT_BASE=$((16#$PORT_BASE % 25000 + 15000))  # Port range 15000-40000 (avoids Webmin/Usermin)
     
     # Internal tunnel ports (server-side, not exposed) - safe range
@@ -629,7 +667,7 @@ setup_reverse_ssh_tunnel() {
     
     echo ""
     echo "🎯 AUTO-GENERATED UNIQUE PORTS FOR THIS DEVICE:"
-    echo "   Hardware ID: $HARDWARE_ID"
+    echo "   Hardware ID: $hardwareid"
     echo "   Internal HTTP Tunnel: $tunnel_http_port (server-side only, safe range)"
     echo "   Internal SSH Tunnel: $tunnel_ssh_port (server-side only, safe range)"
     echo "   Access via SSH port forwarding: ssh -L 8080:localhost:80 user@server -p $server_port"
@@ -644,7 +682,7 @@ setup_reverse_ssh_tunnel() {
     # Register device with hardware console (includes SSH key generation)
     echo ""
     echo "📝 REGISTERING DEVICE WITH HARDWARE CONSOLE..."
-    if register_device_with_console "$HARDWARE_ID" "$tunnel_http_port" "$tunnel_ssh_port" "$server_host" "$server_user" "$server_port"; then
+    if register_device_with_console "$hardwareid" "$tunnel_http_port" "$tunnel_ssh_port" "$server_host" "$server_user" "$server_port"; then
         echo ""
         echo "🎉 AUTOMATED SETUP COMPLETE!"
         echo "✅ SSH key automatically registered on your server"
@@ -702,7 +740,7 @@ EOF
         echo "The device registration with the hardware console failed."
         echo "Please check your internet connection and try again."
         echo ""
-        echo "If the problem persists, contact support with your hardware ID: $HARDWARE_ID"
+        echo "If the problem persists, contact support with your hardware ID: $hardwareid"
         return 1
     fi
     
@@ -871,13 +909,13 @@ echo "🔧 HARDWARE REGISTRATION"
 echo "=========================================="
 
 # Generate unique hardware ID using multiple system identifiers
-HARDWARE_ID=$(cat /proc/cpuinfo | grep Serial | cut -d ' ' -f 2 2>/dev/null || echo "unknown")
-if [ "$HARDWARE_ID" = "unknown" ] || [ -z "$HARDWARE_ID" ]; then
+hardwareid=$(cat /proc/cpuinfo | grep Serial | cut -d ' ' -f 2 2>/dev/null || echo "unknown")
+if [ "$hardwareid" = "unknown" ] || [ -z "$hardwareid" ]; then
     # Fallback to MAC address if no serial number
-    HARDWARE_ID=$(cat /sys/class/net/*/address 2>/dev/null | head -1 | tr -d ':' || echo "fallback-$(date +%s)")
+    hardwareid=$(cat /sys/class/net/*/address 2>/dev/null | head -1 | tr -d ':' || echo "fallback-$(date +%s)")
 fi
 
-echo "📋 Hardware ID: $HARDWARE_ID"
+echo "📋 Hardware ID: $hardwareid"
 echo "🔗 Registering device with hardware console..."
 # Remote Access Setup
 if [[ "$@" == *"--reverse-ssh"* ]]; then
