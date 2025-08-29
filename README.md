@@ -10,7 +10,7 @@ Run the following commands in your home directory (do **not** use superuser/root
 
 ```sh
 curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh?$(date +%s)
-bash install_rpi_streamer.sh --tailscale
+bash install_rpi_streamer.sh --remote
 ```
 
 ### Installation Options
