@@ -34,12 +34,11 @@ echo "🚫 Disabling ModemManager (prevents AT command conflicts)..."
 sudo systemctl stop ModemManager 2>/dev/null || true
 sudo systemctl disable ModemManager 2>/dev/null || true
 
-# Create and start SIM7600 internet service immediately if dongle is present
-if lsusb | grep -q "1e0e:9011"; then
-    echo "📡 SIM7600 dongle detected - setting up internet connection..."
-    
-    # Create the auto-startup service
-    sudo tee /etc/systemd/system/sim7600-internet.service >/dev/null << 'EOFSERVICE'
+# Create SIM7600 internet service (always install for future use)
+echo "📡 Setting up SIM7600 services (for current or future dongle use)..."
+
+# Create the auto-startup service
+sudo tee /etc/systemd/system/sim7600-internet.service >/dev/null << 'EOFSERVICE'
 [Unit]
 Description=SIM7600G-H 4G Internet Connection
 After=network.target
@@ -72,13 +71,14 @@ EOFSERVICE
 
     sudo systemctl daemon-reload
     sudo systemctl enable sim7600-internet.service
-    sudo systemctl start sim7600-internet.service
     
-    echo "⏳ Waiting for SIM7600 to establish connection..."
-    sleep 15
-else
-    echo "📡 No SIM7600 dongle detected - skipping 4G setup"
-fi
+    # Only start the service immediately if dongle is currently present
+    if lsusb | grep -q "1e0e:9011"; then
+        echo "📡 SIM7600 dongle detected - starting internet connection service..."
+        sudo systemctl start sim7600-internet.service
+    else
+        echo "📡 SIM7600 dongle not currently detected - service ready for when dongle is connected"
+    fi
 
 # Wait for internet connectivity (max 60 seconds to allow for 4G connection)
 echo "🌐 Checking for internet connectivity..."
