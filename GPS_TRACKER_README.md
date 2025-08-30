@@ -1,106 +1,262 @@
-# RPI Streamer GPS Tracker
+# RPI Streamer GPS Tracking System
 
-This Python script replicates the background geolocation tracking functionality from the Gyropilots mobile app, using the "non-native" mode for coordinate synchronization.
+The RPI Streamer includes a comprehensive GPS tracking system that integrates seamlessly with the Gyropilots and Gapilots flight tracking platforms, providing real-time location tracking for aviation applications.
 
-## Features
+## Key Features
 
-- **Centralized Communication**: Uses thread-safe SIM7600Manager for conflict-free hardware access
-- **Enhanced GNSS Support**: GPS + GLONASS + Galileo + BeiDou satellite constellations
-- **Background GPS Tracking**: Continuously tracks GPS coordinates and syncs them to the Gyropilots server
-- **Automatic Sync**: Coordinates are automatically synchronized with retry logic and error handling
-- **Non-Native Mode**: Uses custom coordinate synchronization (matches the iOS/Apple mode from the mobile app)
-- **Real GPS Support**: Works with SIM7600G-H 4G DONGLE hardware for actual GPS tracking
-- **Simulation Mode**: Includes GPS simulation for testing without hardware
-- **Hardware Resilience**: Automatically handles GPS hardware disconnection and reconnection during operation
-- **Continuous Operation**: Keeps running and attempting to reconnect when GPS hardware is temporarily unavailable
+### 🛰️ Hardware Integration
+- **SIM7600G-H Support**: Built-in integration with SIM7600G-H 4G dongle GPS
+- **Enhanced GNSS**: GPS + GLONASS + Galileo + BeiDou satellite constellation support
+- **Thread-safe Communication**: Centralized SIM7600Manager prevents hardware conflicts
+- **Automatic Reconnection**: Robust handling of GPS hardware disconnection/reconnection
 
-## Files
+### 📍 Tracking Capabilities
+- **Real-time Tracking**: Continuous GPS coordinate collection and server synchronization
+- **Professional Accuracy**: High-precision positioning with satellite count and precision metrics
+- **Flight Recording**: Specialized for aviation applications with appropriate update intervals
+- **Platform Integration**: Native support for Gyropilots.org and Gapilots.org tracking systems
 
-- `gps_tracker.py` - Main GPS tracker implementation with centralized SIM7600 communication
-- `sim7600_manager.py` - Centralized, thread-safe SIM7600 communication manager
-- `gps_requirements.txt` - Python dependencies
+### ⚙️ Configuration Options
+- **Flight Settings Integration**: Web-based configuration through RPI Streamer interface
+- **Multiple Start Modes**: Manual, auto-start on boot, or auto-start on motion detection
+- **Simulation Mode**: Built-in GPS simulation using Oxford Airport circular flight pattern
+- **Service Management**: Systemd integration with automatic startup capabilities
 
-## Installation
+## System Components
 
-1. Install Python dependencies:
-```bash
-pip install -r gps_requirements.txt
-```
+### Core Files
+- **`gps_tracker.py`**: Main GPS tracking implementation with SIM7600 integration
+- **`sim7600_manager.py`**: Centralized, thread-safe hardware communication manager
+- **`gps_startup_manager.py`**: Service startup manager for automated GPS tracking
+- **`gps_requirements.txt`**: Python dependencies for GPS functionality
 
-2. For real GPS usage on Raspberry Pi with SIM7600G-H hardware:
-```bash
-# The centralized manager handles all hardware communication
-# No additional setup required - GPIO management is optional
-```
+### Services
+- **`gps-startup.service`**: Systemd service for GPS startup management
+- **`sim7600-daemon.service`**: SIM7600 communication daemon (port 7600)
+- **`sim7600-internet.service`**: Internet connectivity service for the 4G dongle
 
-## Usage
+## Installation and Setup
 
-### Simulation Mode
-
-Run with simulated GPS data (Oxford Airport circular flight):
-```bash
-python gps_tracker.py your_username --domain gyropilots.org --simulate --duration 60
-```
-
-### Real GPS Hardware Mode
-
-Use with actual GPS hardware. The tracker will automatically handle hardware initialization and will continuously attempt to reconnect if the GPS dongle is temporarily disconnected:
+### Automatic Installation
+GPS tracking is automatically installed with RPI Streamer:
 
 ```bash
-python gps_tracker.py your_username --domain gyropilots.org
+# Standard installation includes GPS tracking
+bash install_rpi_streamer.sh
+
+# Installation automatically:
+# ✅ Installs all GPS dependencies
+# ✅ Creates GPS startup service (not enabled by default)
+# ✅ Sets up SIM7600 communication daemon
+# ✅ Configures hardware integration
 ```
 
-**Hardware Resilience**: The centralized manager provides automatic hardware management:
-- Thread-safe communication prevents port conflicts
-- Automatic reconnection when hardware becomes available
-- Enhanced GNSS data with satellite counts and precision metrics
-- Robust error handling and recovery
+### Flight Settings Configuration
+Configure GPS tracking through the web interface:
 
-### Manual Mode
+1. **Navigate to Flight Settings**: Access the `/flight-settings` page
+2. **Set Username**: Required for GPS tracking platform integration
+3. **Configure Vehicle**: Optional aircraft registration (e.g., N123AB, G-ABCD)
+4. **Choose Start Mode**: Manual, Auto (Boot), or Auto (Motion)
+5. **Enable Stream Integration**: Optionally link GPS tracking with video streaming
 
-Run without automatic GPS collection for programmatic control:
+### Service Management
 ```bash
-python gps_tracker.py your_username --domain gyropilots.org --interval 10
+# Check GPS service status
+sudo systemctl status gps-startup.service
+
+# View GPS service logs
+sudo journalctl -u gps-startup.service -f
+
+# Check SIM7600 daemon status
+sudo systemctl status sim7600-daemon.service
+
+# Manual service control (when configured for manual mode)
+sudo systemctl start gps-startup.service
+sudo systemctl stop gps-startup.service
 ```
 
-### Command Line Options
+## GPS Tracking Modes
 
-**gps_tracker.py:**
-- `username` - Required: Your flight server username
-- `--domain` - Required: Server domain (gyropilots.org or gapilots.org)
-- `--interval` - GPS update interval in seconds (default: 2.0)
-- `--simulate` - Use simulated GPS data (Oxford Airport circular flight)
-- `--duration` - Duration to run in seconds (for simulation mode)
+### Manual Mode (Default)
+- **User Control**: GPS tracking starts only when "Start GPS Tracking" button is pressed
+- **Web Interface**: Full control through RPI Streamer web dashboard
+- **Service State**: `gps-startup.service` remains disabled
+- **Use Case**: Manual flight operations, testing, selective tracking
 
-### Programmatic Usage
+### Auto Start on Boot
+- **Automatic Operation**: GPS tracking starts when system boots
+- **Service State**: `gps-startup.service` enabled and started
+- **Use Case**: Aircraft that should always be tracked when powered
+- **Configuration**: Set via Flight Settings web interface
 
-```python
+### Auto Start on Motion
+- **Motion Detection**: GPS tracking starts when aircraft movement detected
+- **Smart Activation**: Reduces unnecessary tracking during ground operations
+- **Service State**: `gps-startup.service` enabled with motion detection
+- **Use Case**: Efficient power usage, automatic flight detection
+
+## Hardware Requirements
+
+### Required Hardware
+- **Raspberry Pi**: Any model with USB connectivity
+- **SIM7600G-H 4G Dongle**: For both internet and GPS functionality
+- **4G Antenna**: Included with dongle, improves GPS reception
+- **Activated SIM Card**: For internet connectivity (GPS works without cellular)
+
+### Optional Hardware
+- **GPIO Connections**: Enhanced hardware integration (optional)
+- **External GPS Antenna**: For improved signal in challenging environments
+- **UPS HAT**: For continuous operation during power interruptions
+
+## Usage Examples
+
+### Web Interface Control
+The primary GPS control is through the RPI Streamer web interface:
+
+1. **Access Dashboard**: Navigate to main RPI Streamer page
+2. **Flight Settings**: Configure username and tracking preferences
+3. **Start Tracking**: Use "Start GPS Tracking" button for manual control
+4. **Monitor Status**: Real-time tracking status and coordinate updates
+5. **Stop Tracking**: "Stop GPS Tracking" button ends session
+
+### Command Line Usage (Advanced)
+
+#### GPS Simulation Testing
+```bash
+# Test with simulated GPS data (Oxford Airport circular pattern)
+cd ~/flask_app
+python3 gps_tracker.py your_username --domain gyropilots.org --simulate --duration 60
+```
+
+#### Real GPS Hardware Testing
+```bash
+# Test with actual SIM7600G-H hardware
+python3 gps_tracker.py your_username --domain gyropilots.org --interval 2.0
+```
+
+#### Manual Coordinate Addition
+```bash
+# Add coordinates programmatically
+python3 -c "
 from gps_tracker import GPSTracker
-
-# Create tracker instance (both username and domain are required)
 tracker = GPSTracker('your_username', 'gyropilots.org')
-
-# Start tracking session
 tracker.start_tracking()
-
-# Option 1: Start GPS simulation mode
-tracker.start_gps_tracking(update_interval=2.0, simulate=True)
-
-# Option 2: Start real GPS mode
-tracker.start_gps_tracking(update_interval=2.0, simulate=False)
-
-# Option 3: Add GPS coordinates manually
-tracker.add_location(
-    latitude=40.7128,
-    longitude=-74.0060,
-    altitude=10.0,
-    accuracy=5.0,
-    heading=90.0,
-    speed=25.0
-)
+tracker.add_location(40.7128, -74.0060, 10.0, 5.0, 90.0, 25.0)
+"
+```
 
 # Stop tracking (coordinates are automatically synced)
-tracker.stop_tracking()
+## Technical Implementation
+
+### SIM7600Manager Integration
+- **Thread-safe Communication**: Prevents AT command conflicts between services
+- **Automatic Port Detection**: Finds correct serial interface for GPS commands
+- **Connection Resilience**: Handles hardware disconnection/reconnection gracefully
+- **Enhanced GNSS Data**: Provides satellite counts and precision metrics
+
+### GPS Data Processing
+- **Real-time Coordinates**: Continuous latitude/longitude tracking
+- **Altitude Support**: 3D positioning with elevation data
+- **Accuracy Metrics**: GPS precision and error measurements
+- **Speed/Heading**: Velocity and direction calculations
+- **Multi-constellation**: GPS, GLONASS, Galileo, BeiDou satellite support
+
+### Platform Integration
+- **Gyropilots.org**: Native integration with flight tracking platform
+- **Gapilots.org**: Compatible with alternate tracking platform
+- **Non-native Mode**: Uses custom coordinate synchronization protocol
+- **Real-time Sync**: Automatic server synchronization with retry logic
+
+## Troubleshooting
+
+### Common Issues
+
+#### GPS Service Not Starting
+```bash
+# Check service status
+sudo systemctl status gps-startup.service
+
+# View service logs for errors
+sudo journalctl -u gps-startup.service -f
+
+# Verify Flight Settings configuration
+# - Ensure username is set
+# - Check GPS start mode selection
+```
+
+#### SIM7600 Hardware Issues
+```bash
+# Check dongle detection
+lsusb | grep 1e0e
+
+# Verify communication daemon
+sudo systemctl status sim7600-daemon.service
+
+# Test AT command communication
+sudo minicom -D /dev/ttyUSB2 -b 115200
+# Send: AT+CGPS=1 (enable GPS)
+# Send: AT+CGPSINFO (get GPS info)
+```
+
+#### GPS Signal Problems
+```bash
+# Check GPS status via AT commands
+sudo minicom -D /dev/ttyUSB2 -b 115200
+
+# Enable GPS: AT+CGPS=1
+# Check signal: AT+CGPSINFO
+# Should return: +CGPSINFO: lat,lon,date,time,alt,speed,course
+
+# Improve signal:
+# - Ensure 4G antenna is connected
+# - Move to location with clear sky view
+# - Wait 2-5 minutes for satellite acquisition
+```
+
+#### Platform Synchronization Issues
+```bash
+# Check internet connectivity
+ping -c 3 gyropilots.org
+
+# Test GPS tracker directly
+cd ~/flask_app
+python3 gps_tracker.py test_user --domain gyropilots.org --simulate --duration 30
+
+# View GPS tracker logs
+sudo journalctl -u gps-startup.service | grep -i error
+```
+
+### Service Dependencies
+The GPS system requires several services to be running:
+- **`sim7600-internet.service`**: For internet connectivity
+- **`sim7600-daemon.service`**: For hardware communication
+- **`gps-startup.service`**: For GPS tracking startup (when enabled)
+
+### Configuration Files
+- **Flight Settings**: Stored in `~/streamerData/settings.json`
+- **Service Configuration**: `/etc/systemd/system/gps-startup.service`
+- **GPS Requirements**: `~/flask_app/gps_requirements.txt`
+
+## Integration with Flight Recording
+
+### Video Streaming Integration
+When enabled in Flight Settings:
+- **Synchronized Start**: GPS tracking automatically starts video streaming
+- **Synchronized Stop**: Stopping GPS also stops video streaming
+- **Recording Coordination**: GPS coordinates embedded in flight recording metadata
+
+### Flight Data
+The GPS tracker provides comprehensive flight data:
+- **Position**: Real-time latitude/longitude coordinates
+- **Altitude**: Barometric and GPS altitude readings
+- **Speed**: Ground speed and vertical speed calculations
+- **Track**: Heading and course over ground
+- **Precision**: GPS accuracy and satellite count information
+
+---
+
+**Note**: GPS tracking functionality is fully integrated with the RPI Streamer web interface. Most users will configure and control GPS tracking through the Flight Settings page rather than command line tools.
 
 # Check status
 status = tracker.get_status()

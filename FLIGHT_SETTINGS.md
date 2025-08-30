@@ -1,191 +1,208 @@
-# Flight Settings Documentation
+# RPI Streamer Flight Settings
 
 ## Overview
 
-The Flight Settings feature provides comprehensive GPS tracking configuration and control for the RPI Streamer system. This includes username management, aircraft registration, automated streaming control, and flexible GPS tracking startup modes.
+Flight Settings provides comprehensive configuration and control for GPS tracking functionality in the RPI Streamer system. This feature enables seamless integration with flight tracking platforms (Gyropilots.org and Gapilots.org) with flexible startup modes, vehicle registration, and automated streaming coordination.
 
-## Features
+## Core Features
 
-### 1. User Configuration
-- **Username**: Set the username for GPS tracking identification
-- **Vehicle**: Record your vehicle's registration number (e.g., N123AB, G-ABCD)
+### 🛰️ GPS Tracking Configuration
+- **Username Management**: Required identification for flight tracking platforms
+- **Vehicle Registration**: Aircraft identification (tail numbers, registration codes)
+- **Platform Selection**: Support for Gyropilots.org and Gapilots.org tracking systems
+- **Real-time Status**: Live GPS tracking status and coordinate monitoring
 
-### 2. Video Streaming Integration
-- **Auto Start/Stop Streaming**: Option to automatically control video streaming when GPS tracking starts/stops
-- When enabled: Starting GPS tracking will also start video streaming, and stopping GPS tracking will stop video streaming
-- When disabled: GPS tracking and video streaming operate independently
+### ⚙️ Startup Mode Selection
+- **Manual Control**: User-initiated GPS tracking via web interface
+- **Auto Start on Boot**: Automatic tracking when system powers on
+- **Auto Start on Motion**: Motion-triggered tracking for efficient operation
+- **Service Integration**: Seamless systemd service management
 
-### 3. GPS Tracking Start Modes
+### 📹 Video Streaming Coordination
+- **Integrated Control**: Link GPS tracking with video streaming
+- **Synchronized Operation**: Start/stop both services together
+- **Independent Operation**: Option to control GPS and streaming separately
+- **Recording Metadata**: GPS coordinates embedded in flight recordings
+
+## Configuration Options
+
+### GPS Tracking Setup
+1. **Access Flight Settings**: Navigate to `/flight-settings` in the RPI Streamer web interface
+2. **Username Configuration**: Enter your tracking platform username (required)
+3. **Vehicle Registration**: Optionally enter aircraft registration (e.g., N123AB, G-ABCD)
+4. **Platform Selection**: Choose between Gyropilots.org or Gapilots.org
+5. **Save Configuration**: Apply settings to enable GPS tracking functionality
+
+### Startup Mode Configuration
 
 #### Manual Mode (Default)
-- GPS tracking starts only when you press the "Start GPS Tracking" button in the web interface
-- Provides full user control over when tracking begins
+- **Description**: GPS tracking controlled exclusively through web interface
+- **Service State**: `gps-startup.service` disabled
+- **Control Method**: "Start/Stop GPS Tracking" buttons in dashboard
+- **Use Cases**: Testing, selective flight tracking, manual operation preference
 
 #### Auto Start on Boot
-- GPS tracking starts automatically when the system boots up
-- Useful for aircraft that should always be tracked when powered on
-- Managed by systemd service `gps-startup.service`
+- **Description**: GPS tracking begins automatically when system starts
+- **Service State**: `gps-startup.service` enabled and started
+- **Behavior**: Immediate tracking initiation after power-on
+- **Use Cases**: Always-on tracking, fleet aircraft, continuous monitoring
 
 #### Auto Start on Motion
-- GPS tracking starts automatically when aircraft movement is detected
-- Uses motion detection algorithms to sense when the aircraft begins moving
-- Ideal for reducing unnecessary tracking during ground operations
+- **Description**: GPS tracking triggered by aircraft movement detection
+- **Service State**: `gps-startup.service` enabled with motion detection
+- **Smart Activation**: Reduces power consumption during ground operations
+- **Use Cases**: Efficient operation, automatic flight detection
 
-## Installation
-
-### 1. GPS Startup Service Installation
-
-The GPS startup service is automatically installed when you run the main RPI Streamer installation script:
-
-```bash
-sudo bash install_rpi_streamer.sh
-```
-
-This installer will:
-- Install all RPI Streamer components including the GPS startup manager
-- Create the GPS startup systemd service (but not enable it by default)
-- Set up proper permissions and paths for GPS functionality
-- Display installation status and configuration instructions
-
-### 2. Configure Flight Settings
-
-1. Navigate to the "Flight Settings" page in the web interface
-2. Set your GPS username (required for GPS tracking)
-3. Optionally set your vehicle registration
-4. Choose your preferred GPS start mode
-5. Enable/disable automatic streaming control
-6. Save your settings
-
-## Usage
-
-### Web Interface
-
-The Flight Settings page (`/flight-settings`) provides a user-friendly interface to configure all options:
-
-- **Username**: Required for GPS tracking functionality
-- **Vehicle**: Optional identification field
-- **Video Streaming Control**: Toggle automatic streaming integration
-- **GPS Start Mode**: Choose from Manual, Auto (Boot), or Auto (Motion)
-
-### Home Dashboard
-
-The home page displays current flight settings and GPS status:
-- Username and vehicle registration
-- Current start mode
-- Stream link status
-- Real-time GPS tracking status
-
-### Manual Control
-
-Regardless of the start mode, you can always manually control GPS tracking via:
-- Web interface "Start/Stop GPS Tracking" button
-- System commands (if needed)
+### Video Streaming Integration
+- **Linked Operation**: Enable to synchronize GPS tracking with video streaming
+- **Independent Control**: Disable for separate GPS and streaming control
+- **Recording Enhancement**: GPS coordinates automatically embedded in video metadata
+- **Bandwidth Optimization**: Coordinate both services for optimal performance
 
 ## Service Management
 
 ### GPS Startup Service
-
-The `gps-startup.service` is automatically installed with the main RPI Streamer installer and is managed based on your flight settings:
-
-- **Manual Mode**: Service is disabled
-- **Boot/Motion Mode**: Service is enabled and runs at startup
-
-The service integrates seamlessly with the flight settings configuration.
-
-### Manual Service Control
-
-If needed, you can manually control the service:
+The `gps-startup.service` is automatically managed based on Flight Settings configuration:
 
 ```bash
-# Check status
+# Service status varies by configuration:
+# Manual Mode: Service disabled
+# Auto Boot/Motion: Service enabled
+
+# Check current service status
 sudo systemctl status gps-startup.service
 
-# View logs
+# View service logs
 sudo journalctl -u gps-startup.service -f
-
-# Manual control (not recommended - use flight settings instead)
-sudo systemctl enable gps-startup.service
-sudo systemctl start gps-startup.service
-sudo systemctl stop gps-startup.service
-sudo systemctl disable gps-startup.service
 ```
 
-## Configuration Files
+### Service Dependencies
+GPS tracking requires these services to be operational:
+- **`sim7600-internet.service`**: Internet connectivity for platform synchronization
+- **`sim7600-daemon.service`**: Hardware communication daemon
+- **`flask_app.service`**: Web interface for configuration and control
 
-### Flight Settings Storage
-Settings are stored in `streamerData/settings.json`:
+## Web Interface Usage
 
-```json
-{
-  "username": "your_username",
-  "domain": "gyropilots.org",
-  "vehicle": "N123AB",
-  "gps_stream_link": false,
-  "gps_start_mode": "manual"
-}
-```
+### Flight Settings Page
+Access the configuration interface at `/flight-settings`:
 
-### Service Files
-- `/etc/systemd/system/gps-startup.service`: Systemd service configuration
-- `gps_startup_manager.py`: Python script that handles automatic GPS startup
-- `gps_tracker.py`: Core GPS tracking functionality
+#### Configuration Fields
+- **GPS Username**: Required for platform integration and flight identification
+- **Vehicle Registration**: Optional aircraft identifier (tail number, registration)
+- **Platform Domain**: Select Gyropilots.org or Gapilots.org
+- **Start Mode**: Choose Manual, Auto (Boot), or Auto (Motion)
+- **Stream Integration**: Toggle automatic video streaming coordination
 
-## Motion Detection
+#### Real-time Status
+- **Current Configuration**: Display active username, vehicle, and mode
+- **GPS Status**: Live tracking status (Active/Inactive)
+- **Service Status**: GPS startup service state
+- **Last Update**: Most recent GPS coordinate transmission
 
-The motion detection feature is designed to be extensible. Currently, it includes:
+### Main Dashboard Integration
+The home page displays current flight configuration:
 
-- Placeholder motion detection logic
-- Configurable sensitivity thresholds
-- Integration with GPS tracking startup
+#### Status Display
+- **User Information**: Configured username and vehicle registration
+- **Tracking Mode**: Currently selected GPS start mode
+- **Active Status**: Real-time GPS tracking state
+- **Stream Status**: Video streaming coordination status
 
-### Future Enhancements
-- Accelerometer sensor integration
-- GPS coordinate change monitoring
-- Vibration pattern detection
-- Customizable motion sensitivity settings
+#### Control Interface
+- **Start GPS Tracking**: Manual initiation button (Manual mode)
+- **Stop GPS Tracking**: End current tracking session
+- **Stream Control**: Independent video streaming controls
+- **Settings Link**: Quick access to Flight Settings configuration
+
+## Hardware Integration
+
+### SIM7600G-H GPS Module
+Flight Settings automatically integrates with the SIM7600G-H hardware:
+
+- **Automatic Detection**: Service detects GPS hardware presence
+- **GNSS Support**: GPS, GLONASS, Galileo, BeiDou constellations
+- **High Accuracy**: Professional-grade positioning for aviation
+- **Thread-safe Communication**: Conflict-free hardware access
+
+### Motion Detection (Auto Motion Mode)
+- **Accelerometer Integration**: Uses SIM7600 motion sensors
+- **Threshold Configuration**: Customizable sensitivity settings
+- **Movement Patterns**: Distinguishes between taxi, takeoff, and flight
+- **Power Efficiency**: Minimizes tracking during ground operations
 
 ## Troubleshooting
 
-### GPS Tracking Won't Start
-1. Verify username is configured in Flight Settings
-2. Check that `gps_tracker.py` is executable
-3. Review system logs: `sudo journalctl -u gps-startup.service`
+### Configuration Issues
+```bash
+# Check Flight Settings file
+cat ~/streamerData/settings.json
 
-### Service Not Starting on Boot
-1. Ensure the service is installed: `sudo systemctl list-unit-files | grep gps-startup`
-2. Check service status: `sudo systemctl status gps-startup.service`
-3. Verify GPS start mode is set to "boot" or "motion" in Flight Settings
+# Verify username configuration
+# Settings file should contain GPS username and mode
 
-### Motion Detection Not Working
-1. Motion detection is currently a placeholder implementation
-2. Check logs for motion detection activity
-3. Consider implementing actual sensor integration for your specific hardware
+# Reset configuration (if needed)
+rm ~/streamerData/settings.json
+# Reconfigure via web interface
+```
 
-## Security Considerations
+### GPS Service Problems
+```bash
+# Check GPS startup service
+sudo systemctl status gps-startup.service
 
-- The service runs as the `pi` user for security
-- GPS tracking data is handled according to your configured endpoints
-- Service logs may contain sensitive location information
-- Consider log rotation and retention policies for production use
+# View service logs
+sudo journalctl -u gps-startup.service -f
 
-## Integration with Existing Features
+# Manual service restart
+sudo systemctl restart gps-startup.service
+```
 
-### Stream Control
-- When stream linking is enabled, GPS tracking will automatically control video streaming
-- Manual stream control remains available regardless of GPS settings
-- Stream status is updated in real-time on the dashboard
+### Platform Connection Issues
+```bash
+# Test internet connectivity
+ping -c 3 gyropilots.org
 
-### Recording Management
-- GPS tracking coordinates with existing recording functionality
-- Flight settings do not affect existing recording configurations
-- USB storage integration continues to work normally
+# Check GPS tracker operation
+cd ~/flask_app
+python3 gps_tracker.py [username] --domain gyropilots.org --simulate --duration 30
 
-## API Endpoints
+# Verify platform credentials
+# Ensure username exists on tracking platform
+```
 
-The flight settings functionality adds the following endpoints:
+## Advanced Configuration
 
-- `GET /flight-settings`: Display flight settings page
-- `POST /flight-settings`: Save flight settings configuration
-- `POST /gps-control`: Start/stop GPS tracking (enhanced with stream integration)
+### Manual Service Control
+For advanced users requiring direct service management:
 
-These integrate seamlessly with existing RPI Streamer API endpoints.
+```bash
+# Enable GPS startup service manually
+sudo systemctl enable gps-startup.service
+sudo systemctl start gps-startup.service
+
+# Disable automatic startup
+sudo systemctl disable gps-startup.service
+sudo systemctl stop gps-startup.service
+
+# Check service dependencies
+systemctl list-dependencies gps-startup.service
+```
+
+### Configuration File Location
+Flight Settings are stored in: `~/streamerData/settings.json`
+
+Example configuration:
+```json
+{
+    "gps_username": "pilot123",
+    "vehicle_registration": "N123AB",
+    "gps_domain": "gyropilots.org",
+    "gps_start_mode": "manual",
+    "auto_start_stop_streaming": false
+}
+```
+
+---
+
+**Note**: Flight Settings provide user-friendly configuration for GPS tracking. Most functionality is accessible through the web interface without requiring command line access.
