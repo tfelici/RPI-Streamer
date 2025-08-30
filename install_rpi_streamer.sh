@@ -37,7 +37,7 @@ sudo systemctl disable ModemManager 2>/dev/null || true
 # Create SIM7600 internet service (always install for future use)
 echo "📡 Setting up SIM7600 services (for current or future dongle use)..."
 
-# Create the auto-startup service
+# Create the auto-startup service with enhanced configuration
 sudo tee /etc/systemd/system/sim7600-internet.service >/dev/null << 'EOFSERVICE'
 [Unit]
 Description=SIM7600G-H 4G Internet Connection
@@ -47,20 +47,34 @@ Wants=network.target
 [Service]
 Type=oneshot
 ExecStart=/bin/bash -c '\
-    sleep 10 && \
+    sleep 30 && \
     if lsusb | grep -q "1e0e:9011"; then \
-        for iface in $(ip link show | grep -E "usb[0-9]|eth1" | cut -d: -f2 | tr -d " "); do \
-            echo "Setting up $iface..."; \
-            dhclient -r $iface 2>/dev/null || true; \
-            ip link set $iface down 2>/dev/null; \
-            sleep 2; \
-            if ip link set $iface up 2>/dev/null && \
-               timeout 30 dhclient -v $iface 2>/dev/null && \
+        # Check if SIM7600 already has a working connection \
+        for iface in $(ip link show | grep "usb[0-9]" | cut -d: -f2 | tr -d " "); do \
+            if ip addr show $iface | grep -q "inet " && \
+               ip link show $iface | grep -q "state UP" && \
                timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1; then \
-                echo "SIM7600 connected on $iface with internet access"; \
+                echo "SIM7600 working connection found on $iface, skipping setup"; \
                 break; \
             fi; \
         done; \
+        # Try to establish connection on available interfaces if not already connected \
+        if ! timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1; then \
+            for iface in $(ip link show | grep -E "usb[0-9]|eth1" | cut -d: -f2 | tr -d " "); do \
+                echo "Setting up $iface..."; \
+                # Release any existing DHCP lease and bring interface down/up \
+                dhclient -r $iface 2>/dev/null || true; \
+                ip link set $iface down 2>/dev/null; \
+                sleep 2; \
+                if ip link set $iface up 2>/dev/null && \
+                   timeout 30 dhclient -v $iface 2>/dev/null && \
+                   timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1; then \
+                    echo "SIM7600 connected on $iface with internet access"; \
+                    break; \
+                fi; \
+            done; \
+        fi; \
+        echo "SIM7600 internet connection setup completed"; \
     fi'
 RemainAfterExit=yes
 User=root
@@ -69,16 +83,13 @@ User=root
 WantedBy=multi-user.target
 EOFSERVICE
 
-    sudo systemctl daemon-reload
-    sudo systemctl enable sim7600-internet.service
-    
-    # Only start the service immediately if dongle is currently present
-    if lsusb | grep -q "1e0e:9011"; then
-        echo "📡 SIM7600 dongle detected - starting internet connection service..."
-        sudo systemctl start sim7600-internet.service
-    else
-        echo "📡 SIM7600 dongle not currently detected - service ready for when dongle is connected"
-    fi
+sudo systemctl daemon-reload
+sudo systemctl enable sim7600-internet.service
+
+# Start the service (it will handle dongle detection internally)
+echo "📡 Starting SIM7600 internet connection service..."
+sudo systemctl start sim7600-internet.service
+echo "📡 SIM7600 service started - will auto-configure when dongle is connected"
 
 # Wait for internet connectivity (max 60 seconds to allow for 4G connection)
 echo "🌐 Checking for internet connectivity..."
@@ -518,59 +529,6 @@ echo "=========================================="
 echo "📡 SIM7600G-H 4G DONGLE Final Setup"
 echo "=========================================="
 echo ""
-
-# Complete remaining SIM7600 setup (dependencies already installed earlier)
-echo "🔧 Completing SIM7600G-H configuration..."
-
-# Update the service to the full version with better error handling
-echo "🔧 Updating SIM7600G-H service with enhanced configuration..."
-sudo tee /etc/systemd/system/sim7600-internet.service >/dev/null << 'EOFSERVICE'
-[Unit]
-Description=SIM7600G-H 4G Internet Connection
-After=network.target
-Wants=network.target
-
-[Service]
-Type=oneshot
-ExecStart=/bin/bash -c '\
-    sleep 30 && \
-    if lsusb | grep -q "1e0e:9011"; then \
-        # Check if SIM7600 already has a working connection \
-        for iface in $(ip link show | grep "usb[0-9]" | cut -d: -f2 | tr -d " "); do \
-            if ip addr show $iface | grep -q "inet " && \
-               ip link show $iface | grep -q "state UP" && \
-               timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1; then \
-                echo "SIM7600 working connection found on $iface, skipping setup"; \
-                break; \
-            fi; \
-        done; \
-        # Try to establish connection on available interfaces if not already connected \
-        if ! timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1; then \
-            for iface in $(ip link show | grep -E "usb[0-9]|eth1" | cut -d: -f2 | tr -d " "); do \
-                echo "Setting up $iface..."; \
-                # Release any existing DHCP lease and bring interface down/up \
-                dhclient -r $iface 2>/dev/null || true; \
-                ip link set $iface down 2>/dev/null; \
-                sleep 2; \
-                if ip link set $iface up 2>/dev/null && \
-                   timeout 30 dhclient -v $iface 2>/dev/null && \
-                   timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1; then \
-                    echo "SIM7600 connected on $iface with internet access"; \
-                    break; \
-                fi; \
-            done; \
-        fi; \
-        echo "SIM7600 internet connection setup completed"; \
-    fi'
-RemainAfterExit=yes
-User=root
-
-[Install]
-WantedBy=multi-user.target
-EOFSERVICE
-
-sudo systemctl daemon-reload
-sudo systemctl enable sim7600-internet.service
 
 # Create udev rule for automatic reconnection handling
 echo "🔧 Creating udev rule for automatic dongle reconnection..."
