@@ -23,7 +23,7 @@
 set -e
 
 # Early SIM7600 setup for internet connectivity
-echo "🔧 Setting up SIM7600 4G dongle support (if present)..."
+echo "🔧 Setting up SIM7600 4G dongle support ..."
 
 # Install basic SIM7600 dependencies first
 sudo apt-get update -qq
