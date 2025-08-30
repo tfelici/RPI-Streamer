@@ -22,19 +22,79 @@
 
 set -e
 
-# Wait for internet connectivity (max 20 seconds)
-for i in {1..20}; do
+# Early SIM7600 setup for internet connectivity
+echo "🔧 Setting up SIM7600 4G dongle support (if present)..."
+
+# Install basic SIM7600 dependencies first
+sudo apt-get update -qq
+sudo apt-get install -y usb-modeswitch usb-modeswitch-data minicom screen ppp
+
+# Disable ModemManager early to prevent conflicts
+echo "🚫 Disabling ModemManager (prevents AT command conflicts)..."
+sudo systemctl stop ModemManager 2>/dev/null || true
+sudo systemctl disable ModemManager 2>/dev/null || true
+
+# Create and start SIM7600 internet service immediately if dongle is present
+if lsusb | grep -q "1e0e:9011"; then
+    echo "📡 SIM7600 dongle detected - setting up internet connection..."
+    
+    # Create the auto-startup service
+    sudo tee /etc/systemd/system/sim7600-internet.service >/dev/null << 'EOFSERVICE'
+[Unit]
+Description=SIM7600G-H 4G Internet Connection
+After=network.target
+Wants=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c '\
+    sleep 10 && \
+    if lsusb | grep -q "1e0e:9011"; then \
+        for iface in $(ip link show | grep -E "usb[0-9]|eth1" | cut -d: -f2 | tr -d " "); do \
+            echo "Setting up $iface..."; \
+            dhclient -r $iface 2>/dev/null || true; \
+            ip link set $iface down 2>/dev/null; \
+            sleep 2; \
+            if ip link set $iface up 2>/dev/null && \
+               timeout 30 dhclient -v $iface 2>/dev/null && \
+               timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1; then \
+                echo "SIM7600 connected on $iface with internet access"; \
+                break; \
+            fi; \
+        done; \
+    fi'
+RemainAfterExit=yes
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOFSERVICE
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable sim7600-internet.service
+    sudo systemctl start sim7600-internet.service
+    
+    echo "⏳ Waiting for SIM7600 to establish connection..."
+    sleep 15
+else
+    echo "📡 No SIM7600 dongle detected - skipping 4G setup"
+fi
+
+# Wait for internet connectivity (max 60 seconds to allow for 4G connection)
+echo "🌐 Checking for internet connectivity..."
+for i in {1..60}; do
     if ping -c 1 github.com &>/dev/null; then
-        echo "Internet is up."
+        echo "✅ Internet is up."
         break
     fi
-    echo "Waiting for internet connection..."
+    echo "Waiting for internet connection... ($i/60)"
     sleep 1
 done
 
 # If still no connection, exit with error
 if ! ping -c 1 github.com &>/dev/null; then
-    echo "No internet connection after 20 seconds, aborting installation."
+    echo "❌ No internet connection after 60 seconds, aborting installation."
+    echo "💡 If using SIM7600 dongle, ensure SIM card is inserted and has data plan."
     exit 1
 fi
 
@@ -452,30 +512,18 @@ sudo systemctl enable sim7600-daemon.service
 # It will be automatically enabled/disabled based on Flight Settings configuration
 echo "🛰️ GPS Startup Service: Available but not enabled (configure via Flight Settings)"
 
-# Install SIM7600G-H internet setup (always installed)
+# SIM7600G-H setup completed earlier in script for internet connectivity
 echo ""
 echo "=========================================="
-echo "📡 SIM7600G-H 4G DONGLE Internet Setup"
+echo "📡 SIM7600G-H 4G DONGLE Final Setup"
 echo "=========================================="
 echo ""
 
-# Always install the basic dependencies and drivers
-echo "📦 Installing SIM7600G-H dependencies and drivers..."
+# Complete remaining SIM7600 setup (dependencies already installed earlier)
+echo "🔧 Completing SIM7600G-H configuration..."
 
-# Install required packages for SIM7600 support
-sudo apt-get update -qq
-sudo apt-get install -y usb-modeswitch usb-modeswitch-data minicom screen ppp
-
-echo "✅ SIM7600G-H dependencies installed"
-
-# Disable ModemManager to prevent interference with direct AT command access
-echo "🚫 Disabling ModemManager (prevents AT command conflicts)..."
-sudo systemctl stop ModemManager 2>/dev/null || true
-sudo systemctl disable ModemManager 2>/dev/null || true
-echo "✅ ModemManager disabled"
-
-# Create the auto-startup service regardless of hardware presence
-echo "🔧 Creating SIM7600G-H auto-startup service..."
+# Update the service to the full version with better error handling
+echo "🔧 Updating SIM7600G-H service with enhanced configuration..."
 sudo tee /etc/systemd/system/sim7600-internet.service >/dev/null << 'EOFSERVICE'
 [Unit]
 Description=SIM7600G-H 4G Internet Connection
