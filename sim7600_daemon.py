@@ -259,33 +259,6 @@ class SIM7600Daemon:
         
         return status
     
-    def start_gps(self) -> Tuple[bool, str]:
-        """
-        Check GPS status (GPS is auto-started by daemon).
-        Returns (success, message) - always successful since GPS auto-starts.
-        """
-        if self._gps_started:
-            return True, "GPS is running (auto-started by daemon)"
-        else:
-            # Try to start it now if connection is available
-            try:
-                with self._get_connection():
-                    self._auto_start_gps()
-                    if self._gps_started:
-                        return True, "GPS started successfully"
-                    else:
-                        return False, "Failed to start GPS"
-            except Exception as e:
-                logger.error(f"Error checking GPS start: {e}")
-                return False, str(e)
-    
-    def stop_gps(self) -> Tuple[bool, str]:
-        """
-        GPS stop is not allowed - GPS runs continuously for multi-client access.
-        Returns status message explaining continuous operation.
-        """
-        return True, "GPS runs continuously (managed by daemon) - stop not allowed"
-    
     def get_gnss_location(self) -> Tuple[bool, Optional[Dict[str, Any]]]:
         """
         Get parsed GNSS location data using AT+CGNSSINFO (GPS + GLONASS + Galileo + BeiDou).

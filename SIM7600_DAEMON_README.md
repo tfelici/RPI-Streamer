@@ -24,6 +24,7 @@ The new architecture uses a **daemon service** with **TCP-based IPC** to provide
 - **Thread-safe communication**: All AT commands are properly serialized
 - **TCP-based IPC**: Cross-platform communication between daemon and clients
 - **Automatic error recovery**: Handles connection failures and timeouts gracefully
+- **Automatic GPS management**: GPS automatically starts on daemon connection and runs continuously
 - **Enhanced GNSS support**: GPS + GLONASS + Galileo + BeiDou with DOP-based accuracy
 
 ## Architecture
@@ -35,6 +36,18 @@ The new architecture uses a **daemon service** with **TCP-based IPC** to provide
 │  app.py, etc.)  │           │  (Port 7600)     │             │             │
 └─────────────────┘           └──────────────────┘             └─────────────┘
 ```
+
+## GPS Management
+
+The daemon now handles GPS lifecycle automatically:
+
+- **Auto-start**: GPS is automatically started when the daemon establishes connection with the SIM7600 hardware
+- **Continuous operation**: GPS runs continuously for all clients to access without conflicts
+- **Auto-stop**: GPS is only stopped when the daemon shuts down
+- **Multi-client safe**: Multiple clients can safely access GPS data simultaneously
+- **No manual control**: Clients no longer need to start/stop GPS - just call `get_gnss_location()`
+
+This prevents race conditions and conflicts between multiple processes trying to control GPS independently.
 
 ## Usage
 
@@ -76,25 +89,20 @@ from sim7600_manager import get_sim7600_client
 
 client = get_sim7600_client()
 
-# Start GPS
-success, message = client.start_gps()
-if success:
-    print("GPS started successfully")
-    
-    # Get location
-    success, location = client.get_gnss_location()
-    if success and location and location.get('fix_status') == 'valid':
-        print(f"Location: {location['latitude']}, {location['longitude']}")
-        print(f"Altitude: {location['altitude']} meters")
-        print(f"Speed: {location['speed']} km/h")
-        print(f"Accuracy (HDOP): {location['hdop']}")
-        print(f"Satellites: {location['satellites']['total']}")
-        print(f"Fix Type: {location['fix_type']}")
-    else:
-        print("No GPS fix available")
+# GPS is automatically started by the daemon when it connects
+# Just get location data directly
+success, location = client.get_gnss_location()
+if success and location and location.get('fix_status') == 'valid':
+    print(f"Location: {location['latitude']}, {location['longitude']}")
+    print(f"Altitude: {location['altitude']} meters")
+    print(f"Speed: {location['speed']} km/h")
+    print(f"Accuracy (HDOP): {location['hdop']}")
+    print(f"Satellites: {location['satellites']['total']}")
+    print(f"Fix Type: {location['fix_type']}")
+else:
+    print("No GPS fix available")
 
-# Stop GPS when done
-client.stop_gps()
+# GPS runs continuously and is managed automatically by the daemon
 ```
 
 #### Remote Connection
@@ -175,18 +183,8 @@ Returns comprehensive network status information.
 }
 ```
 
-#### `start_gps() -> Tuple[bool, str]`
-Start GPS functionality.
-
-**Returns:** `(success: bool, message: str)`
-
-#### `stop_gps() -> Tuple[bool, str]`
-Stop GPS functionality.
-
-**Returns:** `(success: bool, message: str)`
-
 #### `get_gnss_location() -> Tuple[bool, Optional[Dict[str, Any]]]`
-Get enhanced GNSS location data.
+Get enhanced GNSS location data. GPS is automatically started by the daemon.
 
 **Returns:** `(success: bool, location_data: dict)`
 
@@ -295,10 +293,11 @@ sudo python sim7600_manager.py --daemon
 
 **Problem**: `get_gnss_location()` returns `fix_status: "no_fix"`
 **Solution**:
-1. Ensure GPS is started: `client.start_gps()`
+1. GPS is automatically started by daemon - no manual start needed
 2. Wait for satellite acquisition (can take 30-60 seconds outdoors)
 3. Check antenna connection
 4. Verify SIM7600 module GPS capability
+5. Ensure daemon is running and connected to hardware
 
 ## Migration from Old Manager
 
