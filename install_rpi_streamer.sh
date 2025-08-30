@@ -18,6 +18,10 @@
 # This script installs the RPI Streamer Flask app and MediaMTX on a Raspberry Pi running Raspberry Pi OS Lite.
 # It also sets up a systemd service for the Flask app and MediaMTX, and installs Tailscale for remote access.
 # SIM7600G-H 4G dongle support is installed automatically for all deployments.
+#
+# Optional UPS Management: Install UPS monitoring before running this script:
+#   curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_ups_management.sh?$(date +%s)
+#   bash install_ups_management.sh
 ################################################
 
 set -e
@@ -970,7 +974,14 @@ echo "   bash install_rpi_streamer.sh --skip-update"
 echo ""
 echo "📚 Documentation:"
 echo "   GPS Tracker: GPS_TRACKER_README.md"
+echo "   Flight Settings: FLIGHT_SETTINGS.md"
 echo "   SIM7600 Setup: SIM7600_INTERNET_SETUP.md"
+echo "   Multi-Device Setup: MULTI_DEVICE_SETUP.md"
+echo ""
+echo "🔋 Optional UPS Management:"
+echo "   Install UPS monitoring for battery backup systems:"
+echo "   curl -H \"Cache-Control: no-cache\" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_ups_management.sh"
+echo "   bash install_ups_management.sh"
 
 # Generate unique hardware identifier and register hardware
 echo ""
