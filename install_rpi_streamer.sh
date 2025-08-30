@@ -521,6 +521,8 @@ register_device_with_console() {
             echo "🔧 Updating device hostname to: $new_hostname"
             if command -v hostnamectl >/dev/null 2>&1; then
                 sudo hostnamectl set-hostname "$new_hostname"
+                # Also update /etc/hosts for local resolution
+                sudo sed -i "s/127.0.1.1.*/127.0.1.1\t$new_hostname/" /etc/hosts
             else
                 # Fallback for older systems
                 echo "$new_hostname" | sudo tee /etc/hostname > /dev/null
@@ -645,7 +647,7 @@ setup_reverse_ssh_tunnel() {
     echo ""
     
     # Hardcoded server configuration
-    server_host="main.lambda-tek.com"
+    server_host="streamer.lambda-tek.com"
     server_port="2024"
     server_user="streamer"
     echo "Using server: $server_user@$server_host:$server_port"
