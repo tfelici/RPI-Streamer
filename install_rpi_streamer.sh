@@ -371,8 +371,9 @@ printf "Creating systemd service for GPS Startup Manager...\n"
 sudo tee /etc/systemd/system/gps-startup.service >/dev/null << EOF
 [Unit]
 Description=GPS Startup Manager for RPI Streamer
-After=network.target
+After=network.target sim7600-internet.service
 Wants=network.target
+Requires=sim7600-internet.service
 
 [Service]
 Type=simple
@@ -443,7 +444,7 @@ echo "✅ SIM7600G-H dependencies installed"
 echo "🔧 Creating SIM7600G-H auto-startup service..."
 sudo tee /etc/systemd/system/sim7600-internet.service >/dev/null << 'EOFSERVICE'
 [Unit]
-Description=SIM7600G-H 4G Internet Connection
+Description=SIM7600G-H 4G Internet Connection and Daemon
 After=network.target
 Wants=network.target
 
@@ -452,21 +453,44 @@ Type=oneshot
 ExecStart=/bin/bash -c '\
     sleep 30 && \
     if lsusb | grep -q "1e0e:9011"; then \
-        # Check if SIM7600 already has an active connection \
+        # Check if SIM7600 already has a working connection \
         for iface in $(ip link show | grep "usb[0-9]" | cut -d: -f2 | tr -d " "); do \
-            if ip addr show $iface | grep -q "inet "; then \
-                echo "SIM7600 found on $iface, skipping setup"; \
-                exit 0; \
-            fi; \
-        done; \
-        # Try to establish connection on available interfaces \
-        for iface in $(ip link show | grep -E "usb[0-9]|eth1" | cut -d: -f2 | tr -d " "); do \
-            if ip link set $iface up 2>/dev/null && \
-               timeout 30 dhclient -v $iface 2>/dev/null; then \
-                echo "SIM7600 connected on $iface"; \
+            if ip addr show $iface | grep -q "inet " && \
+               ip link show $iface | grep -q "state UP" && \
+               timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1; then \
+                echo "SIM7600 working connection found on $iface, skipping setup"; \
                 break; \
             fi; \
         done; \
+        # Try to establish connection on available interfaces if not already connected \
+        if ! timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1; then \
+            for iface in $(ip link show | grep -E "usb[0-9]|eth1" | cut -d: -f2 | tr -d " "); do \
+                echo "Setting up $iface..."; \
+                # Release any existing DHCP lease and bring interface down/up \
+                dhclient -r $iface 2>/dev/null || true; \
+                ip link set $iface down 2>/dev/null; \
+                sleep 2; \
+                if ip link set $iface up 2>/dev/null && \
+                   timeout 30 dhclient -v $iface 2>/dev/null && \
+                   timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1; then \
+                    echo "SIM7600 connected on $iface with internet access"; \
+                    break; \
+                fi; \
+            done; \
+        fi; \
+        # Start SIM7600 daemon after internet is established \
+        if timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1; then \
+            echo "Starting SIM7600 communication daemon..."; \
+            if [ -f "'$HOME'/flask_app/sim7600_daemon.py" ]; then \
+                cd "'$HOME'/flask_app" && \
+                /usr/bin/python3 sim7600_daemon.py --host localhost --port 7600 & \
+                echo "SIM7600 daemon started on port 7600"; \
+            else \
+                echo "SIM7600 daemon not found at '$HOME'/flask_app/sim7600_daemon.py"; \
+            fi; \
+        else \
+            echo "No internet connection available, skipping daemon startup"; \
+        fi; \
     fi'
 RemainAfterExit=yes
 User=root
@@ -478,20 +502,36 @@ EOFSERVICE
 sudo systemctl daemon-reload
 sudo systemctl enable sim7600-internet.service
 
-echo "✅ SIM7600G-H service created and enabled"
+# Create udev rule for automatic reconnection handling
+echo "🔧 Creating udev rule for automatic dongle reconnection..."
+sudo tee /etc/udev/rules.d/99-sim7600-internet.rules >/dev/null << 'EOFUDEV'
+# SIM7600G-H automatic internet connection on connect/reconnect
+# Trigger on SIM7600 device connection
+SUBSYSTEM=="usb", ATTR{idVendor}=="1e0e", ATTR{idProduct}=="9011", ACTION=="add", RUN+="/bin/systemctl restart sim7600-internet.service"
+
+# Trigger on USB network interface creation (usb0, usb1, etc.)
+SUBSYSTEM=="net", KERNEL=="usb*", ACTION=="add", RUN+="/bin/bash -c 'sleep 5 && /bin/systemctl restart sim7600-internet.service'"
+EOFUDEV
+
+# Reload udev rules
+sudo udevadm control --reload-rules
+
+echo "✅ SIM7600G-H service and udev rules created"
 echo ""
 echo "📋 Setup completed! The system will automatically:"
 echo "   1. Detect the dongle when connected"
 echo "   2. Configure RNDIS mode if needed"
 echo "   3. Establish internet connection"
+echo "   4. Start SIM7600 communication daemon on port 7600"
 echo ""
 echo "🔌 To use the dongle:"
 echo "   1. Insert SIM card into the dongle"
 echo "   2. Connect dongle to USB port"
 echo "   3. Wait 30-60 seconds for auto-configuration"
 echo "   4. Check connection: ip addr show usb0"
+echo "   5. Daemon will be available on localhost:7600"
 echo ""
-echo "✅ SIM7600G-H setup completed (will auto-configure on boot/connection)"
+echo "✅ SIM7600G-H setup completed (internet + daemon will auto-start)"
 
 SIM7600_STATUS=0
 

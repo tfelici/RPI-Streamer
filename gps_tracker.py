@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """
-GPS Tracker for RPI Streamer
-Replicates the background geolocation tracking functionality from the Gyropilots mobile app
-Uses the "non-native" mode for coordinate synchronization
+RPI Streamer GPS Tracker
+
+Background GPS tracking application using centralized SIM7600 communication manager.
+Tracks GPS coordinates and synchronizes them with the Gyropilots server.
+
+Features:
+- Centralized SIM7600 communication (thread-safe)
+- Enhanced GNSS support (GPS + GLONASS + Galileo + BeiDou)
+- Background coordinate synchronization
+- Simulation mode for testing
+- Hardware resilience and auto-reconnection
 
 Requirements for real GPS hardware:
-- pyserial (pip install pyserial)
-- RPi.GPIO (pip install RPi.GPIO)
+- SIM7600 daemon service (sim7600_daemon.py)
 - Waveshare SIM7600G-H 4G DONGLE properly connected
-
-Hardware Setup:
-- Connect SIM7600G-H to Raspberry Pi UART (default: /dev/ttyS0)
-- Power key connected to GPIO pin 6 (configurable)
-- Ensure UART is enabled in raspi-config
 """
 
 import json
@@ -24,7 +26,6 @@ import sys
 import threading
 import queue
 import signal
-import serial
 import re
 import math
 import random
@@ -38,7 +39,16 @@ try:
     GPIO_AVAILABLE = True
 except ImportError:
     GPIO_AVAILABLE = False
-    logging.warning("RPi.GPIO not available - GPS hardware functionality will be limited")
+
+# Initialize SIM7600 daemon client on module load
+try:
+    from sim7600_daemon import get_sim7600_client
+    SIM7600_CLIENT_AVAILABLE = True
+    # Note: logger is set up later in setup_logging(), so we'll log this there
+except ImportError:
+    SIM7600_CLIENT_AVAILABLE = False
+    # Note: logger is set up later in setup_logging(), so we'll log this there
+    logging.warning("SIM7600 daemon client not available - GPS hardware functionality will be limited")
 
 # Configure logging
 logging.basicConfig(
@@ -51,6 +61,12 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# Log SIM7600 client availability
+if SIM7600_CLIENT_AVAILABLE:
+    logger.info("SIM7600 daemon client available - using system-wide singleton communication")
+else:
+    logger.error("SIM7600 daemon client not available - GPS functionality will be disabled")
 
 # Status file for tracking GPS hardware state
 GPS_STATUS_FILE = "/tmp/gps-tracker-status.json"
@@ -80,255 +96,6 @@ def cleanup_gps_status():
         pass
 
 
-class SIM7600GHardware:
-    """Hardware interface for Waveshare SIM7600G-H 4G DONGLE GPS functionality"""
-    
-    def __init__(self, serial_port='/dev/ttyS0', baud_rate=115200, power_key=6):
-        self.serial_port = serial_port
-        self.baud_rate = baud_rate
-        self.power_key = power_key
-        self.ser = None  # Will be initialized as serial.Serial
-        self.gps_active = False
-        self.initialized = False
-        
-        logger.info(f"SIM7600G Hardware interface initialized - Port: {serial_port}, Baud: {baud_rate}")
-    
-    def initialize_hardware(self):
-        """Initialize the SIM7600G hardware"""
-        if not GPIO_AVAILABLE:
-            logger.error("RPi.GPIO not available - cannot initialize GPS hardware")
-            return False
-            
-        try:
-            # Initialize serial connection
-            self.ser = serial.Serial(self.serial_port, self.baud_rate)
-            self.ser.reset_input_buffer()
-            
-            # Power on the module
-            self._power_on()
-            self.initialized = True
-            logger.info("SIM7600G hardware initialized successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize SIM7600G hardware: {e}")
-            return False
-    
-    def _power_on(self):
-        """Power on the SIM7600G module"""
-        logger.info('SIM7600G is starting...')
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False)
-        GPIO.setup(self.power_key, GPIO.OUT)
-        time.sleep(0.1)
-        GPIO.output(self.power_key, GPIO.HIGH)
-        time.sleep(2)
-        GPIO.output(self.power_key, GPIO.LOW)
-        time.sleep(20)
-        self.ser.reset_input_buffer()
-        logger.info('SIM7600G is ready')
-    
-    def _power_down(self):
-        """Power down the SIM7600G module"""
-        if not GPIO_AVAILABLE or not self.initialized:
-            return
-            
-        logger.info('SIM7600G is powering off...')
-        GPIO.output(self.power_key, GPIO.HIGH)
-        time.sleep(3)
-        GPIO.output(self.power_key, GPIO.LOW)
-        time.sleep(18)
-        logger.info('SIM7600G powered down')
-    
-    def _send_at_command(self, command, expected_response, timeout):
-        """Send AT command and wait for response"""
-        if not self.ser:
-            return False, ""
-            
-        try:
-            # Clear input buffer
-            self.ser.reset_input_buffer()
-            
-            # Send command
-            self.ser.write((command + '\r\n').encode())
-            time.sleep(timeout)
-            
-            # Read response
-            response = ""
-            if self.ser.in_waiting:
-                time.sleep(0.01)
-                response = self.ser.read(self.ser.in_waiting).decode()
-            
-            if response:
-                if expected_response in response:
-                    logger.debug(f"AT Command success: {command} -> {response.strip()}")
-                    return True, response
-                else:
-                    logger.warning(f"AT Command failed: {command} -> {response.strip()}")
-                    return False, response
-            else:
-                logger.warning(f"AT Command timeout: {command}")
-                return False, ""
-                
-        except Exception as e:
-            logger.error(f"AT Command error: {command} -> {e}")
-            return False, ""
-    
-    def start_gps(self):
-        """Start GPS functionality"""
-        if not self.initialized:
-            logger.error("Hardware not initialized")
-            return False
-            
-        logger.info("Starting GPS session...")
-        success, response = self._send_at_command('AT+CGPS=1,1', 'OK', 1)
-        
-        if success:
-            self.gps_active = True
-            logger.info("GPS started successfully")
-            time.sleep(2)  # Allow GPS to initialize
-            return True
-        else:
-            logger.error("Failed to start GPS")
-            return False
-    
-    def stop_gps(self):
-        """Stop GPS functionality"""
-        if not self.initialized or not self.gps_active:
-            return True
-            
-        logger.info("Stopping GPS session...")
-        success, response = self._send_at_command('AT+CGPS=0', 'OK', 1)
-        
-        if success:
-            self.gps_active = False
-            logger.info("GPS stopped successfully")
-            return True
-        else:
-            logger.error("Failed to stop GPS")
-            return False
-    
-    def get_gps_data(self):
-        """Get current GPS position data"""
-        if not self.initialized or not self.gps_active:
-            return None
-            
-        success, response = self._send_at_command('AT+CGPSINFO', '+CGPSINFO:', 1)
-        
-        if not success:
-            return None
-            
-        # Parse GPS response
-        # Format: +CGPSINFO: lat,N/S,lon,E/W,date,UTC time,alt,speed,course
-        try:
-            # Extract the GPS info line
-            lines = response.strip().split('\n')
-            gps_line = None
-            
-            for line in lines:
-                if '+CGPSINFO:' in line:
-                    gps_line = line
-                    break
-            
-            if not gps_line:
-                return None
-                
-            # Remove the command prefix
-            gps_data = gps_line.split('+CGPSINFO: ')[1].strip()
-            
-            # Check if GPS has a fix (empty fields indicate no fix)
-            if ',,,,,,' in gps_data:
-                logger.debug("GPS fix not available")
-                return None
-            
-            # Parse the comma-separated values
-            parts = gps_data.split(',')
-            
-            if len(parts) < 9:
-                logger.warning(f"Incomplete GPS data: {gps_data}")
-                return None
-            
-            # Convert coordinates from DDMM.MMMM to decimal degrees
-            lat_raw = parts[0]
-            lat_dir = parts[1]
-            lon_raw = parts[2] 
-            lon_dir = parts[3]
-            
-            if not lat_raw or not lon_raw:
-                return None
-                
-            # Convert DDMM.MMMM to decimal degrees
-            lat_deg = float(lat_raw[:2]) + float(lat_raw[2:]) / 60.0
-            if lat_dir == 'S':
-                lat_deg = -lat_deg
-                
-            lon_deg = float(lon_raw[:3]) + float(lon_raw[3:]) / 60.0
-            if lon_dir == 'W':
-                lon_deg = -lon_deg
-            
-            # Extract other data
-            altitude = float(parts[6]) if parts[6] else None
-            speed_knots = float(parts[7]) if parts[7] else None
-            course = float(parts[8]) if parts[8] else None
-            
-            # Convert speed from knots to km/h
-            speed_kmh = speed_knots * 1.852 if speed_knots else None
-            
-            gps_result = {
-                'latitude': lat_deg,
-                'longitude': lon_deg,
-                'altitude': altitude,
-                'speed': speed_kmh,
-                'heading': course,
-                'accuracy': 5.0  # Approximate GPS accuracy in meters
-            }
-            
-            logger.debug(f"GPS data: lat={lat_deg:.6f}, lon={lon_deg:.6f}, alt={altitude}, speed={speed_kmh}")
-            return gps_result
-            
-        except Exception as e:
-            logger.error(f"Error parsing GPS data: {e}")
-            logger.debug(f"Raw GPS response: {response}")
-            return None
-    
-    def check_hardware_presence(self):
-        """Quick check if hardware is physically present and responding"""
-        if not os.path.exists(self.serial_port):
-            return False
-        
-        if not self.ser or not self.ser.is_open:
-            return False
-            
-        try:
-            # Quick AT command to verify hardware is responding
-            success, _ = self._send_at_command('AT', 'OK', 0.5)
-            return success
-        except Exception:
-            return False
-
-    def cleanup(self):
-        """Clean up hardware resources"""
-        if self.gps_active:
-            self.stop_gps()
-            
-        self._power_down()
-        
-        if self.ser:
-            try:
-                self.ser.close()
-            except:
-                pass
-                
-        if GPIO_AVAILABLE:
-            try:
-                GPIO.cleanup()
-            except:
-                pass
-                
-        self.initialized = False
-        logger.info("SIM7600G hardware cleanup completed")
-
-
 class GPSTracker:
     def __init__(self, username: str, domain: str, track_id: Optional[str] = None):
         # Validate required parameters
@@ -347,8 +114,8 @@ class GPSTracker:
         self.sync_queue = queue.Queue()
         self.session = requests.Session()
         
-        # GPS Hardware
-        self.gps_hardware = None
+        # GPS state tracking
+        self.gps_started = False
         
         # Movement detection
         self.last_position = None
@@ -407,10 +174,8 @@ class GPSTracker:
         # Send tracking ended signal
         self._send_tracking_ended()
         
-        # Clean up GPS hardware if active
-        if self.gps_hardware:
-            self.gps_hardware.cleanup()
-            self.gps_hardware = None
+        # GPS now runs continuously in daemon - no need to stop it
+        logger.info("GPS continues running in daemon (not stopped)")
         
         self.tracking_active = False
         self.track_id = None
@@ -664,41 +429,51 @@ class GPSTracker:
         else:
             logger.info("Starting real GPS hardware tracking")
             
-            hardware_initialized = False
-            
             try:
                 while self.tracking_active:
-                    # 1) Check if hardware needs initialization or re-initialization
-                    if not hardware_initialized or not self._is_hardware_ready():
-                        hardware_initialized = self._initialize_gps_hardware()
-                        if not hardware_initialized:
-                            # Failed to initialize, wait and try again next cycle
-                            time.sleep(update_interval)
-                            continue
-                    
-                    # 2) Hardware is ready, attempt to get coordinates
+                    # Attempt to get coordinates from GPS daemon
                     try:
-                        if self.gps_hardware:  # Additional None check for type safety
-                            gps_data = self.gps_hardware.get_gps_data()
-                            
-                            if gps_data:
-                                # Add the location to tracking
-                                self.add_location(**gps_data)
-                                logger.debug(f"GPS coordinates: lat={gps_data['latitude']:.6f}, lon={gps_data['longitude']:.6f}")
-                                write_gps_status("active", f"GPS active - lat: {gps_data['latitude']:.6f}, lon: {gps_data['longitude']:.6f}", gps_data)
-                            else:
-                                logger.debug("GPS data not available (no satellite fix)")
-                                write_gps_status("connected", "GPS hardware connected but no satellite fix")
+                        if not SIM7600_CLIENT_AVAILABLE:
+                            logger.error("SIM7600 daemon client not available")
+                            write_gps_status("error", "SIM7600 daemon client not available")
                         else:
-                            # Hardware disappeared
-                            logger.warning("GPS hardware object is None")
-                            hardware_initialized = False
+                            client = get_sim7600_client()
+                            
+                            # Check daemon availability and get GPS data
+                            if not client.is_available():
+                                logger.warning("SIM7600 daemon not available")
+                                write_gps_status("disconnected", "GPS daemon not found")
+                            else:
+                                success, location_data = client.get_gnss_location()
+                                
+                                if success and location_data and location_data.get('fix_status') == 'valid':
+                                    # Calculate accuracy from DOP values
+                                    # HDOP (Horizontal DOP) is most relevant for position accuracy
+                                    # Rule of thumb: accuracy ≈ HDOP * URA (User Range Accuracy, ~3-5m for GPS)
+                                    hdop = location_data.get('hdop', 2.0)  # Default to 2.0 if not available
+                                    base_accuracy = 3.5  # Base GPS accuracy in meters
+                                    calculated_accuracy = hdop * base_accuracy
+                                    
+                                    # Convert GNSS data format to GPS format for compatibility
+                                    gps_data = {
+                                        'latitude': location_data['latitude'],
+                                        'longitude': location_data['longitude'],
+                                        'altitude': location_data['altitude'],
+                                        'speed': location_data['speed'],  # Already in km/h
+                                        'heading': location_data['course'],
+                                        'accuracy': calculated_accuracy  # Calculated from HDOP
+                                    }
+                                    # Add the location to tracking
+                                    self.add_location(**gps_data)
+                                    logger.debug(f"GPS coordinates: lat={gps_data['latitude']:.6f}, lon={gps_data['longitude']:.6f}")
+                                    write_gps_status("active", f"GPS active - lat: {gps_data['latitude']:.6f}, lon: {gps_data['longitude']:.6f}", gps_data)
+                                else:
+                                    logger.debug("GPS data not available (no satellite fix)")
+                                    write_gps_status("connected", "GPS daemon connected but no satellite fix")
                             
                     except Exception as e:
                         logger.warning(f"Error getting GPS coordinates: {e}")
                         write_gps_status("error", f"GPS coordinate error: {e}")
-                        # Mark for re-initialization on next cycle
-                        hardware_initialized = False
                     
                     # Always sleep at the end of each cycle
                     time.sleep(update_interval)
@@ -706,64 +481,10 @@ class GPSTracker:
             except KeyboardInterrupt:
                 logger.info("Real GPS tracking interrupted")
             finally:
-                # Clean up GPS hardware
-                if self.gps_hardware:
-                    self.gps_hardware.cleanup()
-                    self.gps_hardware = None
+                # GPS now runs continuously in daemon - no need to stop
+                logger.info("GPS tracking session ended (GPS continues running in daemon)")
         
         return True
-    
-    def _initialize_gps_hardware(self):
-        """Initialize or re-initialize GPS hardware"""
-        write_gps_status("waiting", "Attempting to connect to GPS hardware...")
-        logger.info("Attempting to initialize GPS hardware...")
-        
-        # Clean up any existing hardware
-        if self.gps_hardware:
-            try:
-                self.gps_hardware.cleanup()
-            except:
-                pass
-            self.gps_hardware = None
-        
-        # Try to initialize new hardware instance
-        try:
-            self.gps_hardware = SIM7600GHardware()
-            
-            if not self.gps_hardware.initialize_hardware():
-                logger.warning("Failed to initialize GPS hardware")
-                write_gps_status("disconnected", "GPS hardware not found")
-                return False
-            
-            if not self.gps_hardware.start_gps():
-                logger.warning("GPS hardware initialized but failed to start GPS module")
-                write_gps_status("error", "GPS hardware found but failed to start GPS module")
-                self.gps_hardware.cleanup()
-                self.gps_hardware = None
-                return False
-            
-            logger.info("GPS hardware initialized successfully")
-            write_gps_status("connected", "GPS hardware connected and active")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Exception during GPS hardware initialization: {e}")
-            write_gps_status("error", f"GPS hardware initialization error: {e}")
-            if self.gps_hardware:
-                try:
-                    self.gps_hardware.cleanup()
-                except:
-                    pass
-                self.gps_hardware = None
-            return False
-    
-    def _is_hardware_ready(self):
-        """Check if GPS hardware is ready and responsive"""
-        if not self.gps_hardware or not self.gps_hardware.initialized:
-            return False
-        
-        # Quick check for hardware presence
-        return self.gps_hardware.check_hardware_presence()
 
 
 def simulate_gps_data():

@@ -19,71 +19,21 @@ from utils import DEFAULT_SETTINGS, SETTINGS_FILE, is_gps_tracking, load_setting
 # Import GPS tracking function directly from app.py
 from app import start_flight
 
-# Import GPS hardware for motion detection
-from gps_tracker import SIM7600GHardware
+# Import SIM7600 client
+try:
+    from sim7600_daemon import get_sim7600_client
+    SIM7600_CLIENT_AVAILABLE = True
+except ImportError:
+    SIM7600_CLIENT_AVAILABLE = False
+    print("SIM7600 daemon client not available - GPS motion detection will be limited")
 
 # Motion detection state
 motion_detection_state = {
     'last_position': None,
     'last_position_time': None,
-    'gps_hardware': None,
-    'initialization_attempts': 0,
-    'max_init_attempts': 3,
     'movement_threshold': 10.0,  # meters - larger threshold for startup detection
     'position_timeout': 30.0,   # seconds - how long to wait for GPS fix
 }
-
-def initialize_gps_hardware():
-    """Initialize GPS hardware for motion detection"""
-    state = motion_detection_state
-    
-    if state['gps_hardware'] is not None:
-        return True  # Already initialized
-    
-    if state['initialization_attempts'] >= state['max_init_attempts']:
-        print(f"GPS hardware initialization failed after {state['max_init_attempts']} attempts")
-        return False
-    
-    state['initialization_attempts'] += 1
-    print(f"Attempting to initialize GPS hardware (attempt {state['initialization_attempts']})...")
-    
-    try:
-        state['gps_hardware'] = SIM7600GHardware()
-        
-        if not state['gps_hardware'].initialize_hardware():
-            print("Failed to initialize GPS hardware")
-            state['gps_hardware'] = None
-            return False
-        
-        if not state['gps_hardware'].start_gps():
-            print("GPS hardware initialized but failed to start GPS module")
-            state['gps_hardware'].cleanup()
-            state['gps_hardware'] = None
-            return False
-        
-        print("GPS hardware initialized successfully for motion detection")
-        return True
-        
-    except Exception as e:
-        print(f"Exception during GPS hardware initialization: {e}")
-        if state['gps_hardware']:
-            try:
-                state['gps_hardware'].cleanup()
-            except:
-                pass
-            state['gps_hardware'] = None
-        return False
-
-def cleanup_gps_hardware():
-    """Clean up GPS hardware resources"""
-    state = motion_detection_state
-    if state['gps_hardware']:
-        try:
-            state['gps_hardware'].cleanup()
-        except:
-            pass
-        state['gps_hardware'] = None
-        print("GPS hardware cleaned up")
 
 def detect_motion():
     """
@@ -93,20 +43,30 @@ def detect_motion():
     state = motion_detection_state
     current_time = time.time()
     
-    # Initialize GPS hardware if needed
-    if state['gps_hardware'] is None:
-        if not initialize_gps_hardware():
-            return False
-    
-    # Check if hardware is still responsive
-    if not state['gps_hardware'].check_hardware_presence():
-        print("GPS hardware disconnected, cleaning up...")
-        cleanup_gps_hardware()
-        return False
-    
     try:
-        # Get current GPS position
-        gps_data = state['gps_hardware'].get_gps_data()
+        # Get current GPS position from daemon
+        if not SIM7600_CLIENT_AVAILABLE:
+            print("SIM7600 daemon client not available")
+            return False
+            
+        client = get_sim7600_client()
+        
+        if not client.is_available():
+            print("SIM7600 daemon not available")
+            return False
+            
+        success, location_data = client.get_gnss_location()
+        
+        gps_data = None
+        if success and location_data and location_data.get('fix_status') == 'valid':
+            gps_data = {
+                'latitude': location_data['latitude'],
+                'longitude': location_data['longitude'],
+                'altitude': location_data['altitude'],
+                'speed': location_data['speed'],
+                'heading': location_data['course'],
+                'accuracy': 5.0
+            }
         
         if gps_data is None:
             print("No GPS fix available for motion detection")
@@ -146,8 +106,6 @@ def detect_motion():
         
     except Exception as e:
         print(f"Error in GPS motion detection: {e}")
-        # On error, try to reinitialize next time
-        cleanup_gps_hardware()
         return False
 
 def monitor_motion():
@@ -226,7 +184,6 @@ def main():
 def signal_handler(signum, frame):
     """Handle shutdown signals gracefully"""
     print("GPS Startup Manager shutting down...")
-    cleanup_gps_hardware()
     sys.exit(0)
 
 if __name__ == '__main__':

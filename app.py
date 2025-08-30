@@ -17,7 +17,6 @@ import re
 import uuid
 import requests
 import socket
-import platform
 import random
 import glob
 from datetime import datetime
@@ -1786,7 +1785,7 @@ def delete_recording():
 
 def get_4g_dongle_status():
     """
-    Get 4G dongle connection status using AT commands and system information.
+    Get 4G dongle connection status using SIM7600 daemon client.
     Returns a dictionary with 4G connection details.
     """
     status = {
@@ -1799,144 +1798,20 @@ def get_4g_dongle_status():
     }
     
     try:
-        # Check if SIM7600 device is present on ttyUSB2 (standard for SIM7600G-H)
-        device_found = '/dev/ttyUSB2'
+        # Use SIM7600 daemon client - the authoritative source for SIM7600 status
+        from sim7600_daemon import get_sim7600_client
+        client = get_sim7600_client()
         
-        if not os.path.exists(device_found):
-            return status
-        
-        status["device_present"] = True
-        
-        # Try to communicate with the dongle using AT commands
-        try:
-            import serial
-            ser = serial.Serial(device_found, 115200, timeout=2)
+        # Check if daemon is available before getting status
+        if client.is_available():
+            network_status = client.get_network_status()
+            # Update status with network information from daemon client
+            status.update(network_status)
+        else:
+            status["error"] = "SIM7600 daemon not available"
             
-            def send_at_command(command, expected_response='OK'):
-                try:
-                    ser.reset_input_buffer()
-                    ser.write((command + '\r\n').encode())
-                    time.sleep(0.5)
-                    
-                    response = ""
-                    if ser.in_waiting:
-                        time.sleep(0.1)
-                        response = ser.read(ser.in_waiting).decode()
-                    
-                    return expected_response in response, response
-                except Exception:
-                    return False, ""
-            
-            # Test basic AT communication
-            success, _ = send_at_command('AT')
-            if not success:
-                ser.close()
-                return status
-            
-            # Check network registration status
-            success, response = send_at_command('AT+CREG?', '+CREG:')
-            if success and '+CREG:' in response:
-                # Parse registration status (0,1 = registered home, 0,5 = registered roaming)
-                creg_match = re.search(r'\+CREG:\s*\d+,(\d+)', response)
-                if creg_match:
-                    reg_status = int(creg_match.group(1))
-                    if reg_status in [1, 5]:  # 1=home network, 5=roaming
-                        status["connected"] = True
-            
-            # Get signal strength
-            success, response = send_at_command('AT+CSQ', '+CSQ:')
-            if success and '+CSQ:' in response:
-                csq_match = re.search(r'\+CSQ:\s*(\d+),\d+', response)
-                if csq_match:
-                    rssi = int(csq_match.group(1))
-                    if rssi != 99:  # 99 = unknown
-                        # Convert RSSI to dBm: -113 + (rssi * 2)
-                        signal_dbm = -113 + (rssi * 2)
-                        status["signal_strength"] = f"{signal_dbm} dBm"
-            
-            # Get operator name
-            success, response = send_at_command('AT+COPS?', '+COPS:')
-            if success and '+COPS:' in response:
-                # Parse operator name from response like: +COPS: 0,0,"Verizon",7
-                cops_match = re.search(r'\+COPS:\s*\d+,\d+,"([^"]+)"', response)
-                if cops_match:
-                    status["operator"] = cops_match.group(1)
-            
-            # Get network type
-            success, response = send_at_command('AT+COPS?', '+COPS:')
-            if success and '+COPS:' in response:
-                # The last number indicates network type: 7=LTE, 2=3G, etc.
-                cops_match = re.search(r'\+COPS:\s*\d+,\d+,"[^"]+",(\d+)', response)
-                if cops_match:
-                    net_type = int(cops_match.group(1))
-                    if net_type == 7:
-                        status["network_type"] = "LTE"
-                    elif net_type == 2:
-                        status["network_type"] = "3G"
-                    elif net_type == 0:
-                        status["network_type"] = "2G"
-                    else:
-                        status["network_type"] = f"Type {net_type}"
-            
-            ser.close()
-            
-        except ImportError:
-            # pyserial not available, fall back to system commands
-            pass
-        except Exception:
-            # Serial communication failed, fall back to system commands
-            pass
-        
-        # Alternative: Check for 4G interface using system commands
-        if not status["connected"]:
-            try:
-                # Check for active cellular interfaces
-                interfaces = psutil.net_if_addrs()
-                for interface_name, addresses in interfaces.items():
-                    interface_lower = interface_name.lower()
-                    # Look for common cellular interface names
-                    if any(keyword in interface_lower for keyword in ['ppp', 'wwan', 'usb0', 'usb1']):
-                        for addr in addresses:
-                            if addr.family == socket.AF_INET and not addr.address.startswith('127.'):
-                                status["connected"] = True
-                                status["ip_address"] = addr.address
-                                break
-                        if status["connected"]:
-                            break
-                
-                # Try mmcli if available (ModemManager)
-                try:
-                    result = subprocess.run(['mmcli', '-L'], capture_output=True, text=True, timeout=3)
-                    if result.returncode == 0 and 'modem' in result.stdout.lower():
-                        status["device_present"] = True
-                        
-                        # Get modem details
-                        modem_match = re.search(r'/org/freedesktop/ModemManager1/Modem/(\d+)', result.stdout)
-                        if modem_match:
-                            modem_id = modem_match.group(1)
-                            result = subprocess.run(['mmcli', '-m', modem_id], capture_output=True, text=True, timeout=3)
-                            if result.returncode == 0:
-                                modem_info = result.stdout
-                                
-                                # Check connection state
-                                if 'connected' in modem_info.lower():
-                                    status["connected"] = True
-                                
-                                # Extract signal strength
-                                signal_match = re.search(r'signal quality:\s*(\d+)%', modem_info, re.IGNORECASE)
-                                if signal_match:
-                                    status["signal_strength"] = f"{signal_match.group(1)}%"
-                                
-                                # Extract operator
-                                operator_match = re.search(r'operator name:\s*\'([^\']+)\'', modem_info, re.IGNORECASE)
-                                if operator_match:
-                                    status["operator"] = operator_match.group(1)
-                except FileNotFoundError:
-                    pass  # mmcli not available
-                
-            except Exception:
-                pass
-                
+    except ImportError:
+        status["error"] = "SIM7600 daemon client not available"
     except Exception as e:
         status["error"] = str(e)
     
@@ -1984,44 +1859,26 @@ def get_connection_info():
                         "type": conn_type
                     })
         
-        # Platform-specific connection detection
+        # Use ip command to detect active connections
         try:
-            if platform.system() == "Windows":
-                # Use ipconfig on Windows to get more detailed connection info
-                result = subprocess.run(['ipconfig'], capture_output=True, text=True, timeout=3)
-                if result.returncode == 0:
-                    lines = result.stdout.split('\n')
-                    current_adapter = ""
-                    for line in lines:
-                        line = line.strip()
-                        if "adapter" in line.lower() and ":" in line:
-                            current_adapter = line
-                        elif "IPv4 Address" in line and current_adapter:
-                            # Found an active connection
-                            if "ethernet" in current_adapter.lower():
-                                connection_info["ethernet"] = "Connected"
-                            elif "wi-fi" in current_adapter.lower() or "wireless" in current_adapter.lower():
-                                connection_info["wifi"] = "Connected"
-            else:
-                # Use ip command on Linux/Unix
-                result = subprocess.run(['ip', 'route', 'show', 'default'], capture_output=True, text=True, timeout=2)
-                if result.returncode == 0:
-                    lines = result.stdout.strip().split('\n')
-                    for line in lines:
-                        if 'dev' in line:
-                            parts = line.split()
-                            if 'dev' in parts:
-                                dev_index = parts.index('dev')
-                                if dev_index + 1 < len(parts):
-                                    interface = parts[dev_index + 1]
-                                    if interface not in connection_info["active_connections"]:
-                                        connection_info["active_connections"].append(interface)
-                                        
-                                        # Determine connection type
-                                        if any(keyword in interface.lower() for keyword in ["eth", "en", "eno", "enp"]):
-                                            connection_info["ethernet"] = "Connected"
-                                        elif any(keyword in interface.lower() for keyword in ["wlan", "wi", "wlp"]):
-                                            connection_info["wifi"] = "Connected"
+            result = subprocess.run(['ip', 'route', 'show', 'default'], capture_output=True, text=True, timeout=2)
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                for line in lines:
+                    if 'dev' in line:
+                        parts = line.split()
+                        if 'dev' in parts:
+                            dev_index = parts.index('dev')
+                            if dev_index + 1 < len(parts):
+                                interface = parts[dev_index + 1]
+                                if interface not in connection_info["active_connections"]:
+                                    connection_info["active_connections"].append(interface)
+                                    
+                                    # Determine connection type
+                                    if any(keyword in interface.lower() for keyword in ["eth", "en", "eno", "enp"]):
+                                        connection_info["ethernet"] = "Connected"
+                                    elif any(keyword in interface.lower() for keyword in ["wlan", "wi", "wlp"]):
+                                        connection_info["wifi"] = "Connected"
         except Exception:
             pass
               # Try to get WiFi SSID, signal strength, and bitrates if connected
@@ -2091,31 +1948,17 @@ def get_connection_info():
                     # Regular WiFi client mode - get SSID, signal strength, etc.
                     wifi_details = {}
                     
-                    if platform.system() == "Windows":
-                        # Try netsh on Windows to get WiFi SSID
-                        result = subprocess.run(['netsh', 'wlan', 'show', 'profiles'], capture_output=True, text=True, timeout=3)
-                        if result.returncode == 0:
-                            # Get currently connected profile
-                            interfaces_result = subprocess.run(['netsh', 'wlan', 'show', 'interfaces'], capture_output=True, text=True, timeout=3)
-                            if interfaces_result.returncode == 0:
-                                for line in interfaces_result.stdout.split('\n'):
-                                    if 'SSID' in line and ':' in line:
-                                        ssid = line.split(':', 1)[1].strip()
-                                        if ssid and ssid != '':
-                                            wifi_details['ssid'] = ssid
-                                            break
-                    else:
-                        # Linux/Unix - Get SSID and detailed WiFi info
-                        # Try nmcli first (NetworkManager) for SSID
-                        result = subprocess.run(['nmcli', '-t', '-f', 'active,ssid', 'dev', 'wifi'], capture_output=True, text=True, timeout=2)
-                        if result.returncode == 0:
-                            lines = result.stdout.strip().split('\n')
-                            for line in lines:
-                                if line.startswith('yes:'):
-                                    ssid = line.split(':', 1)[1]
-                                    if ssid:
-                                        wifi_details['ssid'] = ssid
-                                        break
+                    # Get SSID and detailed WiFi info using Linux commands
+                    # Try nmcli first (NetworkManager) for SSID
+                    result = subprocess.run(['nmcli', '-t', '-f', 'active,ssid', 'dev', 'wifi'], capture_output=True, text=True, timeout=2)
+                    if result.returncode == 0:
+                        lines = result.stdout.strip().split('\n')
+                        for line in lines:
+                            if line.startswith('yes:'):
+                                ssid = line.split(':', 1)[1]
+                                if ssid:
+                                    wifi_details['ssid'] = ssid
+                                    break
                         
                         # Get detailed WiFi information using iw command
                         # Try different interface names, including dynamic detection
@@ -2201,6 +2044,67 @@ def get_connection_info():
             connection_info["4g"] = "Device present, not connected"
         else:
             connection_info["4g"] = "No device"
+        
+        # Get GPS status from SIM7600 daemon
+        gps_status = {
+            "available": False,
+            "fix_status": "No data",
+            "satellites": 0,
+            "accuracy": None,
+            "location": None
+        }
+        
+        try:
+            from sim7600_daemon import get_sim7600_client
+            client = get_sim7600_client()
+            
+            if client.is_available():
+                success, location_data = client.get_gnss_location()
+                
+                if success and location_data:
+                    gps_status["available"] = True
+                    
+                    if location_data.get('fix_status') == 'valid':
+                        gps_status["fix_status"] = "Valid fix"
+                        gps_status["satellites"] = location_data.get('satellites', {}).get('total', 0)
+                        
+                        # Calculate accuracy from HDOP if available
+                        hdop = location_data.get('hdop')
+                        if hdop:
+                            # Rough accuracy estimate: HDOP * 3.5m
+                            gps_status["accuracy"] = f"~{hdop * 3.5:.1f}m"
+                        
+                        # Format location
+                        lat = location_data.get('latitude')
+                        lon = location_data.get('longitude')
+                        if lat is not None and lon is not None:
+                            gps_status["location"] = f"{lat:.6f}, {lon:.6f}"
+                        
+                        # Add additional details
+                        gps_status["details"] = {
+                            "fix_type": location_data.get('fix_type', 'Unknown'),
+                            "altitude": location_data.get('altitude'),
+                            "speed": location_data.get('speed'),
+                            "course": location_data.get('course'),
+                            "satellites_detail": location_data.get('satellites', {})
+                        }
+                        
+                    elif location_data.get('fix_status') == 'no_fix':
+                        gps_status["fix_status"] = "No satellite fix"
+                        gps_status["satellites"] = location_data.get('satellites', {}).get('total', 0)
+                    else:
+                        gps_status["fix_status"] = location_data.get('error', 'Unknown error')
+                else:
+                    gps_status["fix_status"] = "Daemon error"
+            else:
+                gps_status["fix_status"] = "Daemon not available"
+                
+        except ImportError:
+            gps_status["fix_status"] = "GPS daemon not available"
+        except Exception as e:
+            gps_status["fix_status"] = f"Error: {e}"
+        
+        connection_info["gps"] = gps_status
             
     except Exception as e:
         connection_info["error"] = str(e)
@@ -2608,4 +2512,11 @@ def move_to_usb():
         return jsonify({'error': f'Failed to move to USB: {e}'}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=80, debug=False, threaded=True)
+    import atexit
+    
+    # SIM7600 manager cleanup happens automatically via __del__
+    
+    try:
+        app.run(host='0.0.0.0', port=80, debug=False, threaded=True)
+    except KeyboardInterrupt:
+        print("Received interrupt signal, shutting down...")

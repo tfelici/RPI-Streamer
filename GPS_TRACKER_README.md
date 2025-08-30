@@ -4,6 +4,8 @@ This Python script replicates the background geolocation tracking functionality 
 
 ## Features
 
+- **Centralized Communication**: Uses thread-safe SIM7600Manager for conflict-free hardware access
+- **Enhanced GNSS Support**: GPS + GLONASS + Galileo + BeiDou satellite constellations
 - **Background GPS Tracking**: Continuously tracks GPS coordinates and syncs them to the Gyropilots server
 - **Automatic Sync**: Coordinates are automatically synchronized with retry logic and error handling
 - **Non-Native Mode**: Uses custom coordinate synchronization (matches the iOS/Apple mode from the mobile app)
@@ -14,7 +16,8 @@ This Python script replicates the background geolocation tracking functionality 
 
 ## Files
 
-- `gps_tracker.py` - Main GPS tracker implementation with unified simulation and real GPS support
+- `gps_tracker.py` - Main GPS tracker implementation with centralized SIM7600 communication
+- `sim7600_manager.py` - Centralized, thread-safe SIM7600 communication manager
 - `gps_requirements.txt` - Python dependencies
 
 ## Installation
@@ -26,11 +29,8 @@ pip install -r gps_requirements.txt
 
 2. For real GPS usage on Raspberry Pi with SIM7600G-H hardware:
 ```bash
-# Enable UART in raspi-config
-sudo raspi-config
-
-# Install additional hardware dependencies
-pip install pyserial RPi.GPIO
+# The centralized manager handles all hardware communication
+# No additional setup required - GPIO management is optional
 ```
 
 ## Usage
@@ -50,11 +50,11 @@ Use with actual GPS hardware. The tracker will automatically handle hardware ini
 python gps_tracker.py your_username --domain gyropilots.org
 ```
 
-**Hardware Resilience**: If the GPS hardware is not available at startup or becomes disconnected during operation, the tracker will:
-- Continue running in the background
-- Log warnings about hardware unavailability
-- Automatically attempt to reconnect every 5 minutes
-- Resume GPS data collection once hardware is reconnected
+**Hardware Resilience**: The centralized manager provides automatic hardware management:
+- Thread-safe communication prevents port conflicts
+- Automatic reconnection when hardware becomes available
+- Enhanced GNSS data with satellite counts and precision metrics
+- Robust error handling and recovery
 
 ### Manual Mode
 
