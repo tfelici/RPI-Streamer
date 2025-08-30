@@ -344,6 +344,32 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
+# Create systemd service for SIM7600 daemon
+printf "Creating systemd service for SIM7600 daemon...\n"
+sudo tee /etc/systemd/system/sim7600-daemon.service >/dev/null << EOF
+[Unit]
+Description=SIM7600 Communication Daemon
+After=network.target sim7600-internet.service
+Wants=network.target
+Requires=sim7600-internet.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=$HOME/flask_app
+ExecStart=/usr/bin/python3 $HOME/flask_app/sim7600_daemon.py --host localhost --port 7600
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+echo "✅ SIM7600 daemon service created"
+
 # Create systemd service for mediamtx - this must run after the install_rpi_streamer.service
 printf "Creating systemd service for MediaMTX...\n"
 sudo tee /etc/systemd/system/mediamtx.service >/dev/null << EOF
@@ -419,10 +445,12 @@ sudo systemctl enable flask_app
 sudo systemctl restart flask_app
 sudo systemctl enable mediamtx
 sudo systemctl restart mediamtx
+sudo systemctl enable sim7600-internet.service
+sudo systemctl enable sim7600-daemon.service
 
 # Note: GPS startup service is installed but not enabled by default
 # It will be automatically enabled/disabled based on Flight Settings configuration
-echo "?? GPS Startup Service: Available but not enabled (configure via Flight Settings)"
+echo "🛰️ GPS Startup Service: Available but not enabled (configure via Flight Settings)"
 
 # Install SIM7600G-H internet setup (always installed)
 echo ""
@@ -440,11 +468,17 @@ sudo apt-get install -y usb-modeswitch usb-modeswitch-data minicom screen ppp
 
 echo "✅ SIM7600G-H dependencies installed"
 
+# Disable ModemManager to prevent interference with direct AT command access
+echo "🚫 Disabling ModemManager (prevents AT command conflicts)..."
+sudo systemctl stop ModemManager 2>/dev/null || true
+sudo systemctl disable ModemManager 2>/dev/null || true
+echo "✅ ModemManager disabled"
+
 # Create the auto-startup service regardless of hardware presence
 echo "🔧 Creating SIM7600G-H auto-startup service..."
 sudo tee /etc/systemd/system/sim7600-internet.service >/dev/null << 'EOFSERVICE'
 [Unit]
-Description=SIM7600G-H 4G Internet Connection and Daemon
+Description=SIM7600G-H 4G Internet Connection
 After=network.target
 Wants=network.target
 
@@ -478,19 +512,7 @@ ExecStart=/bin/bash -c '\
                 fi; \
             done; \
         fi; \
-        # Start SIM7600 daemon after internet is established \
-        if timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1; then \
-            echo "Starting SIM7600 communication daemon..."; \
-            if [ -f "'$HOME'/flask_app/sim7600_daemon.py" ]; then \
-                cd "'$HOME'/flask_app" && \
-                /usr/bin/python3 sim7600_daemon.py --host localhost --port 7600 & \
-                echo "SIM7600 daemon started on port 7600"; \
-            else \
-                echo "SIM7600 daemon not found at '$HOME'/flask_app/sim7600_daemon.py"; \
-            fi; \
-        else \
-            echo "No internet connection available, skipping daemon startup"; \
-        fi; \
+        echo "SIM7600 internet connection setup completed"; \
     fi'
 RemainAfterExit=yes
 User=root
