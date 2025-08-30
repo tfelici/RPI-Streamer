@@ -307,6 +307,10 @@
                         <span class="stat-value connection-status" id="4g">--</span>
                         <div class="stat-label">4G Dongle</div>
                     </div>
+                    <div class="stat-item">
+                        <span class="stat-value connection-status" id="gps">--</span>
+                        <div class="stat-label">GPS</div>
+                    </div>
                 </div>
 
                 <!-- WiFi Details Section -->
@@ -347,6 +351,29 @@
                         <div class="stat-item">
                             <span class="stat-value" id="4g-ip">--</span>
                             <div class="stat-label">IP Address</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GPS Details Section -->
+                <div id="gps-details" style="margin-top: 1rem; display: none;">
+                    <h3>GPS Details</h3>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <span class="stat-value" id="gps-fix-status">--</span>
+                            <div class="stat-label">Fix Status</div>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value" id="gps-satellites">--</span>
+                            <div class="stat-label">Satellites</div>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value" id="gps-accuracy">--</span>
+                            <div class="stat-label">Accuracy</div>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value" id="gps-location">--</span>
+                            <div class="stat-label">Location</div>
                         </div>
                     </div>
                 </div>
@@ -1308,6 +1335,7 @@
         const ethernet = document.getElementById('ethernet');
         const wifi = document.getElementById('wifi');
         const dongle4g = document.getElementById('4g');
+        const gps = document.getElementById('gps');
         const ipAddressesDiv = document.getElementById('ip-addresses');
         const ipList = document.getElementById('ip-list');
         const wifiDetailsDiv = document.getElementById('wifi-details');
@@ -1319,6 +1347,11 @@
         const dongle4gOperator = document.getElementById('4g-operator');
         const dongle4gNetworkType = document.getElementById('4g-network-type');
         const dongle4gIp = document.getElementById('4g-ip');
+        const gpsDetailsDiv = document.getElementById('gps-details');
+        const gpsFixStatus = document.getElementById('gps-fix-status');
+        const gpsSatellites = document.getElementById('gps-satellites');
+        const gpsAccuracy = document.getElementById('gps-accuracy');
+        const gpsLocation = document.getElementById('gps-location');
 
         const evtSource = new EventSource('/stats');
         evtSource.onmessage = function (event) {
@@ -1338,6 +1371,28 @@
                     ethernet.textContent = connection.ethernet || 'Disconnected';
                     wifi.textContent = connection.wifi || 'Disconnected';
                     dongle4g.textContent = connection['4g'] || 'No device';
+                    
+                    // Update GPS status
+                    if (connection.gps) {
+                        const gpsStatus = connection.gps;
+                        
+                        if (gpsStatus.available && gpsStatus.fix_status === "Valid fix") {
+                            gps.textContent = "Valid fix";
+                            gps.style.color = '#28a745'; // green
+                        } else if (gpsStatus.available && gpsStatus.fix_status === "No satellite fix") {
+                            gps.textContent = "No fix";
+                            gps.style.color = '#ffc107'; // yellow
+                        } else if (gpsStatus.available) {
+                            gps.textContent = gpsStatus.fix_status || "Error";
+                            gps.style.color = '#dc3545'; // red
+                        } else {
+                            gps.textContent = "Unavailable";
+                            gps.style.color = '#6c757d'; // gray
+                        }
+                    } else {
+                        gps.textContent = "No data";
+                        gps.style.color = '#6c757d'; // gray
+                    }
 
                     // Update WiFi details if available
                     // Show panel if WiFi is connected, even if details are temporarily unavailable
@@ -1450,6 +1505,58 @@
                         dongle4gSignal.style.color = '';
                     }
 
+                    // Update GPS details if available
+                    const isGpsAvailable = connection.gps && connection.gps.available;
+                    const hasGpsFix = isGpsAvailable && connection.gps.fix_status === "Valid fix";
+                    
+                    if (isGpsAvailable) {
+                        gpsDetailsDiv.style.display = 'block';
+                        
+                        const gpsInfo = connection.gps;
+                        
+                        // Fix status with color coding
+                        gpsFixStatus.textContent = gpsInfo.fix_status || '--';
+                        if (gpsInfo.fix_status === "Valid fix") {
+                            gpsFixStatus.style.color = '#28a745'; // green
+                        } else if (gpsInfo.fix_status === "No satellite fix") {
+                            gpsFixStatus.style.color = '#ffc107'; // yellow
+                        } else {
+                            gpsFixStatus.style.color = '#dc3545'; // red
+                        }
+                        
+                        // Satellites count
+                        gpsSatellites.textContent = gpsInfo.satellites ? gpsInfo.satellites.toString() : '--';
+                        if (gpsInfo.satellites) {
+                            if (gpsInfo.satellites >= 8) {
+                                gpsSatellites.style.color = '#28a745'; // green
+                            } else if (gpsInfo.satellites >= 4) {
+                                gpsSatellites.style.color = '#ffc107'; // yellow
+                            } else {
+                                gpsSatellites.style.color = '#dc3545'; // red
+                            }
+                        } else {
+                            gpsSatellites.style.color = '';
+                        }
+                        
+                        // Accuracy
+                        gpsAccuracy.textContent = gpsInfo.accuracy || '--';
+                        
+                        // Location (lat, lon)
+                        gpsLocation.textContent = gpsInfo.location || '--';
+                        if (gpsInfo.location) {
+                            gpsLocation.style.fontSize = '0.8em'; // smaller font for coordinates
+                        }
+                    } else {
+                        gpsDetailsDiv.style.display = 'none';
+                        gpsFixStatus.textContent = '--';
+                        gpsSatellites.textContent = '--';
+                        gpsAccuracy.textContent = '--';
+                        gpsLocation.textContent = '--';
+                        gpsFixStatus.style.color = '';
+                        gpsSatellites.style.color = '';
+                        gpsLocation.style.fontSize = '';
+                    }
+
                     // Update IP addresses
                     if (connection.ip_addresses && connection.ip_addresses.length > 0) {
                         ipAddressesDiv.style.display = 'block';
@@ -1469,8 +1576,10 @@
                     ethernet.textContent = 'Error';
                     wifi.textContent = 'Error';
                     dongle4g.textContent = 'Error';
+                    gps.textContent = 'Error';
                     wifiDetailsDiv.style.display = 'none';
                     dongle4gDetailsDiv.style.display = 'none';
+                    gpsDetailsDiv.style.display = 'none';
                 }
             }
         };
