@@ -128,12 +128,12 @@ sudo apt-get install mediainfo -y
 # GPS Tracker dependencies
 sudo apt-get install gpsd gpsd-clients python3-gps -y
 
-# RPi.GPIO is only available on Raspberry Pi hardware
+# UPS and GPIO dependencies (for UPS power monitoring)
 if grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null || [ -f /boot/config.txt ]; then
-    echo "Raspberry Pi detected - installing RPi.GPIO package..."
-    sudo apt-get install python3-rpi.gpio -y
+    echo "Raspberry Pi detected - installing GPIO package for UPS power monitoring..."
+    sudo apt-get install python3-gpiod -y
 else
-    echo "Not running on Raspberry Pi - skipping RPi.GPIO package (GPS hardware features will be limited)"
+    echo "Not running on Raspberry Pi - skipping GPIO package (UPS power monitoring will be limited)"
 fi
 
 # WiFi hotspot dependencies (for hotspot mode functionality)

@@ -33,12 +33,6 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from utils import generate_gps_track_id, calculate_distance, get_gnss_location
 
-try:
-    import RPi.GPIO as GPIO
-    GPIO_AVAILABLE = True
-except ImportError:
-    GPIO_AVAILABLE = False
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
