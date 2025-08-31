@@ -5,12 +5,15 @@
 # Options:
 #   --skip-update     Skip updating the codebase from GitHub repository
 #                     (use existing local files without checking for updates)
+#   --production      Install stable production branch (default)
+#   --development     Install latest development branch (may be unstable)
 #   --reverse-ssh     Setup reverse SSH tunnel to your server for remote access
 #   --tailscale       Setup Tailscale VPN for secure mesh networking
 #   --remote          Interactive remote access menu
 #
 # Examples:
-#   bash install_rpi_streamer.sh                     # Basic installation with update check
+#   bash install_rpi_streamer.sh                     # Basic installation with production branch
+#   bash install_rpi_streamer.sh --development      # Installation with development branch
 #   bash install_rpi_streamer.sh --skip-update      # Installation without updating codebase
 #   bash install_rpi_streamer.sh --reverse-ssh      # Installation with reverse SSH tunnel
 #   bash install_rpi_streamer.sh --tailscale        # Installation with Tailscale VPN
@@ -185,14 +188,35 @@ if [ -d .git ]; then
         echo "Skipping repository update (--skip-update specified)"
     else
         sudo git fetch --all
-        sudo git reset --hard origin/main
+        
+        # Determine which branch to use based on flags
+        if [[ "$@" == *"--development"* ]]; then
+            TARGET_BRANCH="origin/development"
+            BRANCH_NAME="development"
+        else
+            # Default to production branch for stability
+            TARGET_BRANCH="origin/production"
+            BRANCH_NAME="production"
+        fi
+        
+        sudo git reset --hard $TARGET_BRANCH
         sudo git clean -f -d
-        echo "Repository updated to latest version"
+        echo "Repository updated to latest $BRANCH_NAME branch"
     fi
 else
     rm -rf *
     echo "Repository not found, cloning fresh copy..."
     sudo git clone https://github.com/tfelici/RPI-Streamer.git .
+    
+    # Determine which branch to checkout after cloning
+    if [[ "$@" == *"--development"* ]]; then
+        sudo git checkout development
+        echo "Using development branch"
+    else
+        # Default to production branch for stability
+        sudo git checkout production
+        echo "Using production branch"
+    fi
 fi
 #change ownership of the flask_app directory to the current user
 sudo chown -R "$USER":"$USER" "$HOME/flask_app"
