@@ -28,7 +28,6 @@ The RPI Streamer includes a comprehensive GPS tracking system that integrates se
 - **`gps_tracker.py`**: Main GPS tracking implementation with gpsd daemon integration
 - **`utils.py`**: GPS utility functions including `get_gnss_location()` for accessing GPS data
 - **`gps_startup_manager.py`**: Service startup manager for automated GPS tracking
-- **`gps_requirements.txt`**: Python dependencies for GPS functionality
 
 ### Services
 - **`gps-startup.service`**: Systemd service for GPS startup management
@@ -241,7 +240,7 @@ The GPS system requires several services to be running:
 ### Configuration Files
 - **Flight Settings**: Stored in `~/streamerData/settings.json`
 - **Service Configuration**: `/etc/systemd/system/gps-startup.service`
-- **GPS Requirements**: `~/flask_app/gps_requirements.txt`
+- **Python Dependencies**: See `requirements.txt` for all GPS-related packages
 
 ## Integration with Flight Recording
 

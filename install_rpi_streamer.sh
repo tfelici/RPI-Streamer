@@ -126,7 +126,6 @@ sudo apt-get install python3-pymediainfo -y
 sudo apt-get install mediainfo -y
 
 # GPS Tracker dependencies
-sudo apt-get install python3-serial -y
 sudo apt-get install gpsd gpsd-clients python3-gps -y
 
 # RPi.GPIO is only available on Raspberry Pi hardware
