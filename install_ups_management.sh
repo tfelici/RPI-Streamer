@@ -7,7 +7,11 @@ sudo apt-get update
 sudo apt-get upgrade -y
 
 echo "📦 Installing required packages..."
-sudo apt-get install -y python3-pip i2c-tools git rpi-eeprom python3-gpiod
+sudo apt-get install -y python3-pip i2c-tools git rpi-eeprom
+
+# Install GPIO library for UPS power monitoring  
+echo "🔧 Installing GPIO library for UPS power monitoring..."
+sudo apt-get install -y python3-libgpiod
 
 echo "⚙️ Updating EEPROM config..."
 
