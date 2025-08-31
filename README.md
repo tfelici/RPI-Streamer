@@ -7,7 +7,7 @@ A comprehensive Flask-based web application and streaming server for Raspberry P
 Run the following commands in your home directory (do **not** use superuser/root):
 
 ```sh
-curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh?$(date +%s)
+curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/production/install_rpi_streamer.sh?$(date +%s)
 bash install_rpi_streamer.sh --remote
 ```
 
@@ -16,8 +16,11 @@ bash install_rpi_streamer.sh --remote
 The installation script provides several configuration options:
 
 ```sh
-# Basic installation with all features
+# Basic installation with stable production branch (recommended)
 bash install_rpi_streamer.sh
+
+# Installation with latest development features (may be unstable)
+bash install_rpi_streamer.sh --development
 
 # Installation with Tailscale VPN for secure remote access
 bash install_rpi_streamer.sh --tailscale
@@ -30,6 +33,29 @@ bash install_rpi_streamer.sh --remote
 
 # Use existing local files without updating from GitHub
 bash install_rpi_streamer.sh --skip-update
+```
+
+## Branch Structure
+
+The RPI Streamer uses a professional branching strategy for reliable deployments:
+
+- **🟢 Production Branch**: Stable, tested releases for production deployments
+  - Default installation branch for reliability
+  - Thoroughly tested features and bug fixes
+  - Recommended for all production systems
+  
+- **🟡 Development Branch**: Latest features and active development
+  - Cutting-edge features and improvements
+  - May contain experimental or unstable code
+  - Use `--development` flag for latest features
+
+To install from a specific branch:
+```sh
+# Stable production installation (default)
+bash install_rpi_streamer.sh
+
+# Latest development features (use with caution)
+bash install_rpi_streamer.sh --development
 ```
 
 ### Installation Features
@@ -88,7 +114,7 @@ The RPI Streamer includes optional UPS (Uninterruptible Power Supply) monitoring
 Install UPS management **before** the main RPI Streamer installation:
 
 ```sh
-curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_ups_management.sh?$(date +%s)
+curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/production/install_ups_management.sh?$(date +%s)
 bash install_ups_management.sh
 ```
 
@@ -199,6 +225,31 @@ sudo systemctl restart flask_app.service
 sudo systemctl restart mediamtx.service
 ```
 
+## System Updates
+
+The RPI Streamer includes branch-aware automatic update capabilities via the web interface:
+
+### Update System
+- **Branch-aware updates**: Production installations update from production branch, development from development branch
+- **Web interface**: Check for updates and apply them through System Settings page
+- **Safe updates**: Automatic backup and rollback capabilities
+- **Service restart**: Automatic service restart after updates
+
+### Manual Updates
+```bash
+# Check for updates (web interface System Settings → Check for Updates)
+# Or manually update via installation script:
+cd ~/flask_app
+bash install_rpi_streamer.sh --skip-update  # Update dependencies only
+bash install_rpi_streamer.sh                # Full update from current branch
+```
+
+### Update Process
+1. **Check**: System automatically detects differences with remote repository
+2. **Update**: Downloads and applies changes from the correct branch (production/development)
+3. **Restart**: Automatically restarts services to apply changes
+4. **Verify**: Status confirmation through web interface
+
 ## Remote Access Setup
 
 ### Option 1: Reverse SSH Tunnel (Recommended)
@@ -272,7 +323,7 @@ bash install_rpi_streamer.sh --tailscale
 2. **Enable SSH** and configure WiFi (if using wireless for setup)
 3. **Run installation script**:
    ```bash
-   curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh?$(date +%s)
+   curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/production/install_rpi_streamer.sh?$(date +%s)
    bash install_rpi_streamer.sh --remote
    ```
 4. **Configure Flight Settings** via web interface (if using GPS tracking)
