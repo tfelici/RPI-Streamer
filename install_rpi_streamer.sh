@@ -309,14 +309,23 @@ check_and_download_executable() {
 # Download the StreamerUploader executables for different platforms
 printf "Checking StreamerUploader executables...\n"
 
+# Determine which Streamer-Uploader branch to use based on flags (support both old and new naming)
+STREAMER_UPLOADER_BRANCH="main"
+if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
+    STREAMER_UPLOADER_BRANCH="develop"
+    printf "Using Streamer-Uploader develop branch for executables...\n"
+else
+    printf "Using Streamer-Uploader main branch for executables...\n"
+fi
+
 # Check and download Windows executable
-check_and_download_executable "Windows" "Uploader-windows.exe" "windows/dist/StreamerUploader.exe" "https://github.com/tfelici/Streamer-Uploader/raw/main/windows/dist/StreamerUploader.exe"
+check_and_download_executable "Windows" "Uploader-windows.exe" "windows/dist/StreamerUploader.exe" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/windows/dist/StreamerUploader.exe"
 
 # Check and download macOS executable
-check_and_download_executable "macOS" "Uploader-macos" "macos/dist/StreamerUploader" "https://github.com/tfelici/Streamer-Uploader/raw/main/macos/dist/StreamerUploader"
+check_and_download_executable "macOS" "Uploader-macos" "macos/dist/StreamerUploader" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/macos/dist/StreamerUploader"
 
 # Check and download Linux executable
-check_and_download_executable "Linux" "Uploader-linux" "linux/dist/StreamerUploader" "https://github.com/tfelici/Streamer-Uploader/raw/main/linux/dist/StreamerUploader"
+check_and_download_executable "Linux" "Uploader-linux" "linux/dist/StreamerUploader" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/linux/dist/StreamerUploader"
 
 printf "StreamerUploader executable check completed.\n"
 
