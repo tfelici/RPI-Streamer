@@ -1670,25 +1670,54 @@ def system_settings_reboot():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+def get_current_git_branch():
+    """
+    Get the current git branch name to compare against the correct remote branch.
+    Returns the branch name (e.g., 'production', 'development').
+    """
+    import subprocess
+    try:
+        result = subprocess.run(['git', 'branch', '--show-current'], capture_output=True, text=True)
+        if result.returncode == 0:
+            branch = result.stdout.strip()
+            if branch:
+                return branch
+        
+        # Fallback: try to get branch from git symbolic-ref
+        result = subprocess.run(['git', 'symbolic-ref', '--short', 'HEAD'], capture_output=True, text=True)
+        if result.returncode == 0:
+            branch = result.stdout.strip()
+            if branch:
+                return branch
+                
+        # If we can't determine the branch, something is wrong with the git repository
+        raise RuntimeError("Unable to determine current git branch")
+    except Exception as e:
+        raise RuntimeError(f"Failed to get current git branch: {e}")
+
 @app.route('/system-check-update', methods=['POST'])
 def system_check_update():
     """
     Check for any differences between local and remote tracked files, ignoring timestamps.
     Returns updates=True if any file content differs, is missing, or is extra locally.
+    Uses the current git branch to compare against the correct remote branch.
     """
     import subprocess, os
     try:
+        # Get the current branch to compare against the correct remote
+        current_branch = get_current_git_branch()
+        remote_branch = f'origin/{current_branch}'
         # Fetch latest info from remote
         fetch_result = subprocess.run(['git', 'fetch', 'origin'], capture_output=True, text=True)
         if fetch_result.returncode != 0:
             return jsonify({'success': False, 'error': fetch_result.stderr.strip()})
         # Compare local and remote tracked files (ignoring timestamps)
-        diff_result = subprocess.run(['git', 'diff', '--name-status', 'origin/main'], capture_output=True, text=True)
+        diff_result = subprocess.run(['git', 'diff', '--name-status', remote_branch], capture_output=True, text=True)
         if diff_result.returncode != 0:
             return jsonify({'success': False, 'error': diff_result.stderr.strip()})
         diff_output = diff_result.stdout.strip()
         # Also check for missing files (tracked in remote but missing locally)
-        ls_remote = subprocess.run(['git', 'ls-tree', '-r', '--name-only', 'origin/main'], capture_output=True, text=True)
+        ls_remote = subprocess.run(['git', 'ls-tree', '-r', '--name-only', remote_branch], capture_output=True, text=True)
         if ls_remote.returncode != 0:
             return jsonify({'success': False, 'error': ls_remote.stderr.strip()})
         missing_files = []
@@ -1720,17 +1749,23 @@ def system_check_update():
 def system_do_update():
     """
     Force update the codebase to match the remote GitHub repository (overwriting local changes, restoring missing files, removing extra tracked files), fix permissions, and restart services.
+    Uses the current git branch to update from the correct remote branch.
     """
     import subprocess, os
     results = []
     try:
+        # Get the current branch to update from the correct remote
+        current_branch = get_current_git_branch()
+        remote_branch = f'origin/{current_branch}'
+        results.append(f'Updating from branch: {current_branch}')
+        
         # Fetch latest changes
         fetch = subprocess.run(['git', 'fetch', 'origin'], capture_output=True, text=True)
         results.append('git fetch: ' + fetch.stdout.strip() + fetch.stderr.strip())
         if fetch.returncode != 0:
             return jsonify({'success': False, 'error': fetch.stderr.strip(), 'results': results})
-        # Hard reset to remote/main (restores missing/tracked files, removes local changes, removes extra tracked files)
-        reset = subprocess.run(['git', 'reset', '--hard', 'origin/main'], capture_output=True, text=True)
+        # Hard reset to the correct remote branch (restores missing/tracked files, removes local changes, removes extra tracked files)
+        reset = subprocess.run(['git', 'reset', '--hard', remote_branch], capture_output=True, text=True)
         results.append('git reset: ' + reset.stdout.strip() + reset.stderr.strip())
         if reset.returncode != 0:
             return jsonify({'success': False, 'error': reset.stderr.strip(), 'results': results})
