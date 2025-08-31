@@ -6,9 +6,16 @@ A comprehensive Flask-based web application and streaming server for Raspberry P
 
 Run the following commands in your home directory (do **not** use superuser/root):
 
+### Stable Installation (Recommended)
 ```sh
 curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh?$(date +%s)
 bash install_rpi_streamer.sh --remote
+```
+
+### Latest Development Features
+```sh
+curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/develop/install_rpi_streamer.sh?$(date +%s)
+bash install_rpi_streamer.sh --develop --remote
 ```
 
 ## Installation Options
@@ -113,8 +120,15 @@ The RPI Streamer includes optional UPS (Uninterruptible Power Supply) monitoring
 
 Install UPS management **before** the main RPI Streamer installation:
 
+#### Stable Version (Recommended)
 ```sh
 curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_ups_management.sh?$(date +%s)
+bash install_ups_management.sh
+```
+
+#### Latest Development Version
+```sh
+curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/develop/install_ups_management.sh?$(date +%s)
 bash install_ups_management.sh
 ```
 
@@ -322,9 +336,17 @@ bash install_rpi_streamer.sh --tailscale
 1. **Flash Raspberry Pi OS Lite** to SD card
 2. **Enable SSH** and configure WiFi (if using wireless for setup)
 3. **Run installation script**:
+   
+   **Stable version (recommended):**
    ```bash
    curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh?$(date +%s)
    bash install_rpi_streamer.sh --remote
+   ```
+   
+   **Latest development features:**
+   ```bash
+   curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/develop/install_rpi_streamer.sh?$(date +%s)
+   bash install_rpi_streamer.sh --develop --remote
    ```
 4. **Configure Flight Settings** via web interface (if using GPS tracking)
 5. **Connect hardware** (cellular modem, cameras, etc.) as needed
