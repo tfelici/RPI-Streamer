@@ -42,7 +42,7 @@ netstat -tlnp | grep :450  # Shows active tunnel ports
 
 ```bash
 # Download and run the enhanced installer with reverse SSH tunnel setup
-curl -sSL https://raw.githubusercontent.com/tfelici/RPI-Streamer/production/install_rpi_streamer.sh | bash -s -- --reverse-ssh
+curl -sSL https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh | bash -s -- --reverse-ssh
 
 # The installer will prompt you for:
 #   - AlmaLinux server hostname/IP
