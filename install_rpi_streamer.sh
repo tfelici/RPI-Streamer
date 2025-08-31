@@ -686,16 +686,9 @@ setup_reverse_ssh_tunnel() {
         echo ""
         echo "🎉 AUTOMATED SETUP COMPLETE!"
         echo "✅ SSH key automatically registered on your server"
-        
-        echo ""
-        echo "📋 Your SSH public key:"
-        echo "============================================================"
-        cat "/home/$USER/.ssh/id_rsa.pub"
-        echo "============================================================"
-        
+
         echo ""
         echo "🔧 Creating reverse SSH tunnel service..."
-        
         # Create the tunnel service after successful registration
         sudo tee /etc/systemd/system/reverse-ssh-tunnel.service >/dev/null << EOF
 [Unit]
