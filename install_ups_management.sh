@@ -2,14 +2,14 @@
 
 set -e  # Exit on any error
 
-echo "?? Updating system packages..."
+echo "📦 Updating system packages..."
 sudo apt-get update
 sudo apt-get upgrade -y
 
-echo "?? Installing required packages..."
-sudo apt-get install -y python3-pip i2c-tools git rpi-eeprom
+echo "📦 Installing required packages..."
+sudo apt-get install -y python3-pip i2c-tools git rpi-eeprom python3-gpiod
 
-echo "?? Updating EEPROM config..."
+echo "⚙️ Updating EEPROM config..."
 
 # Temp working directory
 TMPDIR=$(mktemp -d)
@@ -19,7 +19,7 @@ cd "$TMPDIR"
 sudo rpi-eeprom-config > bootconf.txt
 
 # Modify EEPROM settings
-echo "?? Applying EEPROM settings..."
+echo "⚙️ Applying EEPROM settings..."
 if grep -q "^POWER_OFF_ON_HALT=" bootconf.txt; then
   sed -i 's/^POWER_OFF_ON_HALT=.*/POWER_OFF_ON_HALT=1/' bootconf.txt
 else
@@ -33,7 +33,7 @@ else
 fi
 
 # Create and flash EEPROM update
-echo "? Finding EEPROM image..."
+echo "🔍 Finding EEPROM image..."
 EEPROM_IMAGE=""
 
 # Try different possible locations for EEPROM images
@@ -51,7 +51,7 @@ else
     # Try direct config update without specifying image
     if sudo rpi-eeprom-config --config bootconf.txt --out pieeprom.upd; then
         if [ -f pieeprom.upd ]; then
-            echo "? Flashing EEPROM..."
+            echo "⚡ Flashing EEPROM..."
             # Copy to boot partition where rpi-eeprom-update expects it
             sudo cp pieeprom.upd /boot/firmware/pieeprom.upd 2>/dev/null || sudo cp pieeprom.upd /boot/pieeprom.upd
             sudo rpi-eeprom-update -d -f pieeprom.upd
@@ -97,26 +97,26 @@ fi
 
 if [ "$EEPROM_IMAGE" != "SKIP" ] && [ -n "$EEPROM_IMAGE" ]; then
     sudo rpi-eeprom-config --out pieeprom.upd --config bootconf.txt "$EEPROM_IMAGE"
-    echo "? Flashing EEPROM..."
+    echo "⚡ Flashing EEPROM..."
     sudo rpi-eeprom-update -d -f pieeprom.upd
 fi
 
 # Enable I2C in /boot/firmware/config.txt
 CONFIG_FILE="/boot/firmware/config.txt"
-echo "?? Enabling I2C in config.txt..."
+echo "🔧 Enabling I2C in config.txt..."
 if ! grep -q "^dtparam=i2c_arm=on" "$CONFIG_FILE"; then
   echo "dtparam=i2c_arm=on" | sudo tee -a "$CONFIG_FILE" > /dev/null
 fi
 
 # Ensure i2c-dev module loads at boot
 MODULES_FILE="/etc/modules"
-echo "?? Ensuring i2c-dev is in /etc/modules..."
+echo "🔧 Ensuring i2c-dev is in /etc/modules..."
 if ! grep -q "^i2c-dev" "$MODULES_FILE"; then
   echo "i2c-dev" | sudo tee -a "$MODULES_FILE" > /dev/null
 fi
 
 # Install and configure power monitor script
-echo "?? Setting up power monitoring service..."
+echo "🔋 Setting up power monitoring service..."
 POWER_MONITOR_SCRIPT="/usr/local/bin/power_monitor.py"
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 
@@ -134,7 +134,7 @@ else
 fi
 
 # Create systemd service file
-echo "?? Creating systemd service for UPS monitoring..."
+echo "⚙️ Creating systemd service for UPS monitoring..."
 sudo tee /etc/systemd/system/ups-monitor.service > /dev/null << EOF
 [Unit]
 Description=UPS Power Monitor
@@ -158,14 +158,14 @@ WantedBy=multi-user.target
 EOF
 
 # Enable and start the service
-echo "?? Enabling UPS monitor service..."
+echo "🚀 Enabling UPS monitor service..."
 sudo systemctl daemon-reload
 sudo systemctl enable ups-monitor.service
 
-echo "? UPS monitor service created and enabled."
-echo "? The service will start automatically after reboot."
-echo "? To start it now (after reboot), run: sudo systemctl start ups-monitor.service"
-echo "? To check status, run: sudo systemctl status ups-monitor.service"
-echo "? To view logs, run: sudo journalctl -u ups-monitor.service -f"
+echo "✅ UPS monitor service created and enabled."
+echo "🔄 The service will start automatically after reboot."
+echo "▶️ To start it now (after reboot), run: sudo systemctl start ups-monitor.service"
+echo "📊 To check status, run: sudo systemctl status ups-monitor.service"
+echo "📝 To view logs, run: sudo journalctl -u ups-monitor.service -f"
 
-echo "? Setup complete. Please reboot to apply all changes."
+echo "🎉 Setup complete. Please reboot to apply all changes."

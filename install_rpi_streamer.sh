@@ -128,14 +128,6 @@ sudo apt-get install mediainfo -y
 # GPS Tracker dependencies
 sudo apt-get install gpsd gpsd-clients python3-gps -y
 
-# UPS and GPIO dependencies (for UPS power monitoring)
-if grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null || [ -f /boot/config.txt ]; then
-    echo "Raspberry Pi detected - installing GPIO package for UPS power monitoring..."
-    sudo apt-get install python3-gpiod -y
-else
-    echo "Not running on Raspberry Pi - skipping GPIO package (UPS power monitoring will be limited)"
-fi
-
 # WiFi hotspot dependencies (for hotspot mode functionality)
 sudo apt-get install hostapd dnsmasq -y
 
@@ -430,11 +422,11 @@ WantedBy=multi-user.target
 EOF
 
 # Install GPS Startup Manager Service
-printf "?? Installing GPS Startup Manager Service...\n"
+printf "🛰️ Installing GPS Startup Manager Service...\n"
 
 # Make the GPS startup script executable
 chmod +x "$HOME/flask_app/gps_startup_manager.py"
-echo "? Made GPS startup script executable"
+echo "✅ Made GPS startup script executable"
 
 # Create the GPS startup service
 printf "Creating systemd service for GPS Startup Manager...\n"
@@ -459,8 +451,8 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
-echo "? GPS Startup Manager service installed"
-echo "?? GPS Service Info:"
+echo "✅ GPS Startup Manager service installed"
+echo "🛰️ GPS Service Info:"
 echo "   � Service will be enabled/disabled automatically based on Flight Settings"
 echo "   � Configure GPS start mode in the Flight Settings page"
 echo "   � Manual control: sudo systemctl status gps-startup.service"
