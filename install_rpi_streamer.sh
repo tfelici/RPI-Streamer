@@ -483,6 +483,15 @@ echo "   � Manual control: sudo systemctl status gps-startup.service"
 
 #create a systemd service for this script
 printf "Creating systemd service for this script...\n"
+
+# Determine which branch flag to pass based on current installation
+BRANCH_FLAG=""
+if [[ "$@" == *"--development"* ]]; then
+    BRANCH_FLAG="--development"
+else
+    BRANCH_FLAG="--production"
+fi
+
 sudo tee /etc/systemd/system/install_rpi_streamer.service >/dev/null << EOF
 [Unit]
 Description=RPI Streamer Installation Script
@@ -492,7 +501,7 @@ Wants=network-online.target
 User=$USER
 Type=oneshot
 ExecStart=/usr/bin/curl -H "Cache-Control: no-cache" -L -o $HOME/flask_app/install_rpi_streamer.sh "https://raw.githubusercontent.com/tfelici/RPI-Streamer/production/install_rpi_streamer.sh?$(date +%s)"
-ExecStartPost=/bin/bash -e $HOME/flask_app/install_rpi_streamer.sh
+ExecStartPost=/bin/bash -e $HOME/flask_app/install_rpi_streamer.sh $BRANCH_FLAG
 RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
