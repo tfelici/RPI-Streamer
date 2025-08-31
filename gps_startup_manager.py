@@ -14,18 +14,10 @@ from datetime import datetime, timedelta
 # Add the RPI Streamer directory to the path so we can import utils
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils import DEFAULT_SETTINGS, SETTINGS_FILE, is_gps_tracking, load_settings, calculate_distance
+from utils import DEFAULT_SETTINGS, SETTINGS_FILE, is_gps_tracking, load_settings, calculate_distance, get_gnss_location
 
 # Import GPS tracking function directly from app.py
 from app import start_flight
-
-# Import SIM7600 client
-try:
-    from sim7600_daemon import get_sim7600_client
-    SIM7600_CLIENT_AVAILABLE = True
-except ImportError:
-    SIM7600_CLIENT_AVAILABLE = False
-    print("SIM7600 daemon client not available - GPS motion detection will be limited")
 
 # Motion detection state
 motion_detection_state = {
@@ -44,28 +36,22 @@ def detect_motion():
     current_time = time.time()
     
     try:
-        # Get current GPS position from daemon
-        if not SIM7600_CLIENT_AVAILABLE:
-            print("SIM7600 daemon client not available")
-            return False
-            
-        client = get_sim7600_client()
-        
-        if not client.is_available():
-            print("SIM7600 daemon not available")
-            return False
-            
-        success, location_data = client.get_gnss_location()
+        # Get current GPS position using gpsd daemon
+        success, location_data = get_gnss_location()
         
         gps_data = None
         if success and location_data and location_data.get('fix_status') == 'valid':
+            # Convert speed from m/s to km/h if needed
+            speed_ms = location_data.get('speed', 0) or 0
+            speed_kmh = speed_ms * 3.6 if isinstance(speed_ms, (int, float)) else 0
+            
             gps_data = {
                 'latitude': location_data['latitude'],
                 'longitude': location_data['longitude'],
-                'altitude': location_data['altitude'],
-                'speed': location_data['speed'],
-                'heading': location_data['course'],
-                'accuracy': 5.0
+                'altitude': location_data.get('altitude', 0),
+                'speed': speed_kmh,  # Convert from m/s to km/h
+                'heading': location_data.get('course', 0) or 0,
+                'accuracy': 5.0  # Default accuracy estimate
             }
         
         if gps_data is None:

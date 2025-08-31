@@ -174,7 +174,7 @@ sudo iptables -A FORWARD -i wlan0 -o eth0 -j ACCEPT
 - Mobile devices can connect to view live tracking data
 
 ### 4G Internet Sharing
-- Combine with SIM7600G-H 4G dongle
+- Combine with cellular modems for internet backhaul
 - Pi provides WiFi + 4G internet access
 - Ideal for remote streaming locations
 

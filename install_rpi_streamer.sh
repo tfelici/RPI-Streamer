@@ -17,7 +17,6 @@
 
 # This script installs the RPI Streamer Flask app and MediaMTX on a Raspberry Pi running Raspberry Pi OS Lite.
 # It also sets up a systemd service for the Flask app and MediaMTX, and installs Tailscale for remote access.
-# SIM7600G-H 4G dongle support is installed automatically for all deployments.
 #
 # Optional UPS Management: Install UPS monitoring before running this script:
 #   curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_ups_management.sh?$(date +%s)
@@ -26,92 +25,91 @@
 
 set -e
 
-# Early SIM7600 setup for internet connectivity
-echo "🔧 Setting up SIM7600 4G dongle support ..."
-
-# Install basic SIM7600 dependencies first
-sudo apt-get update -qq
-sudo apt-get install -y usb-modeswitch usb-modeswitch-data minicom screen ppp
-
-# Disable ModemManager early to prevent conflicts
-echo "🚫 Disabling ModemManager (prevents AT command conflicts)..."
-sudo systemctl stop ModemManager 2>/dev/null || true
-sudo systemctl disable ModemManager 2>/dev/null || true
-
-# Create SIM7600 internet service (always install for future use)
-echo "📡 Setting up SIM7600 services (for current or future dongle use)..."
-
-# Create the auto-startup service with enhanced configuration
-sudo tee /etc/systemd/system/sim7600-internet.service >/dev/null << 'EOFSERVICE'
-[Unit]
-Description=SIM7600G-H 4G Internet Connection
-After=network.target
-Wants=network.target
-
-[Service]
-Type=oneshot
-ExecStart=/bin/bash -c '\
-    sleep 30 && \
-    if lsusb | grep -q "1e0e:9011"; then \
-        # Check if SIM7600 already has a working connection \
-        for iface in $(ip link show | grep "usb[0-9]" | cut -d: -f2 | tr -d " "); do \
-            if ip addr show $iface | grep -q "inet " && \
-               ip link show $iface | grep -q "state UP" && \
-               timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1; then \
-                echo "SIM7600 working connection found on $iface, skipping setup"; \
-                break; \
-            fi; \
-        done; \
-        # Try to establish connection on available interfaces if not already connected \
-        if ! timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1; then \
-            for iface in $(ip link show | grep -E "usb[0-9]|eth1" | cut -d: -f2 | tr -d " "); do \
-                echo "Setting up $iface..."; \
-                # Release any existing DHCP lease and bring interface down/up \
-                dhclient -r $iface 2>/dev/null || true; \
-                ip link set $iface down 2>/dev/null; \
-                sleep 2; \
-                if ip link set $iface up 2>/dev/null && \
-                   timeout 30 dhclient -v $iface 2>/dev/null && \
-                   timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1; then \
-                    echo "SIM7600 connected on $iface with internet access"; \
-                    break; \
-                fi; \
-            done; \
-        fi; \
-        echo "SIM7600 internet connection setup completed"; \
-    fi'
-RemainAfterExit=yes
-User=root
-
-[Install]
-WantedBy=multi-user.target
-EOFSERVICE
-
-sudo systemctl daemon-reload
-sudo systemctl enable sim7600-internet.service
-
-# Start the service (it will handle dongle detection internally)
-echo "📡 Starting SIM7600 internet connection service..."
-sudo systemctl start sim7600-internet.service
-echo "📡 SIM7600 service started - will auto-configure when dongle is connected"
-
-# Wait for internet connectivity (max 60 seconds to allow for 4G connection)
+# Check for internet connectivity before proceeding
 echo "🌐 Checking for internet connectivity..."
-for i in {1..60}; do
-    if ping -c 1 github.com &>/dev/null; then
-        echo "✅ Internet is up."
+INTERNET_FOUND=false
+for i in {1..30}; do
+    if ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
+        echo "✅ Internet connection confirmed - proceeding with installation"
+        INTERNET_FOUND=true
         break
     fi
-    echo "Waiting for internet connection... ($i/60)"
+    echo "Waiting for internet connection... ($i/30)"
     sleep 1
 done
 
-# If still no connection, exit with error
-if ! ping -c 1 github.com &>/dev/null; then
-    echo "❌ No internet connection after 60 seconds, aborting installation."
-    echo "💡 If using SIM7600 dongle, ensure SIM card is inserted and has data plan."
+if [ "$INTERNET_FOUND" = "false" ]; then
+    echo "❌ No internet connection detected after 30 seconds!"
+    echo ""
+    echo "📋 This installation script requires internet access to:"
+    echo "   • Download and install packages (ModemManager, NetworkManager, etc.)"
+    echo "   • Update system packages"
+    echo "   • Clone the RPI Streamer repository from GitHub"
+    echo "   • Download MediaMTX and other dependencies"
+    echo ""
+    echo "🔌 Please ensure internet connectivity via:"
+    echo "   • Ethernet cable connection, or"
+    echo "   • WiFi connection (configure with: sudo raspi-config), or"
+    echo "   • Wait for cellular dongle to establish connection (if already connected)"
+    echo ""
+    echo "💡 After establishing internet connection, re-run this script:"
+    echo "   bash install_rpi_streamer.sh"
+    echo ""
     exit 1
 fi
+echo ""
+
+# Install and configure ModemManager for cellular connectivity
+echo "📡 Setting up ModemManager for cellular modem support..."
+
+# Update package list and install ModemManager
+sudo apt-get update -qq
+sudo apt-get install -y modemmanager network-manager
+
+# Enable and start ModemManager service
+echo "🔧 Enabling ModemManager service..."
+sudo systemctl enable ModemManager
+sudo systemctl start ModemManager
+
+# Enable and ensure NetworkManager is running
+echo "🌐 Ensuring NetworkManager is enabled..."
+sudo systemctl enable NetworkManager
+sudo systemctl start NetworkManager
+
+# Create NetworkManager configuration for automatic cellular connection
+echo "📝 Configuring automatic cellular connection..."
+sudo tee /etc/NetworkManager/system-connections/cellular-auto.nmconnection >/dev/null << 'EOFCELLULAR'
+[connection]
+id=cellular-auto
+type=gsm
+autoconnect=true
+autoconnect-priority=-10
+
+[gsm]
+# APN will be auto-detected by ModemManager for most carriers
+# You can specify a custom APN here if needed:
+# apn=your.carrier.apn
+
+[ipv4]
+method=auto
+
+[ipv6]
+method=auto
+EOFCELLULAR
+
+# Set proper permissions for NetworkManager connection file
+sudo chmod 600 /etc/NetworkManager/system-connections/cellular-auto.nmconnection
+sudo chown root:root /etc/NetworkManager/system-connections/cellular-auto.nmconnection
+
+# Reload NetworkManager to pick up the new connection
+sudo systemctl reload NetworkManager
+
+echo "✅ ModemManager and NetworkManager configured for automatic cellular connectivity"
+echo "📡 When a cellular modem is connected, it will automatically:"
+echo "   1. Be detected by ModemManager"
+echo "   2. Have its APN auto-configured (for most carriers)"
+echo "   3. Establish internet connection via NetworkManager"
+echo ""
 
 # Update and install dependencies
 sudo apt-get update -y
@@ -129,6 +127,7 @@ sudo apt-get install mediainfo -y
 
 # GPS Tracker dependencies
 sudo apt-get install python3-serial -y
+sudo apt-get install gpsd gpsd-clients python3-gps -y
 
 # RPi.GPIO is only available on Raspberry Pi hardware
 if grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null || [ -f /boot/config.txt ]; then
@@ -137,9 +136,6 @@ if grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null || [ -f /boot/config.txt ]; 
 else
     echo "Not running on Raspberry Pi - skipping RPi.GPIO package (GPS hardware features will be limited)"
 fi
-
-# SIM7600G-H 4G dongle dependencies (installed always for potential use)
-sudo apt-get install minicom screen ppp usb-modeswitch usb-modeswitch-data -y
 
 # WiFi hotspot dependencies (for hotspot mode functionality)
 sudo apt-get install hostapd dnsmasq -y
@@ -419,32 +415,6 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
-# Create systemd service for SIM7600 daemon
-printf "Creating systemd service for SIM7600 daemon...\n"
-sudo tee /etc/systemd/system/sim7600-daemon.service >/dev/null << EOF
-[Unit]
-Description=SIM7600 Communication Daemon
-After=network.target sim7600-internet.service
-Wants=network.target
-Requires=sim7600-internet.service
-
-[Service]
-Type=simple
-User=root
-Group=root
-WorkingDirectory=$HOME/flask_app
-ExecStart=/usr/bin/python3 $HOME/flask_app/sim7600_daemon.py --host localhost --port 7600
-Restart=on-failure
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-echo "✅ SIM7600 daemon service created"
-
 # Create systemd service for mediamtx - this must run after the install_rpi_streamer.service
 printf "Creating systemd service for MediaMTX...\n"
 sudo tee /etc/systemd/system/mediamtx.service >/dev/null << EOF
@@ -472,9 +442,8 @@ printf "Creating systemd service for GPS Startup Manager...\n"
 sudo tee /etc/systemd/system/gps-startup.service >/dev/null << EOF
 [Unit]
 Description=GPS Startup Manager for RPI Streamer
-After=network.target sim7600-internet.service
+After=network.target
 Wants=network.target
-Requires=sim7600-internet.service
 
 [Service]
 Type=simple
@@ -520,52 +489,10 @@ sudo systemctl enable flask_app
 sudo systemctl restart flask_app
 sudo systemctl enable mediamtx
 sudo systemctl restart mediamtx
-sudo systemctl enable sim7600-internet.service
-sudo systemctl enable sim7600-daemon.service
 
 # Note: GPS startup service is installed but not enabled by default
 # It will be automatically enabled/disabled based on Flight Settings configuration
 echo "🛰️ GPS Startup Service: Available but not enabled (configure via Flight Settings)"
-
-# SIM7600G-H setup completed earlier in script for internet connectivity
-echo ""
-echo "=========================================="
-echo "📡 SIM7600G-H 4G DONGLE Final Setup"
-echo "=========================================="
-echo ""
-
-# Create udev rule for automatic reconnection handling
-echo "🔧 Creating udev rule for automatic dongle reconnection..."
-sudo tee /etc/udev/rules.d/99-sim7600-internet.rules >/dev/null << 'EOFUDEV'
-# SIM7600G-H automatic internet connection on connect/reconnect
-# Trigger on SIM7600 device connection
-SUBSYSTEM=="usb", ATTR{idVendor}=="1e0e", ATTR{idProduct}=="9011", ACTION=="add", RUN+="/bin/systemctl restart sim7600-internet.service"
-
-# Trigger on USB network interface creation (usb0, usb1, etc.)
-SUBSYSTEM=="net", KERNEL=="usb*", ACTION=="add", RUN+="/bin/bash -c 'sleep 5 && /bin/systemctl restart sim7600-internet.service'"
-EOFUDEV
-
-# Reload udev rules
-sudo udevadm control --reload-rules
-
-echo "✅ SIM7600G-H service and udev rules created"
-echo ""
-echo "📋 Setup completed! The system will automatically:"
-echo "   1. Detect the dongle when connected"
-echo "   2. Configure RNDIS mode if needed"
-echo "   3. Establish internet connection"
-echo "   4. Start SIM7600 communication daemon on port 7600"
-echo ""
-echo "🔌 To use the dongle:"
-echo "   1. Insert SIM card into the dongle"
-echo "   2. Connect dongle to USB port"
-echo "   3. Wait 30-60 seconds for auto-configuration"
-echo "   4. Check connection: ip addr show usb0"
-echo "   5. Daemon will be available on localhost:7600"
-echo ""
-echo "✅ SIM7600G-H setup completed (internet + daemon will auto-start)"
-
-SIM7600_STATUS=0
 
 # Function to register device with hardware console and setup SSH key
 register_device_with_console() {
@@ -951,7 +878,6 @@ echo "🚀 Services installed and running:"
 echo "   ✅ Flask App (HTTP server on port 80)"
 echo "   ✅ MediaMTX (Streaming server)" 
 echo "   ⚙️ GPS Startup Manager (configure via web interface)"
-echo "   📡 SIM7600G-H Internet (auto-configured)"
 if [ "$TAILSCALE_INSTALLED" = true ]; then
     echo "   🔐 Tailscale VPN (secure remote access)"
 fi
@@ -975,7 +901,6 @@ echo ""
 echo "📚 Documentation:"
 echo "   GPS Tracker: GPS_TRACKER_README.md"
 echo "   Flight Settings: FLIGHT_SETTINGS.md"
-echo "   SIM7600 Setup: SIM7600_INTERNET_SETUP.md"
 echo "   Multi-Device Setup: MULTI_DEVICE_SETUP.md"
 echo ""
 echo "🔋 Optional UPS Management:"

@@ -23,7 +23,7 @@ from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, generate_gps_track_id
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, generate_gps_track_id, get_gnss_location
 
 # Use pymediainfo for fast video duration extraction
 try:
@@ -1783,40 +1783,6 @@ def delete_recording():
     except Exception as e:
         return jsonify({'error': f'Failed to delete: {e}'}), 500
 
-def get_4g_dongle_status():
-    """
-    Get 4G dongle connection status using SIM7600 daemon client.
-    Returns a dictionary with 4G connection details.
-    """
-    status = {
-        "connected": False,
-        "signal_strength": None,
-        "operator": None,
-        "network_type": None,
-        "ip_address": None,
-        "device_present": False
-    }
-    
-    try:
-        # Use SIM7600 daemon client - the authoritative source for SIM7600 status
-        from sim7600_daemon import get_sim7600_client
-        client = get_sim7600_client()
-        
-        # Check if daemon is available before getting status
-        if client.is_available():
-            network_status = client.get_network_status()
-            # Update status with network information from daemon client
-            status.update(network_status)
-        else:
-            status["error"] = "SIM7600 daemon not available"
-            
-    except ImportError:
-        status["error"] = "SIM7600 daemon client not available"
-    except Exception as e:
-        status["error"] = str(e)
-    
-    return status
-
 def get_connection_info():
     """
     Get current network connection information including IP addresses and connection types.
@@ -2028,24 +1994,99 @@ def get_connection_info():
         except Exception:
             pass
     
-        # Get 4G dongle status
-        dongle_status = get_4g_dongle_status()
+        # Get 4G dongle status using ModemManager APIs
+        dongle_status = {
+            "connected": False,
+            "signal_strength": None,
+            "operator": None,
+            "network_type": None,
+            "ip_address": None,
+            "device_present": False
+        }
+        
+        try:
+            # Use mmcli to get modem information
+            import subprocess
+            
+            # List available modems
+            result = subprocess.run(['mmcli', '-L'], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout.strip():
+                # Parse modem list output to find modem index
+                modem_match = re.search(r'/org/freedesktop/ModemManager1/Modem/(\d+)', result.stdout)
+                if modem_match:
+                    modem_id = modem_match.group(1)
+                    dongle_status["device_present"] = True
+                    
+                    # Get detailed modem status
+                    modem_result = subprocess.run(['mmcli', '-m', modem_id], capture_output=True, text=True, timeout=5)
+                    if modem_result.returncode == 0:
+                        modem_output = modem_result.stdout
+                        
+                        # Parse connection state
+                        if 'state: connected' in modem_output.lower():
+                            dongle_status["connected"] = True
+                        
+                        # Parse signal strength
+                        signal_match = re.search(r'signal quality:\s*(\d+)%', modem_output)
+                        if signal_match:
+                            signal_percent = int(signal_match.group(1))
+                            dongle_status["signal_strength"] = f"{signal_percent}%"
+                        
+                        # Parse operator
+                        operator_match = re.search(r'operator name:\s*\'([^\']+)\'', modem_output)
+                        if operator_match:
+                            dongle_status["operator"] = operator_match.group(1)
+                        
+                        # Parse network type
+                        if 'access tech: lte' in modem_output.lower():
+                            dongle_status["network_type"] = "LTE"
+                        elif 'access tech: umts' in modem_output.lower():
+                            dongle_status["network_type"] = "3G"
+                        elif 'access tech: gsm' in modem_output.lower():
+                            dongle_status["network_type"] = "2G"
+                    
+                    # Get IP address if connected
+                    if dongle_status["connected"]:
+                        bearer_result = subprocess.run(['mmcli', '-m', modem_id, '--list-bearers'], capture_output=True, text=True, timeout=5)
+                        if bearer_result.returncode == 0:
+                            bearer_match = re.search(r'/org/freedesktop/ModemManager1/Bearer/(\d+)', bearer_result.stdout)
+                            if bearer_match:
+                                bearer_id = bearer_match.group(1)
+                                bearer_info = subprocess.run(['mmcli', '-b', bearer_id], capture_output=True, text=True, timeout=5)
+                                if bearer_info.returncode == 0:
+                                    ip_match = re.search(r'address:\s*(\d+\.\d+\.\d+\.\d+)', bearer_info.stdout)
+                                    if ip_match:
+                                        dongle_status["ip_address"] = ip_match.group(1)
+                else:
+                    dongle_status["device_present"] = False
+            else:
+                dongle_status["device_present"] = False
+                
+        except FileNotFoundError:
+            dongle_status["error"] = "ModemManager (mmcli) not available"
+        except subprocess.TimeoutExpired:
+            dongle_status["error"] = "ModemManager timeout"
+        except Exception as e:
+            dongle_status["error"] = f"ModemManager error: {str(e)}"
+        
         connection_info["4g_dongle"] = dongle_status
         
         # Add simplified 4G status for main display
-        if dongle_status["connected"]:
+        if dongle_status.get("connected"):
             status_text = "Connected"
-            if dongle_status["operator"]:
+            if dongle_status.get("operator"):
                 status_text += f" ({dongle_status['operator']})"
-            if dongle_status["signal_strength"]:
+            if dongle_status.get("signal_strength"):
                 status_text += f" - {dongle_status['signal_strength']}"
             connection_info["4g"] = status_text
-        elif dongle_status["device_present"]:
+        elif dongle_status.get("device_present"):
             connection_info["4g"] = "Device present, not connected"
+        elif dongle_status.get("error"):
+            connection_info["4g"] = "Error: " + dongle_status["error"]
         else:
             connection_info["4g"] = "No device"
         
-        # Get GPS status from SIM7600 daemon
+        # Get GPS status from gpsd daemon
         gps_status = {
             "available": False,
             "fix_status": "No data",
@@ -2055,52 +2096,51 @@ def get_connection_info():
         }
         
         try:
-            from sim7600_daemon import get_sim7600_client
-            client = get_sim7600_client()
+            # Use the new gpsd-based GPS function from utils
+            success, location_data = get_gnss_location()
             
-            if client.is_available():
-                success, location_data = client.get_gnss_location()
+            if success and location_data:
+                gps_status["available"] = True
                 
-                if success and location_data:
-                    gps_status["available"] = True
+                if location_data.get('fix_status') == 'valid':
+                    gps_status["fix_status"] = "Valid fix"
+                    satellites_info = location_data.get('satellites', {})
+                    gps_status["satellites"] = satellites_info.get('total', 0) if isinstance(satellites_info, dict) else 0
                     
-                    if location_data.get('fix_status') == 'valid':
-                        gps_status["fix_status"] = "Valid fix"
-                        gps_status["satellites"] = location_data.get('satellites', {}).get('total', 0)
-                        
-                        # Calculate accuracy from HDOP if available
-                        hdop = location_data.get('hdop')
-                        if hdop:
-                            # Rough accuracy estimate: HDOP * 3.5m
-                            gps_status["accuracy"] = f"~{hdop * 3.5:.1f}m"
-                        
-                        # Format location
-                        lat = location_data.get('latitude')
-                        lon = location_data.get('longitude')
-                        if lat is not None and lon is not None:
-                            gps_status["location"] = f"{lat:.6f}, {lon:.6f}"
-                        
-                        # Add additional details
-                        gps_status["details"] = {
-                            "fix_type": location_data.get('fix_type', 'Unknown'),
-                            "altitude": location_data.get('altitude'),
-                            "speed": location_data.get('speed'),
-                            "course": location_data.get('course'),
-                            "satellites_detail": location_data.get('satellites', {})
-                        }
-                        
-                    elif location_data.get('fix_status') == 'no_fix':
-                        gps_status["fix_status"] = "No satellite fix"
-                        gps_status["satellites"] = location_data.get('satellites', {}).get('total', 0)
-                    else:
-                        gps_status["fix_status"] = location_data.get('error', 'Unknown error')
+                    # Calculate accuracy from HDOP if available
+                    hdop = location_data.get('hdop')
+                    if hdop and isinstance(hdop, (int, float)):
+                        # Rough accuracy estimate: HDOP * 3.5m
+                        gps_status["accuracy"] = f"~{hdop * 3.5:.1f}m"
+                    
+                    # Format location
+                    lat = location_data.get('latitude')
+                    lon = location_data.get('longitude')
+                    if lat is not None and lon is not None:
+                        gps_status["location"] = f"{lat:.6f}, {lon:.6f}"
+                    
+                    # Add additional details
+                    gps_status["details"] = {
+                        "fix_type": location_data.get('fix_type', 'Unknown'),
+                        "altitude": location_data.get('altitude'),
+                        "speed": location_data.get('speed'),
+                        "course": location_data.get('course'),
+                        "satellites_detail": location_data.get('satellites', {})
+                    }
+                    
+                elif location_data.get('fix_status') == 'no_fix':
+                    gps_status["fix_status"] = "No satellite fix"
+                    satellites_info = location_data.get('satellites', {})
+                    gps_status["satellites"] = satellites_info.get('total', 0) if isinstance(satellites_info, dict) else 0
                 else:
-                    gps_status["fix_status"] = "Daemon error"
+                    # Error case
+                    error_msg = location_data.get('error', 'Unknown error')
+                    gps_status["fix_status"] = error_msg
             else:
-                gps_status["fix_status"] = "Daemon not available"
+                # Function call failed
+                error_msg = location_data.get('error', 'GPS function error') if location_data else 'GPS function failed'
+                gps_status["fix_status"] = error_msg
                 
-        except ImportError:
-            gps_status["fix_status"] = "GPS daemon not available"
         except Exception as e:
             gps_status["fix_status"] = f"Error: {e}"
         
@@ -2512,10 +2552,7 @@ def move_to_usb():
         return jsonify({'error': f'Failed to move to USB: {e}'}), 500
 
 if __name__ == '__main__':
-    import atexit
-    
-    # SIM7600 manager cleanup happens automatically via __del__
-    
+    import atexit    
     try:
         app.run(host='0.0.0.0', port=80, debug=False, threaded=True)
     except KeyboardInterrupt:

@@ -2,19 +2,18 @@
 """
 RPI Streamer GPS Tracker
 
-Background GPS tracking application using centralized SIM7600 communication manager.
+Background GPS tracking application using gpsd daemon for GPS access.
 Tracks GPS coordinates and synchronizes them with the Gyropilots server.
 
 Features:
-- Centralized SIM7600 communication (thread-safe)
-- Enhanced GNSS support (GPS + GLONASS + Galileo + BeiDou)
+- GNSS support via gpsd daemon (GPS + GLONASS + Galileo + BeiDou)
 - Background coordinate synchronization
 - Simulation mode for testing
 - Hardware resilience and auto-reconnection
 
 Requirements for real GPS hardware:
-- SIM7600 daemon service (sim7600_daemon.py)
-- Waveshare SIM7600G-H 4G DONGLE properly connected
+- gpsd daemon service
+- Compatible GPS/GNSS hardware (USB GPS, HAT, etc.)
 """
 
 import json
@@ -32,23 +31,13 @@ import random
 import os
 from datetime import datetime
 from typing import Dict, List, Optional
-from utils import generate_gps_track_id, calculate_distance
+from utils import generate_gps_track_id, calculate_distance, get_gnss_location
 
 try:
     import RPi.GPIO as GPIO
     GPIO_AVAILABLE = True
 except ImportError:
     GPIO_AVAILABLE = False
-
-# Initialize SIM7600 daemon client on module load
-try:
-    from sim7600_daemon import get_sim7600_client
-    SIM7600_CLIENT_AVAILABLE = True
-    # Note: logger is set up later in setup_logging(), so we'll log this there
-except ImportError:
-    SIM7600_CLIENT_AVAILABLE = False
-    # Note: logger is set up later in setup_logging(), so we'll log this there
-    logging.warning("SIM7600 daemon client not available - GPS hardware functionality will be limited")
 
 # Configure logging
 logging.basicConfig(
@@ -62,11 +51,8 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# Log SIM7600 client availability
-if SIM7600_CLIENT_AVAILABLE:
-    logger.info("SIM7600 daemon client available - using system-wide singleton communication")
-else:
-    logger.error("SIM7600 daemon client not available - GPS functionality will be disabled")
+# Log GPS functionality
+logger.info("GPS functionality available via gpsd daemon")
 
 # Status file for tracking GPS hardware state
 GPS_STATUS_FILE = "/tmp/gps-tracker-status.json"
@@ -174,8 +160,8 @@ class GPSTracker:
         # Send tracking ended signal
         self._send_tracking_ended()
         
-        # GPS now runs continuously in daemon - no need to stop it
-        logger.info("GPS continues running in daemon (not stopped)")
+        # GPS runs continuously via gpsd - no need to stop it
+        logger.info("GPS continues running via gpsd (not stopped)")
         
         self.tracking_active = False
         self.track_id = None
@@ -431,45 +417,54 @@ class GPSTracker:
             
             try:
                 while self.tracking_active:
-                    # Attempt to get coordinates from GPS daemon
+                    # Attempt to get coordinates from gpsd daemon
                     try:
-                        if not SIM7600_CLIENT_AVAILABLE:
-                            logger.error("SIM7600 daemon client not available")
-                            write_gps_status("error", "SIM7600 daemon client not available")
-                        else:
-                            client = get_sim7600_client()
+                        # Use the new gpsd-based GPS function from utils
+                        success, location_data = get_gnss_location()
+                        
+                        if success and location_data and location_data.get('fix_status') == 'valid':
+                            # Calculate accuracy from DOP values
+                            # HDOP (Horizontal DOP) is most relevant for position accuracy
+                            # Rule of thumb: accuracy ≈ HDOP * URA (User Range Accuracy, ~3-5m for GPS)
+                            hdop = location_data.get('hdop', 2.0)  # Default to 2.0 if not available
+                            base_accuracy = 3.5  # Base GPS accuracy in meters
                             
-                            # Check daemon availability and get GPS data
-                            if not client.is_available():
-                                logger.warning("SIM7600 daemon not available")
-                                write_gps_status("disconnected", "GPS daemon not found")
+                            # Ensure hdop is numeric for calculation
+                            if isinstance(hdop, (int, float)):
+                                calculated_accuracy = hdop * base_accuracy
                             else:
-                                success, location_data = client.get_gnss_location()
-                                
-                                if success and location_data and location_data.get('fix_status') == 'valid':
-                                    # Calculate accuracy from DOP values
-                                    # HDOP (Horizontal DOP) is most relevant for position accuracy
-                                    # Rule of thumb: accuracy ≈ HDOP * URA (User Range Accuracy, ~3-5m for GPS)
-                                    hdop = location_data.get('hdop', 2.0)  # Default to 2.0 if not available
-                                    base_accuracy = 3.5  # Base GPS accuracy in meters
-                                    calculated_accuracy = hdop * base_accuracy
-                                    
-                                    # Convert GNSS data format to GPS format for compatibility
-                                    gps_data = {
-                                        'latitude': location_data['latitude'],
-                                        'longitude': location_data['longitude'],
-                                        'altitude': location_data['altitude'],
-                                        'speed': location_data['speed'],  # Already in km/h
-                                        'heading': location_data['course'],
-                                        'accuracy': calculated_accuracy  # Calculated from HDOP
-                                    }
-                                    # Add the location to tracking
-                                    self.add_location(**gps_data)
-                                    logger.debug(f"GPS coordinates: lat={gps_data['latitude']:.6f}, lon={gps_data['longitude']:.6f}")
-                                    write_gps_status("active", f"GPS active - lat: {gps_data['latitude']:.6f}, lon: {gps_data['longitude']:.6f}", gps_data)
-                                else:
-                                    logger.debug("GPS data not available (no satellite fix)")
-                                    write_gps_status("connected", "GPS daemon connected but no satellite fix")
+                                calculated_accuracy = base_accuracy * 2.0
+                            
+                            # Convert speed from m/s to km/h if needed
+                            speed_ms = location_data.get('speed', 0) or 0
+                            
+                            # Ensure speed is numeric for calculation
+                            if isinstance(speed_ms, (int, float)):
+                                speed_kmh = speed_ms * 3.6
+                            else:
+                                speed_kmh = 0
+                            
+                            # Convert GNSS data format to GPS format for compatibility
+                            gps_data = {
+                                'latitude': location_data['latitude'],
+                                'longitude': location_data['longitude'],
+                                'altitude': location_data.get('altitude', 0),
+                                'speed': speed_kmh,  # Convert from m/s to km/h
+                                'heading': location_data.get('course', 0) or 0,
+                                'accuracy': calculated_accuracy  # Calculated from HDOP
+                            }
+                            # Add the location to tracking
+                            self.add_location(**gps_data)
+                            logger.debug(f"GPS coordinates: lat={gps_data['latitude']:.6f}, lon={gps_data['longitude']:.6f}")
+                            write_gps_status("active", f"GPS active - lat: {gps_data['latitude']:.6f}, lon: {gps_data['longitude']:.6f}", gps_data)
+                        elif success and location_data and location_data.get('fix_status') == 'no_fix':
+                            logger.debug("GPS data not available (no satellite fix)")
+                            write_gps_status("connected", "GPS hardware connected but no satellite fix")
+                        else:
+                            # Error case
+                            error_msg = location_data.get('error', 'GPS function error') if location_data else 'GPS function failed'
+                            logger.warning(f"GPS error: {error_msg}")
+                            write_gps_status("error", f"GPS error: {error_msg}")
                             
                     except Exception as e:
                         logger.warning(f"Error getting GPS coordinates: {e}")
@@ -481,8 +476,8 @@ class GPSTracker:
             except KeyboardInterrupt:
                 logger.info("Real GPS tracking interrupted")
             finally:
-                # GPS now runs continuously in daemon - no need to stop
-                logger.info("GPS tracking session ended (GPS continues running in daemon)")
+                # GPS runs continuously via gpsd - no need to stop
+                logger.info("GPS tracking session ended (GPS continues running via gpsd)")
         
         return True
 

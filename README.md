@@ -36,7 +36,7 @@ bash install_rpi_streamer.sh --skip-update
 
 Every installation automatically includes:
 
-- **SIM7600G-H 4G Dongle Support**: Plug-and-play 4G internet connectivity
+- **Cellular Modem Support**: Universal support for USB cellular modems via ModemManager
 - **GPS Tracking System**: Real-time location tracking with Flight Settings configuration
 - **MediaMTX Streaming Server**: Professional RTMP/WebRTC streaming capabilities
 - **Device Registration**: Automatic hardware console integration
@@ -47,7 +47,7 @@ Every installation automatically includes:
 ## Core Features
 
 ### 🌐 Connectivity & Remote Access
-- **4G Cellular Internet**: Built-in SIM7600G-H dongle support with automatic configuration
+- **Cellular Internet**: Universal support for USB cellular modems with automatic carrier detection
 - **WiFi Hotspot Mode**: Create standalone access point for isolated operation
 - **Reverse SSH Tunnels**: Secure remote access through central server with AutoSSH reliability
 - **Tailscale VPN**: Mesh networking for seamless device access anywhere
@@ -64,7 +64,7 @@ Every installation automatically includes:
 - **Flight Settings Configuration**: Web-based username, vehicle registration, and tracking mode setup
 - **Multiple Start Modes**: Manual, auto-start on boot, or auto-start on motion detection
 - **GPS Simulation**: Built-in simulation mode for testing without hardware
-- **SIM7600 Integration**: Uses cellular dongle for both internet and GPS functionality
+- **Universal GPS Support**: Compatible with USB GPS receivers, GPS HATs, and cellular modem GPS
 
 ### 🔧 System Management
 - **Real-time Diagnostics**: System health monitoring with hardware status display
@@ -172,8 +172,11 @@ The RPI Streamer installation creates and manages several systemd services:
 ### Core Services
 - **`flask_app.service`**: Main web application server (HTTP on port 80)
 - **`mediamtx.service`**: Professional streaming server for RTMP/WebRTC
-- **`sim7600-internet.service`**: 4G dongle internet connectivity management
-- **`sim7600-daemon.service`**: SIM7600 communication daemon (port 7600)
+
+### GPS and Connectivity Services
+- **`gpsd.service`**: GPS daemon for GNSS positioning (standard Linux GPS service)
+- **ModemManager.service**: Cellular modem management (standard Linux cellular service)
+- **NetworkManager.service**: Network connection management (WiFi, Ethernet, Cellular)
 
 ### Optional Services
 - **`gps-startup.service`**: GPS tracking startup manager (configured via Flight Settings)
@@ -184,11 +187,12 @@ The RPI Streamer installation creates and manages several systemd services:
 ```bash
 # Check service status
 sudo systemctl status flask_app.service
-sudo systemctl status sim7600-internet.service
+sudo systemctl status gpsd.service
+sudo systemctl status ModemManager.service
 
 # View service logs
 sudo journalctl -u flask_app.service -f
-sudo journalctl -u sim7600-internet.service -f
+sudo journalctl -u gpsd.service -f
 
 # Restart services if needed
 sudo systemctl restart flask_app.service
@@ -232,15 +236,16 @@ bash install_rpi_streamer.sh --tailscale
 ## Hardware Support
 
 ### 4G Cellular Connectivity
-- **Waveshare SIM7600G-H**: Plug-and-play 4G dongle with automatic RNDIS configuration
-- **Multi-carrier support**: Works with most global cellular carriers
-- **Automatic reconnection**: Service handles dongle disconnection/reconnection
-- **Internet + GPS**: Provides both cellular internet and GPS functionality
+- **Universal Cellular Modem Support**: Compatible with most USB cellular modems via ModemManager
+- **Multi-carrier support**: Works with most global cellular carriers with automatic APN detection
+- **Automatic reconnection**: Standard Linux services handle modem disconnection/reconnection
+- **NetworkManager Integration**: Seamless integration with system network management
 
 ### GPS Tracking Hardware
-- **SIM7600G-H integrated GPS**: GNSS support (GPS, GLONASS, Galileo, BeiDou)
+- **Universal GPS Support**: Compatible with USB GPS receivers, GPS HATs, and cellular modem GPS
+- **Enhanced GNSS**: GPS + GLONASS + Galileo + BeiDou constellation support via gpsd daemon
 - **High accuracy tracking**: Professional-grade positioning for flight recording
-- **Hardware resilience**: Automatic reconnection handling
+- **Standard Linux GPS**: Uses industry-standard gpsd daemon for reliable communication
 
 ### Power Management (Optional)
 - **X1200 UPS HAT**: Battery backup with automatic safe shutdown
@@ -257,9 +262,9 @@ bash install_rpi_streamer.sh --tailscale
 
 - **Hardware**: Raspberry Pi (any model with USB port)
 - **Operating System**: Raspberry Pi OS Lite (or compatible Linux distribution)
-- **Network**: Internet connection for initial setup (WiFi, Ethernet, or 4G)
+- **Network**: Internet connection for initial setup (WiFi, Ethernet, or cellular modem)
 - **Storage**: MicroSD card (16GB+ recommended) + optional USB storage
-- **Optional**: SIM7600G-H dongle, UPS HAT, GPS antenna
+- **Optional**: USB cellular modem, UPS HAT, GPS hardware, external antenna
 
 ## Quick Setup Guide
 
@@ -271,7 +276,7 @@ bash install_rpi_streamer.sh --tailscale
    bash install_rpi_streamer.sh --remote
    ```
 4. **Configure Flight Settings** via web interface (if using GPS tracking)
-5. **Connect hardware** (4G dongle, cameras, etc.) as needed
+5. **Connect hardware** (cellular modem, cameras, etc.) as needed
 
 ## Web Interface Access
 
@@ -284,8 +289,7 @@ After installation, access the control panel at:
 
 - **[GPS Tracker Guide](GPS_TRACKER_README.md)**: GPS tracking configuration and usage
 - **[Flight Settings](FLIGHT_SETTINGS.md)**: GPS username, tracking modes, and vehicle registration
-- **[SIM7600 Setup](SIM7600_INTERNET_SETUP.md)**: 4G dongle configuration and troubleshooting
-- **[SIM7600 Daemon](SIM7600_DAEMON_README.md)**: Communication daemon and API reference
+- **[GPS and Cellular Setup](GPS_AND_CELLULAR_SETUP.md)**: Modern GPS and cellular connectivity guide
 - **[Multi-Device Setup](MULTI_DEVICE_SETUP.md)**: Central server management and tunneling
 - **[WiFi Hotspot](WIFI_HOTSPOT_SETUP.md)**: Standalone access point configuration
 
@@ -295,17 +299,24 @@ After installation, access the control panel at:
 ```bash
 # Check service status
 sudo systemctl status flask_app.service
-sudo systemctl status sim7600-internet.service
+sudo systemctl status NetworkManager.service
 
 # View logs
 sudo journalctl -u flask_app.service -f
-sudo journalctl -u sim7600-internet.service -f
+sudo journalctl -u NetworkManager.service -f
 
-# Test 4G connectivity
+# Test cellular connectivity
 ping -c 3 8.8.8.8
 
 # Check GPS tracking
 sudo journalctl -u gps-startup.service -f
+
+# Check modem status
+mmcli -L
+mmcli -m 0
+
+# Check GPS daemon
+sudo systemctl status gpsd.service
 ```
 
 ### Getting Help

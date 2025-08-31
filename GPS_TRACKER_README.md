@@ -5,10 +5,10 @@ The RPI Streamer includes a comprehensive GPS tracking system that integrates se
 ## Key Features
 
 ### 🛰️ Hardware Integration
-- **SIM7600G-H Support**: Built-in integration with SIM7600G-H 4G dongle GPS
-- **Enhanced GNSS**: GPS + GLONASS + Galileo + BeiDou satellite constellation support
-- **Thread-safe Communication**: Centralized SIM7600Manager prevents hardware conflicts
-- **Automatic Reconnection**: Robust handling of GPS hardware disconnection/reconnection
+- **Universal GPS Support**: Compatible with USB GPS receivers, GPS HATs, and other GNSS hardware
+- **Enhanced GNSS**: GPS + GLONASS + Galileo + BeiDou satellite constellation support via gpsd daemon
+- **Standard Linux GPS**: Uses industry-standard gpsd daemon for reliable GPS communication
+- **Automatic Hardware Detection**: Robust detection and handling of GPS hardware
 
 ### 📍 Tracking Capabilities
 - **Real-time Tracking**: Continuous GPS coordinate collection and server synchronization
@@ -25,15 +25,15 @@ The RPI Streamer includes a comprehensive GPS tracking system that integrates se
 ## System Components
 
 ### Core Files
-- **`gps_tracker.py`**: Main GPS tracking implementation with SIM7600 integration
-- **`sim7600_manager.py`**: Centralized, thread-safe hardware communication manager
+- **`gps_tracker.py`**: Main GPS tracking implementation with gpsd daemon integration
+- **`utils.py`**: GPS utility functions including `get_gnss_location()` for accessing GPS data
 - **`gps_startup_manager.py`**: Service startup manager for automated GPS tracking
 - **`gps_requirements.txt`**: Python dependencies for GPS functionality
 
 ### Services
 - **`gps-startup.service`**: Systemd service for GPS startup management
-- **`sim7600-daemon.service`**: SIM7600 communication daemon (port 7600)
-- **`sim7600-internet.service`**: Internet connectivity service for the 4G dongle
+- **`gpsd.service`**: Standard Linux GPS daemon for hardware communication
+- **ModemManager.service**: Standard Linux cellular modem management
 
 ## Installation and Setup
 
@@ -47,7 +47,7 @@ bash install_rpi_streamer.sh
 # Installation automatically:
 # ✅ Installs all GPS dependencies
 # ✅ Creates GPS startup service (not enabled by default)
-# ✅ Sets up SIM7600 communication daemon
+# ✅ Sets up gpsd daemon for GPS hardware communication
 # ✅ Configures hardware integration
 ```
 
@@ -68,8 +68,8 @@ sudo systemctl status gps-startup.service
 # View GPS service logs
 sudo journalctl -u gps-startup.service -f
 
-# Check SIM7600 daemon status
-sudo systemctl status sim7600-daemon.service
+# Check GPS daemon status
+sudo systemctl status gpsd.service
 
 # Manual service control (when configured for manual mode)
 sudo systemctl start gps-startup.service
@@ -100,9 +100,14 @@ sudo systemctl stop gps-startup.service
 
 ### Required Hardware
 - **Raspberry Pi**: Any model with USB connectivity
-- **SIM7600G-H 4G Dongle**: For both internet and GPS functionality
-- **4G Antenna**: Included with dongle, improves GPS reception
-- **Activated SIM Card**: For internet connectivity (GPS works without cellular)
+- **GPS Hardware**: USB GPS receiver, GPS HAT, or any gpsd-compatible GNSS device
+- **GPS Antenna**: Most GPS devices include an antenna; external antennas improve reception
+
+### Supported GPS Hardware Examples
+- **USB GPS Receivers**: GlobalSat BU-353-S4, VK-172, etc.
+- **GPS HATs**: Adafruit Ultimate GPS HAT, Waveshare GPS HAT, etc.
+- **Cellular Modems with GPS**: Any ModemManager-compatible cellular modem with GNSS
+- **Serial GPS Devices**: Any NMEA-compatible GPS device
 
 ### Optional Hardware
 - **GPIO Connections**: Enhanced hardware integration (optional)
@@ -131,7 +136,7 @@ python3 gps_tracker.py your_username --domain gyropilots.org --simulate --durati
 
 #### Real GPS Hardware Testing
 ```bash
-# Test with actual SIM7600G-H hardware
+# Test with actual GPS hardware
 python3 gps_tracker.py your_username --domain gyropilots.org --interval 2.0
 ```
 
@@ -149,11 +154,11 @@ tracker.add_location(40.7128, -74.0060, 10.0, 5.0, 90.0, 25.0)
 # Stop tracking (coordinates are automatically synced)
 ## Technical Implementation
 
-### SIM7600Manager Integration
-- **Thread-safe Communication**: Prevents AT command conflicts between services
-- **Automatic Port Detection**: Finds correct serial interface for GPS commands
-- **Connection Resilience**: Handles hardware disconnection/reconnection gracefully
-- **Enhanced GNSS Data**: Provides satellite counts and precision metrics
+### gpsd Daemon Integration
+- **Standard Linux GPS**: Uses industry-standard gpsd daemon for GPS communication
+- **Multi-format Support**: Handles various GPS protocols (NMEA, SiRF, etc.)
+- **Automatic Device Detection**: Finds and configures GPS hardware automatically
+- **Enhanced GNSS Data**: Provides satellite counts and precision metrics from multiple constellations
 
 ### GPS Data Processing
 - **Real-time Coordinates**: Continuous latitude/longitude tracking
@@ -185,18 +190,18 @@ sudo journalctl -u gps-startup.service -f
 # - Check GPS start mode selection
 ```
 
-#### SIM7600 Hardware Issues
+#### GPS Hardware Issues
 ```bash
-# Check dongle detection
-lsusb | grep 1e0e
+# Check GPS hardware detection
+lsusb | grep -i gps
+sudo dmesg | grep -i gps
 
-# Verify communication daemon
-sudo systemctl status sim7600-daemon.service
+# Verify gpsd daemon
+sudo systemctl status gpsd.service
 
-# Test AT command communication
-sudo minicom -D /dev/ttyUSB2 -b 115200
-# Send: AT+CGPS=1 (enable GPS)
-# Send: AT+CGPSINFO (get GPS info)
+# Test GPS data directly
+gpspipe -r -n 10  # Show 10 raw NMEA sentences
+gpsmon            # Interactive GPS monitoring tool
 ```
 
 #### GPS Signal Problems
@@ -229,9 +234,9 @@ sudo journalctl -u gps-startup.service | grep -i error
 
 ### Service Dependencies
 The GPS system requires several services to be running:
-- **`sim7600-internet.service`**: For internet connectivity
-- **`sim7600-daemon.service`**: For hardware communication
+- **`gpsd.service`**: For GPS hardware communication
 - **`gps-startup.service`**: For GPS tracking startup (when enabled)
+- **NetworkManager.service**: For internet connectivity (if using cellular/WiFi)
 
 ### Configuration Files
 - **Flight Settings**: Stored in `~/streamerData/settings.json`
@@ -312,26 +317,48 @@ Log levels: INFO, WARNING, ERROR
 
 For real GPS tracking, you'll need:
 
-1. **GPS Hardware**: Waveshare SIM7600G-H 4G DONGLE properly connected
-2. **UART Connection**: Connected to Raspberry Pi UART (default: /dev/ttyS0)
-3. **Power Control**: Power key connected to GPIO pin 6 (configurable)
-4. **UART Enabled**: Ensure UART is enabled in raspi-config
-5. **Python Dependencies**: pyserial and RPi.GPIO packages
+1. **GPS Hardware**: Any gpsd-compatible GPS/GNSS device
+2. **Connection**: USB, Serial, or HAT connection to Raspberry Pi
+3. **gpsd Service**: Standard Linux GPS daemon running
+4. **Python Dependencies**: python3-gps package
 
-Hardware setup:
+Common hardware setup examples:
+
+### USB GPS Receiver
 ```bash
-# Enable UART in raspi-config
+# Connect USB GPS device and check detection
+lsusb | grep -i gps
+dmesg | tail
+
+# GPS device usually appears as /dev/ttyUSB0 or /dev/ttyACM0
+# gpsd will auto-detect most USB GPS devices
+```
+
+### GPS HAT (Serial)
+```bash
+# Enable UART in raspi-config for GPS HATs using GPIO serial
 sudo raspi-config
 # Navigate to: Interfacing Options -> Serial -> Enable
 
-# Install required Python packages
-pip install pyserial RPi.GPIO
-
-# Test serial connection (optional)
-sudo minicom -D /dev/ttyS0 -b 115200
+# GPS HAT usually connects to /dev/ttyS0 or /dev/serial0
 ```
 
-**Note**: Real GPS hardware support requires proper SIM7600G-H 4G DONGLE setup and RPi.GPIO availability. The system will exit with an error if hardware is not present or properly configured.
+### Installation and Configuration
+```bash
+# Install gpsd and python GPS library
+sudo apt-get update
+sudo apt-get install gpsd gpsd-clients python3-gps
+
+# Start and enable gpsd service
+sudo systemctl enable gpsd
+sudo systemctl start gpsd
+
+# Test GPS functionality
+gpsmon            # Interactive GPS monitor
+gpspipe -r -n 5   # Show raw NMEA data
+```
+
+**Note**: Real GPS hardware support requires proper GPS device setup and gpsd service running. The system will gracefully handle missing hardware and provide helpful error messages.
 
 ## Integration with RPI Streamer
 
