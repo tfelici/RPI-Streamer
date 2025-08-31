@@ -22,7 +22,7 @@
 # It also sets up a systemd service for the Flask app and MediaMTX, and installs Tailscale for remote access.
 #
 # Optional UPS Management: Install UPS monitoring before running this script:
-#   curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_ups_management.sh?$(date +%s)
+#   curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/production/install_ups_management.sh?$(date +%s)
 #   bash install_ups_management.sh
 ################################################
 
@@ -491,7 +491,7 @@ Wants=network-online.target
 [Service]
 User=$USER
 Type=oneshot
-ExecStart=/usr/bin/curl -H "Cache-Control: no-cache" -L -o $HOME/flask_app/install_rpi_streamer.sh "https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh?$(date +%s)"
+ExecStart=/usr/bin/curl -H "Cache-Control: no-cache" -L -o $HOME/flask_app/install_rpi_streamer.sh "https://raw.githubusercontent.com/tfelici/RPI-Streamer/production/install_rpi_streamer.sh?$(date +%s)"
 ExecStartPost=/bin/bash -e $HOME/flask_app/install_rpi_streamer.sh
 RemainAfterExit=yes
 [Install]
@@ -913,7 +913,7 @@ echo "   Multi-Device Setup: MULTI_DEVICE_SETUP.md"
 echo ""
 echo "🔋 Optional UPS Management:"
 echo "   Install UPS monitoring for battery backup systems:"
-echo "   curl -H \"Cache-Control: no-cache\" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_ups_management.sh"
+echo "   curl -H \"Cache-Control: no-cache\" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/production/install_ups_management.sh"
 echo "   bash install_ups_management.sh"
 
 # Generate unique hardware identifier and register hardware
