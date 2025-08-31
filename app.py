@@ -1673,7 +1673,7 @@ def system_settings_reboot():
 def get_current_git_branch():
     """
     Get the current git branch name to compare against the correct remote branch.
-    Returns the branch name (e.g., 'production', 'development').
+    Returns the branch name (e.g., 'main', 'development').
     """
     import subprocess
     try:
