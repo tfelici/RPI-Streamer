@@ -79,14 +79,37 @@ echo "🌐 Ensuring NetworkManager is enabled..."
 sudo systemctl enable NetworkManager
 sudo systemctl start NetworkManager
 
-# Create NetworkManager configuration for automatic cellular connection
-echo "📝 Configuring automatic cellular connection..."
+# Configure network interface priorities - Ethernet prioritized over cellular
+echo "📝 Configuring network interface priorities..."
+
+# Create Ethernet connection with high priority (higher number = higher priority)
+sudo tee /etc/NetworkManager/system-connections/ethernet-priority.nmconnection >/dev/null << 'EOFETHERNET'
+[connection]
+id=ethernet-priority
+type=ethernet
+autoconnect=true
+autoconnect-priority=100
+interface-name=eth0
+
+[ethernet]
+
+[ipv4]
+method=auto
+route-metric=100
+
+[ipv6]
+method=auto
+route-metric=100
+EOFETHERNET
+
+# Create NetworkManager configuration for automatic cellular connection with lower priority
+echo "📝 Configuring automatic cellular connection with lower priority..."
 sudo tee /etc/NetworkManager/system-connections/cellular-auto.nmconnection >/dev/null << 'EOFCELLULAR'
 [connection]
 id=cellular-auto
 type=gsm
 autoconnect=true
-autoconnect-priority=-10
+autoconnect-priority=10
 
 [gsm]
 # APN will be auto-detected by ModemManager for most carriers
@@ -95,23 +118,77 @@ autoconnect-priority=-10
 
 [ipv4]
 method=auto
+route-metric=200
 
 [ipv6]
 method=auto
+route-metric=200
 EOFCELLULAR
 
-# Set proper permissions for NetworkManager connection file
+# Set proper permissions for NetworkManager connection files
+sudo chmod 600 /etc/NetworkManager/system-connections/ethernet-priority.nmconnection
 sudo chmod 600 /etc/NetworkManager/system-connections/cellular-auto.nmconnection
+sudo chown root:root /etc/NetworkManager/system-connections/ethernet-priority.nmconnection
 sudo chown root:root /etc/NetworkManager/system-connections/cellular-auto.nmconnection
 
-# Reload NetworkManager to pick up the new connection
+# Create NetworkManager dispatcher script for dynamic priority management
+echo "🔧 Creating network dispatcher script for dynamic routing..."
+sudo tee /etc/NetworkManager/dispatcher.d/99-interface-priority >/dev/null << 'EOFDISPATCHER'
+#!/bin/bash
+# NetworkManager dispatcher script to ensure Ethernet takes priority over cellular
+
+INTERFACE="$1"
+ACTION="$2"
+
+case "$ACTION" in
+    up)
+        if [[ "$INTERFACE" == "eth0" ]]; then
+            # Ethernet is up - ensure it has the default route
+            echo "$(date): Ethernet interface $INTERFACE is up - setting as primary route" >> /var/log/network-priority.log
+            # Remove any default route from cellular interfaces
+            ip route del default dev $(ip route | grep 'default.*wwan' | awk '{print $5}') 2>/dev/null || true
+            # Ensure ethernet default route exists with lower metric
+            ip route add default via $(ip route | grep "^default.*$INTERFACE" | awk '{print $3}') dev $INTERFACE metric 100 2>/dev/null || true
+        elif [[ "$INTERFACE" =~ wwan[0-9]+ ]]; then
+            # Cellular interface is up
+            echo "$(date): Cellular interface $INTERFACE is up" >> /var/log/network-priority.log
+            # Only add cellular default route if no ethernet route exists
+            if ! ip route | grep -q "default.*eth0"; then
+                echo "$(date): No ethernet route found - allowing cellular default route" >> /var/log/network-priority.log
+            else
+                echo "$(date): Ethernet route exists - cellular will be backup only" >> /var/log/network-priority.log
+            fi
+        fi
+        ;;
+    down)
+        if [[ "$INTERFACE" == "eth0" ]]; then
+            # Ethernet is down - allow cellular to take over
+            echo "$(date): Ethernet interface $INTERFACE is down - allowing cellular takeover" >> /var/log/network-priority.log
+        fi
+        ;;
+esac
+EOFDISPATCHER
+
+# Make dispatcher script executable
+sudo chmod +x /etc/NetworkManager/dispatcher.d/99-interface-priority
+
+# Create log file for network priority events
+sudo touch /var/log/network-priority.log
+sudo chmod 644 /var/log/network-priority.log
+
+# Reload NetworkManager to pick up the new connections
 sudo systemctl reload NetworkManager
 
-echo "✅ ModemManager and NetworkManager configured for automatic cellular connectivity"
-echo "📡 When a cellular modem is connected, it will automatically:"
-echo "   1. Be detected by ModemManager"
-echo "   2. Have its APN auto-configured (for most carriers)"
-echo "   3. Establish internet connection via NetworkManager"
+echo "✅ ModemManager and NetworkManager configured for automatic connectivity with interface priority"
+echo "🌐 Network interface priority configuration:"
+echo "   1. � Ethernet (eth0): Priority 100, Route metric 100 (HIGHEST PRIORITY)"
+echo "   2. 📡 Cellular (wwan*): Priority 10, Route metric 200 (BACKUP)"
+echo "📡 When network interfaces are available:"
+echo "   • Ethernet cable connected: All traffic routes via Ethernet"
+echo "   • Only cellular connected: Traffic routes via cellular"
+echo "   • Both connected: Ethernet takes priority, cellular as backup"
+echo "   • Ethernet disconnected: Automatic failover to cellular"
+echo "💾 Network priority events logged to: /var/log/network-priority.log"
 echo ""
 
 # Update and install dependencies
@@ -128,14 +205,35 @@ sudo apt-get install gunicorn python3-gevent python3-requests-toolbelt -y
 sudo apt-get install python3-pymediainfo -y
 sudo apt-get install mediainfo -y
 
-# GPS Tracker dependencies
-sudo apt-get install gpsd gpsd-clients python3-gps -y
+# GPS Tracker dependencies (using direct NMEA parsing)
 
 # WiFi hotspot dependencies (for hotspot mode functionality)
-sudo apt-get install hostapd dnsmasq -y
+# Pre-configure iptables-persistent to avoid interactive prompts
+echo iptables-persistent iptables-persistent/autosave_v4 boolean true | sudo debconf-set-selections
+echo iptables-persistent iptables-persistent/autosave_v6 boolean true | sudo debconf-set-selections
+sudo apt-get install hostapd dnsmasq iptables iptables-persistent -y
+
+# Configure hotspot services for proper startup
+echo "🔧 Configuring hotspot services..."
+
+# Unmask hostapd service (it's often masked by default)
+sudo systemctl unmask hostapd
+
+# Enable hotspot services but don't start them (they'll be managed by the Flask app)
+sudo systemctl enable hostapd
+sudo systemctl enable dnsmasq
+
+# Stop services initially (Flask app will control them)
+sudo systemctl stop hostapd 2>/dev/null || true
+sudo systemctl stop dnsmasq 2>/dev/null || true
+
+echo "✅ Hotspot services configured (hostapd and dnsmasq enabled for boot)"
 
 # AutoSSH for reliable reverse tunnel management
 sudo apt-get install autossh -y
+
+# Serial communication tools for GPS AT command management
+sudo apt-get install python3-serial -y
 
 #also add gstreamer dependencies
 sudo apt install gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-alsa gstreamer1.0-pulseaudio -y
@@ -454,12 +552,98 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
-# Install GPS Startup Manager Service
-printf "🛰️ Installing GPS Startup Manager Service...\n"
+# Install GPS Daemon System
+printf "🛰️ Installing GPS Daemon System...\n"
 
-# Make the GPS startup script executable
+# Make GPS scripts executable
 chmod +x "$HOME/flask_app/gps_startup_manager.py"
-echo "✅ Made GPS startup script executable"
+chmod +x "$HOME/flask_app/gps_daemon.py"
+echo "✅ Made GPS daemon scripts executable"
+
+# Install udev rule for automatic GPS daemon startup when SIM7600G-H is inserted
+printf "🔌 Installing udev rule for SIM7600G-H auto-detection...\n"
+
+sudo tee /etc/udev/rules.d/99-sim7600-gps.rules >/dev/null << 'EOFUDEV'
+# udev rule for SIM7600G-H GPS Daemon Management
+# This rule triggers when a SIM7600G-H modem is inserted or removed
+# GPS daemon handles initialization internally
+
+# When SIM7600G-H is added, start GPS daemon (daemon handles initialization internally)
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="1e0e", ATTR{idProduct}=="9001", RUN+="/bin/systemctl start gps-daemon.service"
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="1e0e", ATTR{idProduct}=="9011", RUN+="/bin/systemctl start gps-daemon.service"
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="2c7c", ATTR{idProduct}=="0125", RUN+="/bin/systemctl start gps-daemon.service"
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="2c7c", ATTR{idProduct}=="0306", RUN+="/bin/systemctl start gps-daemon.service"
+
+# When SIM7600G-H is removed, stop GPS daemon immediately
+ACTION=="remove", SUBSYSTEM=="usb", ATTR{idVendor}=="1e0e", ATTR{idProduct}=="9001", RUN+="/bin/systemctl stop gps-daemon.service"
+ACTION=="remove", SUBSYSTEM=="usb", ATTR{idVendor}=="1e0e", ATTR{idProduct}=="9011", RUN+="/bin/systemctl stop gps-daemon.service"
+ACTION=="remove", SUBSYSTEM=="usb", ATTR{idVendor}=="2c7c", ATTR{idProduct}=="0125", RUN+="/bin/systemctl stop gps-daemon.service"
+ACTION=="remove", SUBSYSTEM=="usb", ATTR{idVendor}=="2c7c", ATTR{idProduct}=="0306", RUN+="/bin/systemctl stop gps-daemon.service"
+EOFUDEV
+
+# Set proper permissions for udev rule
+sudo chown root:root /etc/udev/rules.d/99-sim7600-gps.rules
+sudo chmod 644 /etc/udev/rules.d/99-sim7600-gps.rules
+
+# Create boot-time GPS detection service for dongles present at boot
+printf "🚀 Creating boot-time GPS detection service...\n"
+sudo tee /etc/systemd/system/gps-boot-detect.service >/dev/null << EOF
+[Unit]
+Description=GPS Boot Detection for RPI Streamer
+After=multi-user.target ModemManager.service
+Wants=multi-user.target ModemManager.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+# Poll for dongle readiness before starting GPS daemon
+ExecStart=/bin/bash -c '
+    if lsusb | grep -q -E "(1e0e:900[19]|2c7c:0[13][02][56])"; then
+        echo "SIM7600G-H detected, polling for dongle readiness..."
+        
+        # Poll for serial ports and AT command responsiveness
+        for i in {1..60}; do
+            # Check if serial ports exist
+            if [ -c /dev/ttyUSB1 ] && [ -c /dev/ttyUSB3 ]; then
+                echo "Serial ports available, testing AT command responsiveness..."
+                
+                # Test AT command responsiveness (quick test)
+                if timeout 3 bash -c "echo \"AT\" > /dev/ttyUSB3 2>/dev/null && sleep 1 && grep -q \"OK\" < /dev/ttyUSB3 2>/dev/null"; then
+                    echo "✓ Dongle is ready and responding to AT commands"
+                    echo "Starting GPS daemon after successful dongle readiness check"
+                    systemctl start gps-daemon.service
+                    exit 0
+                else
+                    echo "Dongle not yet responding to AT commands, waiting... ($i/60)"
+                fi
+            else
+                echo "Waiting for serial ports to appear... ($i/60)"
+            fi
+            sleep 2
+        done
+        
+        echo "⚠️ Timeout waiting for dongle readiness, starting GPS daemon anyway"
+        echo "GPS daemon will handle initialization internally"
+        systemctl start gps-daemon.service
+    else
+        echo "No SIM7600G-H detected at boot"
+    fi
+'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable boot detection service
+sudo systemctl enable gps-boot-detect.service
+
+# Reload udev rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+
+echo "✅ udev rule installed - GPS daemon will only run when SIM7600G-H is present"
 
 # Create the GPS startup service
 printf "Creating systemd service for GPS Startup Manager...\n"
@@ -484,24 +668,106 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
-echo "✅ GPS Startup Manager service installed"
-echo "🛰️ GPS Service Info:"
-echo "   � Service will be enabled/disabled automatically based on Flight Settings"
-echo "   � Configure GPS start mode in the Flight Settings page"
-echo "   � Manual control: sudo systemctl status gps-startup.service"
+echo "✅ GPS Auto-Enable System installed"
+
+# Install GPS Daemon
+printf "🛰️ Installing GPS Daemon...\n"
+
+# Install Python dependencies for GPS daemon
+echo "Installing GPS daemon dependencies..."
+pip3 install --user pyserial 2>/dev/null || echo "pyserial already installed"
+
+# Make GPS daemon scripts executable
+chmod +x "$HOME/flask_app/gps_daemon.py"
+chmod +x "$HOME/flask_app/gps_client.py"
+echo "✅ Made GPS daemon scripts executable"
+
+# Install GPS daemon as systemd service (but don't enable or start it - will be controlled by udev rules)
+echo "Installing GPS daemon service..."
+sudo tee /etc/systemd/system/gps-daemon.service >/dev/null << EOF
+[Unit]
+Description=GPS Daemon for RPI Streamer
+After=network.target
+Wants=network.target
+
+[Service]
+Type=forking
+User=root
+Group=root
+WorkingDirectory=/home/$USER/flask_app
+# GPS daemon handles initialization internally
+ExecStart=/usr/bin/python3 /home/$USER/flask_app/gps_daemon.py --daemon --pidfile=/tmp/gps_daemon.pid
+PIDFile=/tmp/gps_daemon.pid
+ExecStop=/bin/kill -TERM \$MAINPID
+Restart=no
+RestartSec=10
+
+# Environment
+Environment=PYTHONPATH=/home/$USER/flask_app
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Security settings
+NoNewPrivileges=false
+PrivateTmp=false
+PrivateDevices=false
+ProtectHome=false
+ProtectSystem=false
+
+# Allow access to serial devices
+SupplementaryGroups=dialout
+
+[Install]
+# GPS daemon is started/stopped by udev rules when hardware is detected
+# WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+
+# Do NOT enable GPS daemon at boot - it will be controlled by udev rules
+# sudo systemctl enable gps-daemon.service
+
+# Add user to dialout group for serial access (if not already added)
+sudo usermod -a -G dialout $USER
+
+echo "✅ GPS Daemon installed (will only run when GPS hardware is detected)"
+
+echo "🛰️ GPS System Info:"
+echo "   🛰️ GPS Daemon: Runs only when GPS hardware is detected"
+echo "   🔌 Hardware Integration: GPS daemon handles enablement automatically"
+echo "   � Boot Detection: GPS daemon checks for dongles present at boot"
+echo "   ⚙️ Startup Manager: Configure GPS start mode in Flight Settings"
+echo "   📡 Multi-GNSS: GPS + GLONASS + Galileo + BeiDou constellation support"
+echo "   📋 Status: sudo systemctl status gps-daemon.service"
+echo "   🔧 Manual control: sudo systemctl start/stop gps-daemon.service"
 
 #create a systemd service for this script
 printf "Creating systemd service for this script...\n"
 
-# Determine which branch flag to pass based on current installation (support both old and new naming)
-BRANCH_FLAG=""
-if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
-    BRANCH_FLAG="--develop"
+# Check if --skip-update flag is present
+if [[ "$@" == *"--skip-update"* ]]; then
+    echo "Skipping install_rpi_streamer.service creation (--skip-update specified)"
+    echo "Removing existing install_rpi_streamer.service if present..."
+    
+    # Stop and disable the service if it exists
+    sudo systemctl stop install_rpi_streamer.service 2>/dev/null || true
+    sudo systemctl disable install_rpi_streamer.service 2>/dev/null || true
+    
+    # Remove the service file
+    sudo rm -f /etc/systemd/system/install_rpi_streamer.service
+    
+    # Reload systemd to update the service list
+    sudo systemctl daemon-reload
+    
+    echo "✅ install_rpi_streamer.service removed (not needed when using local code)"
 else
-    BRANCH_FLAG="--main"
-fi
+    # Determine which branch flag to pass based on current installation (support both old and new naming)
+    BRANCH_FLAG=""
+    if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
+        BRANCH_FLAG="--develop"
+    else
+        BRANCH_FLAG="--main"
+    fi
 
-sudo tee /etc/systemd/system/install_rpi_streamer.service >/dev/null << EOF
+    sudo tee /etc/systemd/system/install_rpi_streamer.service >/dev/null << EOF
 [Unit]
 Description=RPI Streamer Installation Script
 After=network-online.target
@@ -516,8 +782,10 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 EOF
 
-sudo systemctl daemon-reload
-sudo systemctl enable install_rpi_streamer
+    sudo systemctl daemon-reload
+    sudo systemctl enable install_rpi_streamer
+    echo "✅ install_rpi_streamer.service created and enabled"
+fi
 sudo systemctl enable flask_app
 sudo systemctl restart flask_app
 sudo systemctl enable mediamtx
@@ -900,9 +1168,16 @@ fi
 echo "⚙️ Flight Settings available for GPS tracking configuration"
 echo "🔧 Configure GPS username and tracking modes in Flight Settings"
 echo ""
+echo "🌐 Network Priority Configuration:"
+echo "   🥇 Ethernet (eth0): Primary connection with highest priority"
+echo "   🥈 Cellular (wwan*): Backup connection with automatic failover"
+echo "   📊 Priority logs: tail -f /var/log/network-priority.log"
+echo "   🔧 Network status: nmcli connection show"
+echo ""
 echo "🚀 Services installed and running:"
 echo "   ✅ Flask App (HTTP server on port 80)"
 echo "   ✅ MediaMTX (Streaming server)" 
+echo "   ⚙️ GPS Daemon (auto-starts and enables GPS with hardware)"
 echo "   ⚙️ GPS Startup Manager (configure via web interface)"
 if [ "$TAILSCALE_INSTALLED" = true ]; then
     echo "   🔐 Tailscale VPN (secure remote access)"
@@ -929,7 +1204,19 @@ echo "   GPS Tracker: GPS_TRACKER_README.md"
 echo "   Flight Settings: FLIGHT_SETTINGS.md"
 echo "   Multi-Device Setup: MULTI_DEVICE_SETUP.md"
 echo ""
-echo "🔋 Optional UPS Management:"
+echo "🌐 Network Testing Commands:"
+echo "   nmcli connection show                              # Show all connections"
+echo "   ip route show                                      # Show routing table"
+echo "   ping -I eth0 8.8.8.8                             # Test ethernet connectivity"
+echo "   ping -I wwan0 8.8.8.8                            # Test cellular connectivity"
+echo "   tail -f /var/log/network-priority.log             # Monitor network priority events"
+echo ""
+echo "�️ GPS Testing Commands:"
+echo "   python3 $HOME/flask_app/gps_client.py --status    # Check daemon status"
+echo "   python3 $HOME/flask_app/gps_client.py --location  # Get current location"
+echo "   sudo journalctl -u gps-daemon -f                  # View daemon logs"
+echo ""
+echo "�🔋 Optional UPS Management:"
 echo "   Install UPS monitoring for battery backup systems:"
 echo "   curl -H \"Cache-Control: no-cache\" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_ups_management.sh"
 echo "   bash install_ups_management.sh"

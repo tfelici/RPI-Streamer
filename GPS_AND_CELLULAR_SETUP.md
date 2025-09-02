@@ -5,7 +5,7 @@ The RPI Streamer supports standard Linux GPS and cellular connectivity using ind
 ## GPS Setup
 
 ### Overview
-GPS functionality uses the standard Linux `gpsd` daemon, which provides a unified interface to various GPS/GNSS hardware types.
+GPS functionality uses direct NMEA parsing for communication with GPS/GNSS hardware, providing real-time location data without middleware dependencies.
 
 ### Supported GPS Hardware
 - **USB GPS Receivers**: GlobalSat BU-353-S4, VK-172, u-blox receivers, etc.
@@ -15,38 +15,40 @@ GPS functionality uses the standard Linux `gpsd` daemon, which provides a unifie
 
 ### Installation
 ```bash
-# Install gpsd and related tools
+# Install python serial library for direct NMEA communication
 sudo apt-get update
-sudo apt-get install gpsd gpsd-clients python3-gps
+sudo apt-get install python3-serial
 
-# Enable and start gpsd service
-sudo systemctl enable gpsd
-sudo systemctl start gpsd
+# GPS auto-enable for SIM7600G-H modems is automatically configured during RPI Streamer installation
 ```
 
 ### Configuration
-gpsd automatically detects most GPS devices when they're connected. For manual configuration:
+For SIM7600G-H modems, GPS is automatically enabled via the auto-enable system. For other GPS devices:
 
 ```bash
-# Edit gpsd configuration
-sudo nano /etc/default/gpsd
+# Check available GPS devices
+ls -la /dev/ttyUSB* /dev/ttyACM*
 
-# Example configuration:
-DEVICES="/dev/ttyUSB0"  # USB GPS device
-GPSD_OPTIONS="-n"       # Don't wait for client to connect
-USBAUTO="true"          # Automatically detect USB GPS devices
+# For SIM7600G-H modems:
+# /dev/ttyUSB1 - NMEA GPS data
+# /dev/ttyUSB3 - AT command interface
+
+# Test GPS data directly
+cat /dev/ttyUSB1  # Should show NMEA sentences when GPS is active
 ```
 
 ### Testing GPS
 ```bash
-# Interactive GPS monitor
-gpsmon
+# Test NMEA data directly from device
+cat /dev/ttyUSB1  # For SIM7600G-H modems
 
-# Show raw NMEA sentences
-gpspipe -r -n 10
+# Check GPS status via AT commands (SIM7600G-H)
+sudo minicom -D /dev/ttyUSB3
+# In minicom: AT+CGPS?  # Check GPS status
+# In minicom: AT+CGPSINFO  # Get GPS information
 
-# Get current position
-gpspipe -w -n 1 | grep -m 1 TPV
+# For other USB GPS devices, check appropriate device path
+cat /dev/ttyUSB0  # Or /dev/ttyACM0 depending on device
 ```
 
 ## Cellular Internet Setup
@@ -130,7 +132,7 @@ Cellular connection status is monitored via ModemManager in the web interface:
 
 ### GPS Tracking
 The GPS tracker (`gps_tracker.py`) automatically:
-- Uses gpsd for position data
+- Uses direct NMEA parsing for position data
 - Detects movement for efficient tracking
 - Synchronizes with flight tracking servers
 - Handles GPS hardware gracefully
@@ -143,9 +145,9 @@ The GPS tracker (`gps_tracker.py`) automatically:
 lsusb | grep -i gps
 dmesg | grep -i gps
 
-# Verify gpsd is running and can see the device
-sudo systemctl status gpsd
-gpsd -N -D 5 /dev/ttyUSB0  # Manual test (replace device path)
+# Test NMEA data directly from GPS device
+cat /dev/ttyUSB1  # For SIM7600G-H GPS data
+cat /dev/ttyUSB0  # For other USB GPS devices
 
 # Check for conflicting services
 sudo fuser /dev/ttyUSB0  # Check if device is in use

@@ -218,9 +218,9 @@ The RPI Streamer installation creates and manages several systemd services:
 - **`mediamtx.service`**: Professional streaming server for RTMP/WebRTC
 
 ### GPS and Connectivity Services
-- **`gpsd.service`**: GPS daemon for GNSS positioning (standard Linux GPS service)
 - **ModemManager.service**: Cellular modem management (standard Linux cellular service)
 - **NetworkManager.service**: Network connection management (WiFi, Ethernet, Cellular)
+- **`gps-daemon.service`**: GPS daemon for continuous NMEA parsing and multi-client support
 
 ### Optional Services
 - **`gps-startup.service`**: GPS tracking startup manager (configured via Flight Settings)
@@ -231,12 +231,10 @@ The RPI Streamer installation creates and manages several systemd services:
 ```bash
 # Check service status
 sudo systemctl status flask_app.service
-sudo systemctl status gpsd.service
 sudo systemctl status ModemManager.service
 
 # View service logs
 sudo journalctl -u flask_app.service -f
-sudo journalctl -u gpsd.service -f
 
 # Restart services if needed
 sudo systemctl restart flask_app.service
@@ -312,9 +310,10 @@ bash install_rpi_streamer.sh --tailscale
 
 ### GPS Tracking Hardware
 - **Universal GPS Support**: Compatible with USB GPS receivers, GPS HATs, and cellular modem GPS
-- **Enhanced GNSS**: GPS + GLONASS + Galileo + BeiDou constellation support via gpsd daemon
+- **Enhanced GNSS**: GPS + GLONASS + Galileo + BeiDou constellation support via GPS daemon
 - **High accuracy tracking**: Professional-grade positioning for flight recording
-- **Standard Linux GPS**: Uses industry-standard gpsd daemon for reliable communication
+- **GPS Daemon Architecture**: Lightweight daemon eliminates race conditions and provides real-time data to multiple clients
+- **Constellation-Specific Metrics**: Detailed satellite tracking with per-constellation visibility and signal quality
 
 ### Power Management (Optional)
 - **X1200 UPS HAT**: Battery backup with automatic safe shutdown
@@ -392,8 +391,8 @@ sudo journalctl -u gps-startup.service -f
 mmcli -L
 mmcli -m 0
 
-# Check GPS daemon
-sudo systemctl status gpsd.service
+# Check GPS status (for SIM7600G-H modems)
+sudo journalctl -u gps-daemon.service -f
 ```
 
 ### Getting Help

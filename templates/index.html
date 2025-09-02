@@ -376,6 +376,14 @@
                             <div class="stat-label">Location</div>
                         </div>
                     </div>
+                    
+                    <h4>GNSS Constellations</h4>
+                    <div class="stats-grid" id="gps-constellations">
+                        <div class="stat-item">
+                            <span class="stat-value" id="gps-constellation-summary">--</span>
+                            <div class="stat-label">Active Systems</div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- IP Addresses Section -->
@@ -1352,6 +1360,45 @@
         const gpsSatellites = document.getElementById('gps-satellites');
         const gpsAccuracy = document.getElementById('gps-accuracy');
         const gpsLocation = document.getElementById('gps-location');
+        const gpsConstellationSummary = document.getElementById('gps-constellation-summary');
+
+        // GNSS Constellation display functions
+        function updateGnssConstellations(satelliteData) {
+            const constellations = satelliteData.constellations || {};
+            
+            if (Object.keys(constellations).length === 0) {
+                gpsConstellationSummary.textContent = '--';
+                return;
+            }
+            
+            // Create summary of active constellations
+            const activeConstellations = [];
+            for (const [constellation, data] of Object.entries(constellations)) {
+                const visible = data.visible || 0;
+                const used = data.used || 0;
+                
+                if (visible > 0) {
+                    if (used > 0) {
+                        activeConstellations.push(`${constellation} (${used}/${visible})`);
+                    } else {
+                        activeConstellations.push(`${constellation} (0/${visible})`);
+                    }
+                }
+            }
+            
+            if (activeConstellations.length === 0) {
+                gpsConstellationSummary.textContent = 'No active satellites';
+                gpsConstellationSummary.style.color = '#dc3545'; // red
+            } else {
+                gpsConstellationSummary.textContent = activeConstellations.join(', ');
+                gpsConstellationSummary.style.color = '#28a745'; // green
+            }
+        }
+        
+        function clearGnssConstellations() {
+            gpsConstellationSummary.textContent = '--';
+            gpsConstellationSummary.style.color = '';
+        }
 
         const evtSource = new EventSource('/stats');
         evtSource.onmessage = function (event) {
@@ -1365,7 +1412,7 @@
             // Handle connection information
             if (data.connection) {
                 try {
-                    const connection = JSON.parse(data.connection);
+                    const connection = data.connection; // No need to parse again
 
                     // Update ethernet and wifi status
                     ethernet.textContent = connection.ethernet || 'Disconnected';
@@ -1546,6 +1593,10 @@
                         if (gpsInfo.location) {
                             gpsLocation.style.fontSize = '0.8em'; // smaller font for coordinates
                         }
+                        
+                        // GNSS Constellations - Use the correct path from GPS client
+                        const satelliteData = gpsInfo.details?.satellites_detail?.constellations || {};
+                        updateGnssConstellations({ constellations: satelliteData });
                     } else {
                         gpsDetailsDiv.style.display = 'none';
                         gpsFixStatus.textContent = '--';
@@ -1555,6 +1606,9 @@
                         gpsFixStatus.style.color = '';
                         gpsSatellites.style.color = '';
                         gpsLocation.style.fontSize = '';
+                        
+                        // Clear constellation display
+                        clearGnssConstellations();
                     }
 
                     // Update IP addresses

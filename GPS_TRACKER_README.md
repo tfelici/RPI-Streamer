@@ -6,8 +6,8 @@ The RPI Streamer includes a comprehensive GPS tracking system that integrates se
 
 ### 🛰️ Hardware Integration
 - **Universal GPS Support**: Compatible with USB GPS receivers, GPS HATs, and other GNSS hardware
-- **Enhanced GNSS**: GPS + GLONASS + Galileo + BeiDou satellite constellation support via gpsd daemon
-- **Standard Linux GPS**: Uses industry-standard gpsd daemon for reliable GPS communication
+- **Enhanced GNSS**: GPS + GLONASS + Galileo + BeiDou satellite constellation support via direct NMEA parsing
+- **SIM7600G-H Integration**: Direct cellular modem GPS communication without middleware dependencies
 - **Automatic Hardware Detection**: Robust detection and handling of GPS hardware
 
 ### 📍 Tracking Capabilities
@@ -25,13 +25,13 @@ The RPI Streamer includes a comprehensive GPS tracking system that integrates se
 ## System Components
 
 ### Core Files
-- **`gps_tracker.py`**: Main GPS tracking implementation with gpsd daemon integration
+- **`gps_tracker.py`**: Main GPS tracking implementation with direct NMEA parsing
 - **`utils.py`**: GPS utility functions including `get_gnss_location()` for accessing GPS data
 - **`gps_startup_manager.py`**: Service startup manager for automated GPS tracking
+- **`gps_daemon.py`**: GPS daemon with integrated initialization for SIM7600G-H cellular modems
 
 ### Services
 - **`gps-startup.service`**: Systemd service for GPS startup management
-- **`gpsd.service`**: Standard Linux GPS daemon for hardware communication
 - **ModemManager.service**: Standard Linux cellular modem management
 
 ## Installation and Setup
@@ -46,7 +46,7 @@ bash install_rpi_streamer.sh
 # Installation automatically:
 # ✅ Installs all GPS dependencies
 # ✅ Creates GPS startup service (not enabled by default)
-# ✅ Sets up gpsd daemon for GPS hardware communication
+# ✅ Sets up automatic GPS enablement for SIM7600G-H modems
 # ✅ Configures hardware integration
 ```
 
@@ -67,8 +67,8 @@ sudo systemctl status gps-startup.service
 # View GPS service logs
 sudo journalctl -u gps-startup.service -f
 
-# Check GPS daemon status
-sudo systemctl status gpsd.service
+# Check GPS auto-enable status (for SIM7600G-H modems)
+sudo journalctl -u gps-daemon.service -f
 
 # Manual service control (when configured for manual mode)
 sudo systemctl start gps-startup.service
@@ -99,7 +99,7 @@ sudo systemctl stop gps-startup.service
 
 ### Required Hardware
 - **Raspberry Pi**: Any model with USB connectivity
-- **GPS Hardware**: USB GPS receiver, GPS HAT, or any gpsd-compatible GNSS device
+- **GPS Hardware**: USB GPS receiver, GPS HAT, or any NMEA-compatible GNSS device
 - **GPS Antenna**: Most GPS devices include an antenna; external antennas improve reception
 
 ### Supported GPS Hardware Examples
@@ -153,10 +153,10 @@ tracker.add_location(40.7128, -74.0060, 10.0, 5.0, 90.0, 25.0)
 # Stop tracking (coordinates are automatically synced)
 ## Technical Implementation
 
-### gpsd Daemon Integration
-- **Standard Linux GPS**: Uses industry-standard gpsd daemon for GPS communication
-- **Multi-format Support**: Handles various GPS protocols (NMEA, SiRF, etc.)
-- **Automatic Device Detection**: Finds and configures GPS hardware automatically
+### Direct NMEA Integration
+- **Direct Hardware Access**: Uses direct NMEA data parsing for GPS communication
+- **SIM7600G-H Support**: Specialized integration with SIM7600G-H cellular modems
+- **Multi-constellation GNSS**: GPS + GLONASS + Galileo + BeiDou support
 - **Enhanced GNSS Data**: Provides satellite counts and precision metrics from multiple constellations
 
 ### GPS Data Processing
@@ -195,12 +195,13 @@ sudo journalctl -u gps-startup.service -f
 lsusb | grep -i gps
 sudo dmesg | grep -i gps
 
-# Verify gpsd daemon
-sudo systemctl status gpsd.service
+# Check SIM7600G-H GPS status (if using cellular modem)
+ls -la /dev/ttyUSB*
+sudo minicom -D /dev/ttyUSB3  # AT command interface
+# In minicom: AT+CGPS?  # Check GPS status
 
-# Test GPS data directly
-gpspipe -r -n 10  # Show 10 raw NMEA sentences
-gpsmon            # Interactive GPS monitoring tool
+# Test GPS NMEA data directly
+cat /dev/ttyUSB1  # Show raw NMEA sentences from SIM7600G-H
 ```
 
 #### GPS Signal Problems
@@ -233,13 +234,14 @@ sudo journalctl -u gps-startup.service | grep -i error
 
 ### Service Dependencies
 The GPS system requires several services to be running:
-- **`gpsd.service`**: For GPS hardware communication
 - **`gps-startup.service`**: For GPS tracking startup (when enabled)
 - **NetworkManager.service**: For internet connectivity (if using cellular/WiFi)
+- **udev**: For automatic GPS device detection and enablement
 
 ### Configuration Files
 - **Flight Settings**: Stored in `~/streamerData/settings.json`
 - **Service Configuration**: `/etc/systemd/system/gps-startup.service`
+- **GPS Daemon**: GPS daemon with integrated initialization and NMEA parsing
 - **Python Dependencies**: See `requirements.txt` for all GPS-related packages
 
 ## Integration with Flight Recording
@@ -316,10 +318,9 @@ Log levels: INFO, WARNING, ERROR
 
 For real GPS tracking, you'll need:
 
-1. **GPS Hardware**: Any gpsd-compatible GPS/GNSS device
+1. **GPS Hardware**: Any NMEA-compatible GPS/GNSS device or SIM7600G-H cellular modem
 2. **Connection**: USB, Serial, or HAT connection to Raspberry Pi
-3. **gpsd Service**: Standard Linux GPS daemon running
-4. **Python Dependencies**: python3-gps package
+3. **Python Dependencies**: python3-serial for direct NMEA communication
 
 Common hardware setup examples:
 
@@ -330,7 +331,7 @@ lsusb | grep -i gps
 dmesg | tail
 
 # GPS device usually appears as /dev/ttyUSB0 or /dev/ttyACM0
-# gpsd will auto-detect most USB GPS devices
+# For SIM7600G-H: /dev/ttyUSB1 for NMEA data, /dev/ttyUSB3 for AT commands
 ```
 
 ### GPS HAT (Serial)
@@ -344,20 +345,18 @@ sudo raspi-config
 
 ### Installation and Configuration
 ```bash
-# Install gpsd and python GPS library
+# Install python serial library for direct NMEA communication
 sudo apt-get update
-sudo apt-get install gpsd gpsd-clients python3-gps
+sudo apt-get install python3-serial
 
-# Start and enable gpsd service
-sudo systemctl enable gpsd
-sudo systemctl start gpsd
+# For SIM7600G-H modems, GPS auto-enable is configured automatically during RPI Streamer installation
 
 # Test GPS functionality
-gpsmon            # Interactive GPS monitor
-gpspipe -r -n 5   # Show raw NMEA data
+# Test GPS NMEA data directly
+cat /dev/ttyUSB1  # Show raw NMEA sentences from SIM7600G-H
 ```
 
-**Note**: Real GPS hardware support requires proper GPS device setup and gpsd service running. The system will gracefully handle missing hardware and provide helpful error messages.
+**Note**: Real GPS hardware support requires proper GPS device setup and direct NMEA communication. The system will gracefully handle missing hardware and provide helpful error messages.
 
 ## Integration with RPI Streamer
 

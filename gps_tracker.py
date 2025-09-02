@@ -2,18 +2,18 @@
 """
 RPI Streamer GPS Tracker
 
-Background GPS tracking application using gpsd daemon for GPS access.
+Background GPS tracking application using GPS daemon client for GPS access.
 Tracks GPS coordinates and synchronizes them with the Gyropilots server.
 
 Features:
-- GNSS support via gpsd daemon (GPS + GLONASS + Galileo + BeiDou)
+- GNSS support via GPS daemon client (GPS + GLONASS + Galileo + BeiDou)
 - Background coordinate synchronization
 - Simulation mode for testing
 - Hardware resilience and auto-reconnection
 
 Requirements for real GPS hardware:
-- gpsd daemon service
-- Compatible GPS/GNSS hardware (USB GPS, HAT, etc.)
+- Compatible GPS/GNSS hardware (USB GPS, HAT, SIM7600G-H cellular modem, etc.)
+- GPS daemon running (automatically started when hardware is detected)
 """
 
 import json
@@ -31,7 +31,8 @@ import random
 import os
 from datetime import datetime
 from typing import Dict, List, Optional
-from utils import generate_gps_track_id, calculate_distance, get_gnss_location
+from utils import generate_gps_track_id, calculate_distance
+from gps_client import get_gnss_location
 
 # Configure logging
 logging.basicConfig(
@@ -46,7 +47,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Log GPS functionality
-logger.info("GPS functionality available via gpsd daemon")
+logger.info("GPS functionality available via GPS daemon client")
 
 # Status file for tracking GPS hardware state
 GPS_STATUS_FILE = "/tmp/gps-tracker-status.json"
@@ -154,8 +155,8 @@ class GPSTracker:
         # Send tracking ended signal
         self._send_tracking_ended()
         
-        # GPS runs continuously via gpsd - no need to stop it
-        logger.info("GPS continues running via gpsd (not stopped)")
+        # GPS hardware continues running via daemon
+        logger.info("GPS continues running via daemon")
         
         self.tracking_active = False
         self.track_id = None
@@ -411,9 +412,9 @@ class GPSTracker:
             
             try:
                 while self.tracking_active:
-                    # Attempt to get coordinates from gpsd daemon
+                    # Attempt to get coordinates from GPS daemon
                     try:
-                        # Use the new gpsd-based GPS function from utils
+                        # Use the GPS daemon client
                         success, location_data = get_gnss_location()
                         
                         if success and location_data and location_data.get('fix_status') == 'valid':
@@ -470,8 +471,8 @@ class GPSTracker:
             except KeyboardInterrupt:
                 logger.info("Real GPS tracking interrupted")
             finally:
-                # GPS runs continuously via gpsd - no need to stop
-                logger.info("GPS tracking session ended (GPS continues running via gpsd)")
+                # GPS hardware continues running via daemon
+                logger.info("GPS tracking session ended (GPS continues running via daemon)")
         
         return True
 

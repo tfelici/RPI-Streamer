@@ -23,7 +23,8 @@ from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, generate_gps_track_id, get_gnss_location
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, generate_gps_track_id
+from gps_client import get_gnss_location
 
 # Use pymediainfo for fast video duration extraction
 try:
@@ -351,9 +352,8 @@ def stats():
                 
                 # Format connection info for JSON
                 import json
-                connection_json = json.dumps(connection).replace('"', '\\"')
                 
-                data = f"data: {{\"cpu\": {cpu}, \"mem\": {mem}, \"temp\": \"{temp}\", \"power\": \"{power}\", \"fan_rpm\": \"{fan_rpm}\", \"connection\": \"{connection_json}\"}}\n\n"
+                data = f"data: {json.dumps({'cpu': cpu, 'mem': mem, 'temp': temp, 'power': power, 'fan_rpm': fan_rpm, 'connection': connection})}\n\n"
                 yield data
                 client_timeout = 0  # Reset timeout on successful yield
                 time.sleep(1)
@@ -1427,8 +1427,9 @@ def get_wifi_mode_status():
     except:
         hostapd_active = False
     
-    # Check current IP configuration
+    # Check current IP configuration and connected network
     current_ip = None
+    current_ssid = None
     try:
         result = subprocess.run(['ip', 'addr', 'show', 'wlan0'], 
                               capture_output=True, text=True)
@@ -1439,25 +1440,241 @@ def get_wifi_mode_status():
     except:
         pass
     
+    # Get current connected WiFi network name if in client mode
+    if wifi_mode == 'client' and current_ip:
+        try:
+            result = subprocess.run(['nmcli', '-t', '-f', 'NAME', 'connection', 'show', '--active'], 
+                                  capture_output=True, text=True)
+            for line in result.stdout.strip().split('\n'):
+                if line and not line.startswith('eth') and not line.startswith('Wired'):
+                    current_ssid = line
+                    break
+        except:
+            pass
+    
     return {
         'mode': wifi_mode,
         'hostapd_active': hostapd_active,
         'current_ip': current_ip,
+        'current_ssid': current_ssid,
         'hotspot_ssid': settings['hotspot_ssid'],
         'hotspot_ip': settings['hotspot_ip']
     }
 
+def check_wifi_ap_capabilities():
+    """Check if the WiFi interface supports Access Point mode"""
+    capabilities = {
+        'interface_exists': False,
+        'supports_ap_mode': False,
+        'driver_info': '',
+        'supported_modes': [],
+        'current_mode': '',
+        'regulatory_domain': '',
+        'channels_available': [],
+        'issues': []
+    }
+    
+    try:
+        # Check if wlan0 exists
+        result = subprocess.run(['ip', 'link', 'show', 'wlan0'], capture_output=True, text=True)
+        if result.returncode == 0:
+            capabilities['interface_exists'] = True
+            print("✓ wlan0 interface exists")
+        else:
+            capabilities['issues'].append("wlan0 interface not found")
+            return capabilities
+    except:
+        capabilities['issues'].append("Cannot check wlan0 interface")
+        return capabilities
+    
+    try:
+        # Get detailed interface information
+        iw_info = subprocess.run(['iw', 'dev', 'wlan0', 'info'], capture_output=True, text=True)
+        if iw_info.returncode == 0:
+            capabilities['current_mode'] = 'managed'  # Default assumption
+            for line in iw_info.stdout.split('\n'):
+                if 'type' in line.lower():
+                    capabilities['current_mode'] = line.split()[-1]
+                    
+        # Check supported interface modes
+        phy_info = subprocess.run(['iw', 'phy'], capture_output=True, text=True)
+        if phy_info.returncode == 0:
+            in_modes_section = False
+            for line in phy_info.stdout.split('\n'):
+                line = line.strip()
+                if 'Supported interface modes:' in line:
+                    in_modes_section = True
+                    continue
+                elif in_modes_section:
+                    if line.startswith('*'):
+                        mode = line.replace('*', '').strip()
+                        capabilities['supported_modes'].append(mode)
+                        if 'AP' in mode:
+                            capabilities['supports_ap_mode'] = True
+                    elif line and not line.startswith(' '):
+                        in_modes_section = False
+                        
+        # Get regulatory domain
+        reg_info = subprocess.run(['iw', 'reg', 'get'], capture_output=True, text=True)
+        if reg_info.returncode == 0:
+            for line in reg_info.stdout.split('\n'):
+                if line.startswith('country'):
+                    capabilities['regulatory_domain'] = line.split()[1].rstrip(':')
+                    
+        # Get available channels
+        freq_info = subprocess.run(['iw', 'list'], capture_output=True, text=True)
+        if freq_info.returncode == 0:
+            in_frequencies = False
+            for line in freq_info.stdout.split('\n'):
+                line = line.strip()
+                if 'Frequencies:' in line:
+                    in_frequencies = True
+                    continue
+                elif in_frequencies and line.startswith('*'):
+                    if 'MHz' in line and 'disabled' not in line.lower():
+                        # Extract channel number if present
+                        if '[' in line and ']' in line:
+                            channel = line.split('[')[1].split(']')[0]
+                            capabilities['channels_available'].append(int(channel))
+                elif in_frequencies and line and not line.startswith(' '):
+                    in_frequencies = False
+                    
+        # Get driver information
+        try:
+            with open('/sys/class/net/wlan0/device/uevent', 'r') as f:
+                for line in f:
+                    if line.startswith('DRIVER='):
+                        capabilities['driver_info'] = line.split('=')[1].strip()
+        except:
+            pass
+            
+    except FileNotFoundError:
+        capabilities['issues'].append("iw command not found - install with: sudo apt-get install iw")
+    except Exception as e:
+        capabilities['issues'].append(f"Error checking WiFi capabilities: {e}")
+    
+    return capabilities
+
+def check_hotspot_requirements():
+    """Check if system meets requirements for hotspot functionality"""
+    issues = []
+    
+    # Check WiFi AP capabilities first
+    wifi_caps = check_wifi_ap_capabilities()
+    
+    if not wifi_caps['interface_exists']:
+        issues.append("WiFi interface wlan0 not found")
+        return issues
+    
+    if not wifi_caps['supports_ap_mode']:
+        issues.append(f"WiFi adapter does not support AP mode. Supported modes: {', '.join(wifi_caps['supported_modes'])}")
+        issues.append(f"Driver: {wifi_caps['driver_info'] or 'unknown'}")
+        
+    if wifi_caps['issues']:
+        issues.extend(wifi_caps['issues'])
+    
+    # Print detailed WiFi information
+    print(f"WiFi Interface Information:")
+    print(f"  Current Mode: {wifi_caps['current_mode']}")
+    print(f"  Supported Modes: {', '.join(wifi_caps['supported_modes'])}")
+    print(f"  AP Mode Support: {'Yes' if wifi_caps['supports_ap_mode'] else 'No'}")
+    print(f"  Driver: {wifi_caps['driver_info'] or 'unknown'}")
+    print(f"  Regulatory Domain: {wifi_caps['regulatory_domain'] or 'unknown'}")
+    print(f"  Available Channels: {wifi_caps['channels_available'][:10]}...")  # Show first 10
+    
+    # Check if iptables is available
+    try:
+        result = subprocess.run(['which', 'iptables'], capture_output=True, text=True)
+        if result.returncode != 0:
+            issues.append("iptables not found - install with: sudo apt-get install iptables iptables-persistent")
+    except:
+        issues.append("Cannot check iptables availability")
+    
+    # Check if hostapd is available
+    try:
+        result = subprocess.run(['which', 'hostapd'], capture_output=True, text=True)
+        if result.returncode != 0:
+            issues.append("hostapd not found - install with: sudo apt-get install hostapd")
+    except:
+        issues.append("Cannot check hostapd availability")
+    
+    # Check if dnsmasq is available
+    try:
+        result = subprocess.run(['which', 'dnsmasq'], capture_output=True, text=True)
+        if result.returncode != 0:
+            issues.append("dnsmasq not found - install with: sudo apt-get install dnsmasq")
+    except:
+        issues.append("Cannot check dnsmasq availability")
+    
+    # Check if we can load required modules
+    modules_to_check = ['iptable_nat', 'ip_tables', 'iptable_filter']
+    for module in modules_to_check:
+        try:
+            result = subprocess.run(['lsmod'], capture_output=True, text=True)
+            if module not in result.stdout:
+                subprocess.run(['sudo', 'modprobe', module], check=True)
+        except:
+            issues.append(f"Cannot load kernel module {module}")
+    
+    return issues
+
 def configure_wifi_hotspot(ssid, password, channel=6, ip_address="192.168.4.1"):
     """Configure WiFi hotspot using hostapd and dnsmasq"""
     try:
-        # Install required packages if not present
-        subprocess.run(['sudo', 'apt-get', 'update'], check=False)
-        subprocess.run(['sudo', 'apt-get', 'install', '-y', 'hostapd', 'dnsmasq'], check=False)
+        # Check system requirements first
+        issues = check_hotspot_requirements()
+        if issues:
+            error_msg = f"System requirements not met: {', '.join(issues)}"
+            print(error_msg)
+            print("Note: If you installed using the RPI Streamer installation script, these packages should be available.")
+            print("Try running: sudo apt-get update && sudo apt-get install -y hostapd dnsmasq iptables iptables-persistent")
+            return False, error_msg
         
-        # Stop services
-        subprocess.run(['sudo', 'systemctl', 'stop', 'hostapd'], check=False)
-        subprocess.run(['sudo', 'systemctl', 'stop', 'dnsmasq'], check=False)
-        subprocess.run(['sudo', 'systemctl', 'stop', 'NetworkManager'], check=False)
+        # Check if required kernel modules are loaded
+        print("Checking system requirements...")
+        
+        # Load essential iptables and NAT modules
+        required_modules = [
+            'iptable_nat', 'iptable_filter', 'ip_tables', 
+            'nf_nat', 'nf_conntrack', 'nf_conntrack_ipv4'
+        ]
+        
+        for module in required_modules:
+            try:
+                subprocess.run(['sudo', 'modprobe', module], check=False)
+                print(f"Loaded module: {module}")
+            except:
+                print(f"Warning: Could not load module {module}")
+        
+        # Verify iptables is working
+        try:
+            result = subprocess.run(['sudo', 'iptables', '-L'], capture_output=True, text=True)
+            if result.returncode != 0:
+                return False, "iptables is not working properly"
+            print("iptables is functional")
+        except:
+            return False, "Cannot execute iptables commands"
+        
+        # Install required packages if not present
+        print("Installing/updating required packages...")
+        try:
+            subprocess.run(['sudo', 'apt-get', 'update'], check=False, timeout=60)
+            subprocess.run(['sudo', 'apt-get', 'install', '-y', 'hostapd', 'dnsmasq', 'iptables-persistent'], check=False, timeout=300)
+        except subprocess.TimeoutExpired:
+            print("Package installation timed out, continuing anyway...")
+        except Exception as e:
+            print(f"Package installation warning: {e}")
+        
+        # Stop services with timeout
+        print("Stopping conflicting services...")
+        try:
+            subprocess.run(['sudo', 'systemctl', 'stop', 'hostapd'], check=False, timeout=30)
+            subprocess.run(['sudo', 'systemctl', 'stop', 'dnsmasq'], check=False, timeout=30)
+            subprocess.run(['sudo', 'systemctl', 'stop', 'NetworkManager'], check=False, timeout=30)
+        except subprocess.TimeoutExpired:
+            print("Service stop operations timed out, continuing...")
+        except Exception as e:
+            print(f"Service stop warning: {e}")
         
         # Configure hostapd
         hostapd_conf = f"""interface=wlan0
@@ -1489,79 +1706,246 @@ dhcp-range={ip_address.rsplit('.', 1)[0]}.10,{ip_address.rsplit('.', 1)[0]}.50,2
             f.write(dnsmasq_conf)
         subprocess.run(['sudo', 'mv', '/tmp/dnsmasq.conf', '/etc/dnsmasq.conf'], check=True)
         
-        # Configure static IP for wlan0
-        subprocess.run(['sudo', 'ip', 'addr', 'flush', 'dev', 'wlan0'], check=False)
-        subprocess.run(['sudo', 'ip', 'addr', 'add', f'{ip_address}/24', 'dev', 'wlan0'], check=True)
-        subprocess.run(['sudo', 'ip', 'link', 'set', 'wlan0', 'up'], check=True)
+        # Configure static IP for wlan0 with timeout
+        print(f"Configuring wlan0 with IP {ip_address}...")
+        try:
+            subprocess.run(['sudo', 'ip', 'addr', 'flush', 'dev', 'wlan0'], check=False, timeout=10)
+            subprocess.run(['sudo', 'ip', 'addr', 'add', f'{ip_address}/24', 'dev', 'wlan0'], check=True, timeout=10)
+            subprocess.run(['sudo', 'ip', 'link', 'set', 'wlan0', 'up'], check=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            return False, "Network configuration timed out - wlan0 interface may not be available"
+        except subprocess.CalledProcessError as e:
+            return False, f"Failed to configure wlan0 interface: {e}"
         
-        # Enable IP forwarding
-        subprocess.run(['sudo', 'sysctl', 'net.ipv4.ip_forward=1'], check=True)
+        # Enable IP forwarding with timeout
+        print("Enabling IP forwarding...")
+        try:
+            subprocess.run(['sudo', 'sysctl', 'net.ipv4.ip_forward=1'], check=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            return False, "IP forwarding configuration timed out"
+        except subprocess.CalledProcessError as e:
+            return False, f"Failed to enable IP forwarding: {e}"
         
-        # Detect available internet interface (priority: eth0, then any USB interface)
-        internet_interface = None
+        # Use eth0 as the internet interface for router mode
+        internet_interface = 'eth0'
         
-        # First try eth0 (wired ethernet)
+        # Verify eth0 is available and configured
         try:
             result = subprocess.run(['ip', 'addr', 'show', 'eth0'], capture_output=True, text=True)
-            if result.returncode == 0 and 'inet ' in result.stdout:
-                internet_interface = 'eth0'
-                print(f"Found internet interface: eth0")
-        except:
-            pass
-            
-        # If no eth0, look for any USB network interface (usb0, usb1, usb2, etc.)
-        if not internet_interface:
-            try:
-                result = subprocess.run(['ip', 'link', 'show'], capture_output=True, text=True)
-                for line in result.stdout.split('\n'):
-                    # Look for usb interfaces: "2: usb0:" or "3: usb1:" etc.
-                    if ': usb' in line and '@' not in line:  # Exclude virtual interfaces
-                        iface_name = line.split(':')[1].strip().split('@')[0]
-                        # Check if this USB interface has an IP
-                        ip_result = subprocess.run(['ip', 'addr', 'show', iface_name], capture_output=True, text=True)
-                        if ip_result.returncode == 0 and 'inet ' in ip_result.stdout:
-                            internet_interface = iface_name
-                            print(f"Found internet interface: {iface_name}")
-                            break
-            except:
-                pass
+            if result.returncode == 0:
+                print(f"Ethernet interface eth0 status:")
+                print(result.stdout)
                 
-        # Fallback to eth1 if nothing else found
-        if not internet_interface:
-            try:
-                result = subprocess.run(['ip', 'addr', 'show', 'eth1'], capture_output=True, text=True)
-                if result.returncode == 0 and 'inet ' in result.stdout:
-                    internet_interface = 'eth1'
-                    print(f"Found internet interface: eth1")
-            except:
-                pass
+                # Check if eth0 has an IP address (even if it's down, we can still use it)
+                if 'inet ' in result.stdout:
+                    print(f"Using eth0 as internet interface for router mode")
+                else:
+                    print("Warning: eth0 found but no IP address configured")
+                    print("The hotspot will be created but may not provide internet access")
+            else:
+                print("Warning: eth0 interface not found")
+                internet_interface = None
+        except Exception as e:
+            print(f"Error checking eth0: {e}")
+            internet_interface = None
         
         if internet_interface:
-            # Clear any existing NAT rules
-            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-F'], check=False)
-            subprocess.run(['sudo', 'iptables', '-F', 'FORWARD'], check=False)
+            print(f"Configuring NAT routing from wlan0 to {internet_interface}")
             
-            # Configure iptables for NAT using detected interface
-            print(f"Configuring NAT routing through {internet_interface}")
-            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-A', 'POSTROUTING', '-o', internet_interface, '-j', 'MASQUERADE'], check=True)
-            subprocess.run(['sudo', 'iptables', '-A', 'FORWARD', '-i', internet_interface, '-o', 'wlan0', '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'], check=True)
-            subprocess.run(['sudo', 'iptables', '-A', 'FORWARD', '-i', 'wlan0', '-o', internet_interface, '-j', 'ACCEPT'], check=True)
-            
-            # Save iptables rules for persistence
-            subprocess.run(['sudo', 'sh', '-c', 'iptables-save > /etc/iptables.ipv4.nat'], check=False)
+            try:
+                # Clear any existing NAT and FORWARD rules
+                print("Clearing existing iptables rules...")
+                subprocess.run(['sudo', 'iptables', '-t', 'nat', '-F'], check=False)
+                subprocess.run(['sudo', 'iptables', '-F', 'FORWARD'], check=False)
+                
+                # Enable IP forwarding permanently
+                print("Enabling IP forwarding...")
+                subprocess.run(['sudo', 'sysctl', '-w', 'net.ipv4.ip_forward=1'], check=True)
+                
+                # Make IP forwarding persistent
+                try:
+                    with open('/tmp/99-sysctl.conf', 'w') as f:
+                        f.write('net.ipv4.ip_forward=1\n')
+                    subprocess.run(['sudo', 'mv', '/tmp/99-sysctl.conf', '/etc/sysctl.d/99-sysctl.conf'], check=False)
+                except:
+                    pass
+                
+                # Configure NAT (masquerading) for traffic from wlan0 to ethernet
+                print(f"Adding NAT rule: wlan0 -> {internet_interface}")
+                nat_cmd = ['sudo', 'iptables', '-t', 'nat', '-A', 'POSTROUTING', '-o', internet_interface, '-j', 'MASQUERADE']
+                result = subprocess.run(nat_cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    print(f"NAT rule failed: {result.stderr}")
+                    raise subprocess.CalledProcessError(result.returncode, nat_cmd, result.stderr)
+                
+                # Allow forwarding from wlan0 to ethernet interface
+                print("Adding forwarding rules...")
+                subprocess.run(['sudo', 'iptables', '-A', 'FORWARD', '-i', 'wlan0', '-o', internet_interface, '-j', 'ACCEPT'], check=True)
+                
+                # Allow established connections back from ethernet to wlan0
+                subprocess.run(['sudo', 'iptables', '-A', 'FORWARD', '-i', internet_interface, '-o', 'wlan0', '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'], check=True)
+                
+                # Allow local traffic on wlan0 (for accessing the Pi itself)
+                subprocess.run(['sudo', 'iptables', '-A', 'INPUT', '-i', 'wlan0', '-j', 'ACCEPT'], check=False)
+                
+                # Save iptables rules for persistence
+                print("Saving iptables rules...")
+                subprocess.run(['sudo', 'sh', '-c', 'iptables-save > /etc/iptables.ipv4.nat'], check=False)
+                
+                # Create a script to restore iptables rules on boot
+                restore_script = f"""#!/bin/bash
+# Restore iptables rules for RPI Streamer hotspot
+iptables-restore < /etc/iptables.ipv4.nat
+sysctl -w net.ipv4.ip_forward=1
+"""
+                try:
+                    with open('/tmp/restore-iptables.sh', 'w') as f:
+                        f.write(restore_script)
+                    subprocess.run(['sudo', 'mv', '/tmp/restore-iptables.sh', '/etc/init.d/restore-iptables'], check=False)
+                    subprocess.run(['sudo', 'chmod', '+x', '/etc/init.d/restore-iptables'], check=False)
+                    subprocess.run(['sudo', 'update-rc.d', 'restore-iptables', 'defaults'], check=False)
+                except:
+                    print("Warning: Could not set up iptables restoration script")
+                
+                # Verify NAT configuration
+                print("Verifying NAT configuration...")
+                nat_check = subprocess.run(['sudo', 'iptables', '-t', 'nat', '-L', 'POSTROUTING'], capture_output=True, text=True)
+                if 'MASQUERADE' in nat_check.stdout and internet_interface in nat_check.stdout:
+                    print("✓ NAT rule verified")
+                else:
+                    print("⚠ NAT rule verification failed")
+                
+                forward_check = subprocess.run(['sudo', 'iptables', '-L', 'FORWARD'], capture_output=True, text=True)
+                if 'wlan0' in forward_check.stdout and internet_interface in forward_check.stdout:
+                    print("✓ Forwarding rules verified")
+                else:
+                    print("⚠ Forwarding rules verification failed")
+                
+                print(f"Router mode configured successfully: wlan0 hotspot -> {internet_interface} internet")
+                
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to configure iptables routing: {e}")
+                print(f"Command that failed: {' '.join(e.cmd) if hasattr(e, 'cmd') else 'unknown'}")
+                
+                # Try to diagnose the issue
+                print("Diagnostic information:")
+                print("Available iptables modules:")
+                subprocess.run(['lsmod', '|', 'grep', 'ip'], check=False, shell=True)
+                
+                print("Current iptables nat table:")
+                subprocess.run(['sudo', 'iptables', '-t', 'nat', '-L'], check=False)
+                
+                print("Current iptables filter table:")
+                subprocess.run(['sudo', 'iptables', '-L'], check=False)
+                
+                # Continue without NAT - hotspot will still work for local access
+                print("Continuing without NAT routing - hotspot will work for local Pi access only")
+                
         else:
-            print("Warning: No internet interface found (eth0, usb0, or eth1). Hotspot will work but won't have internet access.")
+            print("Warning: No ethernet interface available.")
+            print("Hotspot will be created but won't provide internet access.")
             print("Available interfaces:")
             subprocess.run(['ip', 'link', 'show'], check=False)
         
-        # Start services
-        subprocess.run(['sudo', 'systemctl', 'start', 'hostapd'], check=True)
-        subprocess.run(['sudo', 'systemctl', 'start', 'dnsmasq'], check=True)
+        # Start services with detailed error handling
+        print("Starting hostapd and dnsmasq services...")
+        
+        # Start hostapd with detailed error reporting
+        try:
+            print("Starting hostapd service...")
+            result = subprocess.run(['sudo', 'systemctl', 'start', 'hostapd'], 
+                                  capture_output=True, text=True, check=False, timeout=30)
+            if result.returncode != 0:
+                print(f"hostapd failed to start. Return code: {result.returncode}")
+                print(f"stderr: {result.stderr}")
+                
+                # Get detailed status and logs
+                status_result = subprocess.run(['sudo', 'systemctl', 'status', 'hostapd'], 
+                                             capture_output=True, text=True, check=False, timeout=10)
+                print(f"hostapd status:\n{status_result.stdout}")
+                
+                # Check hostapd configuration
+                print("Checking hostapd configuration file...")
+                config_check = subprocess.run(['sudo', 'hostapd', '-t', '/etc/hostapd/hostapd.conf'], 
+                                            capture_output=True, text=True, check=False, timeout=10)
+                print(f"Config test result: {config_check.returncode}")
+                if config_check.stderr:
+                    print(f"Config errors: {config_check.stderr}")
+                
+                # Check if wlan0 is available and not in use
+                print("Checking wlan0 interface status...")
+                wlan_check = subprocess.run(['ip', 'link', 'show', 'wlan0'], 
+                                          capture_output=True, text=True, check=False, timeout=5)
+                print(f"wlan0 status:\n{wlan_check.stdout}")
+                
+                # Check if NetworkManager is interfering
+                nm_check = subprocess.run(['sudo', 'systemctl', 'is-active', 'NetworkManager'], 
+                                        capture_output=True, text=True, check=False, timeout=5)
+                if nm_check.returncode == 0:
+                    print("NetworkManager is running - this may interfere with hostapd")
+                    print("Stopping NetworkManager...")
+                    subprocess.run(['sudo', 'systemctl', 'stop', 'NetworkManager'], check=False, timeout=15)
+                    
+                    # Try starting hostapd again
+                    print("Retrying hostapd start...")
+                    retry_result = subprocess.run(['sudo', 'systemctl', 'start', 'hostapd'], 
+                                                capture_output=True, text=True, check=False, timeout=30)
+                    if retry_result.returncode != 0:
+                        raise subprocess.CalledProcessError(retry_result.returncode, 
+                                                          ['sudo', 'systemctl', 'start', 'hostapd'], 
+                                                          retry_result.stderr)
+                else:
+                    raise subprocess.CalledProcessError(result.returncode, 
+                                                      ['sudo', 'systemctl', 'start', 'hostapd'], 
+                                                      result.stderr)
+            else:
+                print("✓ hostapd started successfully")
+                
+        except subprocess.TimeoutExpired:
+            error_msg = "hostapd service start timed out after 30 seconds"
+            print(error_msg)
+            return False, error_msg
+        except subprocess.CalledProcessError as e:
+            error_msg = f"Failed to start hostapd service: {e}"
+            print(error_msg)
+            print("Common fixes:")
+            print("1. Ensure wlan0 interface exists and supports AP mode")
+            print("2. Check that no other services are using wlan0")
+            print("3. Verify hostapd configuration is valid")
+            print("4. Make sure NetworkManager is not interfering")
+            return False, error_msg
+        
+        # Start dnsmasq
+        try:
+            print("Starting dnsmasq service...")
+            subprocess.run(['sudo', 'systemctl', 'start', 'dnsmasq'], check=True, timeout=20)
+            print("✓ dnsmasq started successfully")
+        except subprocess.TimeoutExpired:
+            error_msg = "dnsmasq service start timed out after 20 seconds"
+            print(error_msg)
+            return False, error_msg
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to start dnsmasq: {e}")
+            # Try to get more details about dnsmasq failure
+            try:
+                status_result = subprocess.run(['sudo', 'systemctl', 'status', 'dnsmasq'], 
+                                             capture_output=True, text=True, check=False, timeout=5)
+                print(f"dnsmasq status:\n{status_result.stdout}")
+            except subprocess.TimeoutExpired:
+                print("dnsmasq status check timed out")
+            return False, f"Failed to start dnsmasq service: {e}"
         
         # Enable services for boot
-        subprocess.run(['sudo', 'systemctl', 'enable', 'hostapd'], check=True)
-        subprocess.run(['sudo', 'systemctl', 'enable', 'dnsmasq'], check=True)
+        print("Enabling services for boot...")
+        try:
+            subprocess.run(['sudo', 'systemctl', 'enable', 'hostapd'], check=True, timeout=10)
+            subprocess.run(['sudo', 'systemctl', 'enable', 'dnsmasq'], check=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            print("Service enable operations timed out, but services are running")
+        except Exception as e:
+            print(f"Warning: Could not enable services for boot: {e}")
         
+        print("✅ Hotspot services started and enabled successfully")
         return True, "Hotspot configured successfully"
         
     except subprocess.CalledProcessError as e:
@@ -1656,11 +2040,149 @@ def system_settings_wifi_mode():
     else:
         return jsonify({'success': False, 'error': 'Invalid WiFi mode'})
 
+@app.route('/system-settings-wifi-capabilities')
+def system_settings_wifi_capabilities():
+    """Get WiFi AP capabilities and detailed information"""
+    try:
+        capabilities = check_wifi_ap_capabilities()
+        
+        # Add some additional analysis
+        can_create_hotspot = (
+            capabilities['interface_exists'] and 
+            capabilities['supports_ap_mode'] and 
+            len(capabilities['channels_available']) > 0
+        )
+        
+        response = {
+            'success': True,
+            'capabilities': capabilities,
+            'can_create_hotspot': can_create_hotspot,
+            'recommendations': []
+        }
+        
+        # Add recommendations based on findings
+        if not capabilities['interface_exists']:
+            response['recommendations'].append("Install a WiFi adapter that supports AP mode")
+        elif not capabilities['supports_ap_mode']:
+            response['recommendations'].append("Current WiFi adapter does not support hotspot mode")
+            response['recommendations'].append("Consider using a USB WiFi adapter that supports AP mode (e.g., Realtek RTL8188CUS)")
+        elif len(capabilities['channels_available']) == 0:
+            response['recommendations'].append("No available WiFi channels - check regulatory domain settings")
+        else:
+            response['recommendations'].append("WiFi adapter appears capable of hotspot mode")
+            
+        return jsonify(response)
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Failed to check WiFi capabilities: {e}',
+            'capabilities': {},
+            'can_create_hotspot': False
+        })
+
 @app.route('/system-settings-wifi-status')
 def system_settings_wifi_status():
     """Get current WiFi mode status"""
     status = get_wifi_mode_status()
     return jsonify(status)
+
+@app.route('/system-settings-wifi-scan')
+def system_settings_wifi_scan():
+    """Scan for available WiFi networks"""
+    try:
+        # Rescan for networks
+        try:
+            subprocess.run(['sudo', 'nmcli', 'device', 'wifi', 'rescan'], timeout=10, check=True)
+            time.sleep(2)  # Give time for scan to complete
+        except subprocess.TimeoutExpired:
+            pass  # Continue even if rescan times out
+        except Exception:
+            pass  # Continue even if rescan fails
+        
+        # Get list of networks using nmcli's tabular terse mode
+        result = subprocess.run(['nmcli', '--mode', 'tabular', '--terse', '--fields', 'IN-USE,BSSID,SSID,MODE,CHAN,SIGNAL,SECURITY', 'device', 'wifi', 'list'], 
+                               capture_output=True, text=True, timeout=10)
+        
+        networks = []
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            for line in lines:
+                if not line.strip():
+                    continue
+                    
+                # The output uses colon separators, but BSSID has escaped colons (\:)
+                # Format: IN-USE:BSSID:SSID:MODE:CHAN:SIGNAL:SECURITY
+                # Example:  :D8\:EC\:5E\:6F\:E4\:CC:quarry villa:Infra:11:100:WPA2
+                
+                parts = line.split(':')
+                if len(parts) >= 7:
+                    try:
+                        in_use = parts[0].strip() == '*'
+                        
+                        # BSSID is in parts[1] but has escaped colons - reconstruct it
+                        # The BSSID takes up 6 parts due to the escaped colons
+                        bssid_parts = parts[1:7]  # Next 6 parts form the BSSID
+                        bssid = ':'.join(bssid_parts).replace('\\:', ':')
+                        
+                        # SSID starts at part 7
+                        ssid_start = 7
+                        # Find where SSID ends by looking for the last 4 fields (MODE:CHAN:SIGNAL:SECURITY)
+                        ssid_end = len(parts) - 4
+                        ssid = ':'.join(parts[ssid_start:ssid_end]) if ssid_end > ssid_start else parts[ssid_start] if ssid_start < len(parts) else ''
+                        
+                        # Last 4 parts are always MODE, CHAN, SIGNAL, SECURITY
+                        if len(parts) >= 4:
+                            mode = parts[-4]
+                            channel = parts[-3]
+                            signal = parts[-2]
+                            security = parts[-1]
+                        else:
+                            continue
+                        
+                        # Handle hidden networks
+                        if not ssid or ssid == '--':
+                            ssid = '(Hidden Network)'
+                        
+                        # Convert signal to percentage (signal is already 0-100 in this format)
+                        try:
+                            signal_percent = int(signal)
+                        except:
+                            signal_percent = 0
+                        
+                        network = {
+                            'ssid': ssid,
+                            'bssid': bssid,
+                            'mode': mode,
+                            'channel': channel,
+                            'signal': signal_percent,
+                            'security': security if security and security != '--' else None,
+                            'in_use': in_use
+                        }
+                        networks.append(network)
+                    except (IndexError, ValueError):
+                        continue
+        
+        # Sort by signal strength (strongest first)
+        networks.sort(key=lambda x: x['signal'], reverse=True)
+        
+        return jsonify({
+            'success': True,
+            'networks': networks
+        })
+        
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'success': False,
+            'error': 'WiFi scan timed out',
+            'networks': []
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Failed to scan WiFi networks: {e}',
+            'networks': []
+        })
 
 @app.route('/system-settings-reboot', methods=['POST'])
 def system_settings_reboot():
@@ -2029,7 +2551,7 @@ def get_connection_info():
         except Exception:
             pass
     
-        # Get 4G dongle status using ModemManager APIs
+        # Get 4G dongle status using ModemManager
         dongle_status = {
             "connected": False,
             "signal_strength": None,
@@ -2041,8 +2563,6 @@ def get_connection_info():
         
         try:
             # Use mmcli to get modem information
-            import subprocess
-            
             # List available modems
             result = subprocess.run(['mmcli', '-L'], capture_output=True, text=True, timeout=5)
             if result.returncode == 0 and result.stdout.strip():
@@ -2057,9 +2577,22 @@ def get_connection_info():
                     if modem_result.returncode == 0:
                         modem_output = modem_result.stdout
                         
-                        # Parse connection state
+                        # Parse connection state from ModemManager
                         if 'state: connected' in modem_output.lower():
                             dongle_status["connected"] = True
+                        
+                        # Also check NetworkManager for cellular connections
+                        if not dongle_status["connected"]:
+                            try:
+                                nm_result = subprocess.run(['nmcli', 'device', 'status'], capture_output=True, text=True, timeout=5)
+                                if nm_result.returncode == 0:
+                                    # Check for connected GSM/cellular devices
+                                    for line in nm_result.stdout.split('\n'):
+                                        if 'gsm' in line.lower() and 'connected' in line.lower():
+                                            dongle_status["connected"] = True
+                                            break
+                            except:
+                                pass  # NetworkManager check failed, continue with ModemManager only
                         
                         # Parse signal strength
                         signal_match = re.search(r'signal quality:\s*(\d+)%', modem_output)
@@ -2069,8 +2602,11 @@ def get_connection_info():
                         
                         # Parse operator
                         operator_match = re.search(r'operator name:\s*\'([^\']+)\'', modem_output)
+                        if not operator_match:
+                            # Try without quotes (format: "operator name: vodafone UK")
+                            operator_match = re.search(r'operator name:\s*([^\r\n]+)', modem_output)
                         if operator_match:
-                            dongle_status["operator"] = operator_match.group(1)
+                            dongle_status["operator"] = operator_match.group(1).strip()
                         
                         # Parse network type
                         if 'access tech: lte' in modem_output.lower():
@@ -2082,6 +2618,7 @@ def get_connection_info():
                     
                     # Get IP address if connected
                     if dongle_status["connected"]:
+                        # Try ModemManager bearer info
                         bearer_result = subprocess.run(['mmcli', '-m', modem_id, '--list-bearers'], capture_output=True, text=True, timeout=5)
                         if bearer_result.returncode == 0:
                             bearer_match = re.search(r'/org/freedesktop/ModemManager1/Bearer/(\d+)', bearer_result.stdout)
@@ -2092,6 +2629,18 @@ def get_connection_info():
                                     ip_match = re.search(r'address:\s*(\d+\.\d+\.\d+\.\d+)', bearer_info.stdout)
                                     if ip_match:
                                         dongle_status["ip_address"] = ip_match.group(1)
+                        
+                        # If no IP from ModemManager, check common cellular interfaces
+                        if not dongle_status.get("ip_address"):
+                            try:
+                                # Check ppp0 interface (common for cellular connections)
+                                ip_result = subprocess.run(['ip', 'addr', 'show', 'ppp0'], capture_output=True, text=True, timeout=3)
+                                if ip_result.returncode == 0:
+                                    ip_match = re.search(r'inet (\d+\.\d+\.\d+\.\d+)', ip_result.stdout)
+                                    if ip_match:
+                                        dongle_status["ip_address"] = ip_match.group(1)
+                            except:
+                                pass  # ppp0 interface check failed
                 else:
                     dongle_status["device_present"] = False
             else:
@@ -2121,7 +2670,7 @@ def get_connection_info():
         else:
             connection_info["4g"] = "No device"
         
-        # Get GPS status from gpsd daemon
+        # Get GPS status from GPS daemon via client
         gps_status = {
             "available": False,
             "fix_status": "No data",
@@ -2131,7 +2680,7 @@ def get_connection_info():
         }
         
         try:
-            # Use the new gpsd-based GPS function from utils
+            # Use the GPS daemon client
             success, location_data = get_gnss_location()
             
             if success and location_data:

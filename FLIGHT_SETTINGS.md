@@ -79,7 +79,7 @@ sudo journalctl -u gps-startup.service -f
 ### Service Dependencies
 GPS tracking requires these services to be operational:
 - **NetworkManager.service**: Internet connectivity for platform synchronization
-- **`gpsd.service`**: GPS hardware communication daemon
+- **udev**: Automatic GPS device detection and enablement
 - **`flask_app.service`**: Web interface for configuration and control
 
 ## Web Interface Usage
@@ -121,9 +121,9 @@ The home page displays current flight configuration:
 Flight Settings automatically integrates with GPS hardware:
 
 - **Universal GPS Support**: Compatible with USB GPS, GPS HATs, and cellular modem GPS
-- **GNSS Support**: GPS, GLONASS, Galileo, BeiDou constellations via gpsd daemon
+- **GNSS Support**: GPS, GLONASS, Galileo, BeiDou constellations via direct NMEA parsing
 - **High Accuracy**: Professional-grade positioning for aviation
-- **Standard Linux GPS**: Uses industry-standard gpsd daemon for reliability
+- **SIM7600G-H Integration**: Direct cellular modem GPS communication with automatic enablement
 
 ### Motion Detection (Auto Motion Mode)
 - **GPS-based Motion**: Detects movement using GPS coordinate changes

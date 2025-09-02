@@ -14,7 +14,8 @@ from datetime import datetime, timedelta
 # Add the RPI Streamer directory to the path so we can import utils
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils import DEFAULT_SETTINGS, SETTINGS_FILE, is_gps_tracking, load_settings, calculate_distance, get_gnss_location
+from utils import DEFAULT_SETTINGS, SETTINGS_FILE, is_gps_tracking, load_settings, calculate_distance
+from gps_client import get_gnss_location
 
 # Import GPS tracking function directly from app.py
 from app import start_flight
@@ -36,7 +37,7 @@ def detect_motion():
     current_time = time.time()
     
     try:
-        # Get current GPS position using gpsd daemon
+        # Get current GPS position using GPS daemon client
         success, location_data = get_gnss_location()
         
         gps_data = None
