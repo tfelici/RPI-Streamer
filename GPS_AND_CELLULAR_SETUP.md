@@ -1,54 +1,45 @@
-# GPS and Cellular Setup Guide
+# GPS and Cellular Setup Guide v3.00
 
-The RPI Streamer supports standard Linux GPS and cellular connectivity using industry-standard services and APIs instead of hardware-specific implementations.
+The RPI Streamer supports modern Linux GPS and cellular connectivity using the streamlined GPS daemon architecture and industry-standard services.
 
 ## GPS Setup
 
 ### Overview
-GPS functionality uses direct NMEA parsing for communication with GPS/GNSS hardware, providing real-time location data without middleware dependencies.
+GPS functionality uses the modern GPS daemon architecture with integrated initialization, providing real-time location data through a streamlined client-server interface with automatic hardware detection.
 
 ### Supported GPS Hardware
 - **USB GPS Receivers**: GlobalSat BU-353-S4, VK-172, u-blox receivers, etc.
 - **GPS HATs**: Adafruit Ultimate GPS HAT, Waveshare GPS HAT, etc.
-- **Cellular Modems with GPS**: Any ModemManager-compatible cellular modem with GNSS
+- **Cellular Modems with GPS**: Any ModemManager-supported cellular modem with GNSS
 - **Serial GPS Devices**: Any NMEA-compatible GPS device
 
 ### Installation
 ```bash
-# Install python serial library for direct NMEA communication
-sudo apt-get update
-sudo apt-get install python3-serial
+# GPS dependencies are automatically installed with RPI Streamer v3.00
+# Modern GPS daemon handles all GPS hardware types automatically
 
-# GPS auto-enable for SIM7600G-H modems is automatically configured during RPI Streamer installation
+# No manual configuration required - GPS daemon provides automatic:
+# ✅ Hardware detection and initialization
+# ✅ Multi-client GPS data access
+# ✅ Robust error handling and reconnection
 ```
 
 ### Configuration
-For SIM7600G-H modems, GPS is automatically enabled via the auto-enable system. For other GPS devices:
-
-```bash
-# Check available GPS devices
-ls -la /dev/ttyUSB* /dev/ttyACM*
-
-# For SIM7600G-H modems:
-# /dev/ttyUSB1 - NMEA GPS data
-# /dev/ttyUSB3 - AT command interface
-
-# Test GPS data directly
-cat /dev/ttyUSB1  # Should show NMEA sentences when GPS is active
-```
+The modern GPS daemon automatically handles all GPS hardware types with integrated initialization. GPS tracking is configured through the Flight Settings web interface.
 
 ### Testing GPS
 ```bash
-# Test NMEA data directly from device
-cat /dev/ttyUSB1  # For SIM7600G-H modems
+# Test GPS daemon communication
+python3 ~/flask_app/gps_client.py
 
-# Check GPS status via AT commands (SIM7600G-H)
-sudo minicom -D /dev/ttyUSB3
-# In minicom: AT+CGPS?  # Check GPS status
-# In minicom: AT+CGPSINFO  # Get GPS information
+# Check GPS daemon status
+sudo systemctl status gps-daemon.service
 
-# For other USB GPS devices, check appropriate device path
-cat /dev/ttyUSB0  # Or /dev/ttyACM0 depending on device
+# View GPS daemon logs
+sudo journalctl -u gps-daemon.service -f
+
+# Manual GPS data access (for debugging)
+# The daemon automatically handles all device types and paths
 ```
 
 ## Cellular Internet Setup

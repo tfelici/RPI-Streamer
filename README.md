@@ -1,6 +1,6 @@
-# RPI Streamer
+# RPI Streamer v3.00
 
-A comprehensive Flask-based web application and streaming server for Raspberry Pi, featuring automatic 4G connectivity, GPS tracking, multi-device management, and professional streaming capabilities.
+A comprehensive Flask-based web application and streaming server for Raspberry Pi, featuring automatic 4G connectivity, GPS tracking, multi-device management, professional streaming capabilities, and complete WiFi management system.
 
 ## Quick Start
 
@@ -69,19 +69,21 @@ bash install_rpi_streamer.sh --develop
 
 Every installation automatically includes:
 
+- **Complete WiFi Management**: Modern network scanner with real-time network discovery and one-click connections
+- **WiFi Hotspot with Routing**: Full NAT routing via ethernet with automatic iptables/hostapd/dnsmasq configuration
+- **GPS Daemon System**: Streamlined GPS daemon with integrated initialization and multi-client architecture
 - **Cellular Modem Support**: Universal support for USB cellular modems via ModemManager
-- **GPS Tracking System**: Real-time location tracking with Flight Settings configuration
 - **MediaMTX Streaming Server**: Professional RTMP/WebRTC streaming capabilities
 - **Device Registration**: Automatic hardware console integration
 - **System Diagnostics**: Real-time hardware monitoring and status reporting
 - **USB Storage Detection**: Automatic recording storage to USB devices
-- **WiFi Hotspot Mode**: Standalone operation capability
 
 ## Core Features
 
 ### 🌐 Connectivity & Remote Access
+- **Complete WiFi Management**: Modern network scanner interface with one-click connections and real-time status
+- **WiFi Hotspot Mode**: Create standalone "RPI-Streamer" access point for isolated operation with full routing
 - **Cellular Internet**: Universal support for USB cellular modems with automatic carrier detection
-- **WiFi Hotspot Mode**: Create standalone access point for isolated operation
 - **Reverse SSH Tunnels**: Secure remote access through central server with AutoSSH reliability
 - **Tailscale VPN**: Mesh networking for seamless device access anywhere
 - **Multi-Device Management**: Centralized hardware console with automatic device registration
@@ -93,11 +95,12 @@ Every installation automatically includes:
 - **Recording Management**: Organized storage with automatic directory structure
 
 ### 🛰️ GPS & Flight Tracking
-- **Real-time GPS Tracking**: Integration with Gyropilots/Gapilots flight tracking platforms
+- **Real-time GPS Tracking**: Modern GPS daemon architecture with integrated initialization and multi-client support
 - **Flight Settings Configuration**: Web-based username, vehicle registration, and tracking mode setup
 - **Multiple Start Modes**: Manual, auto-start on boot, or auto-start on motion detection
 - **GPS Simulation**: Built-in simulation mode for testing without hardware
-- **Universal GPS Support**: Compatible with USB GPS receivers, GPS HATs, and cellular modem GPS
+- **Universal GPS Support**: USB GPS receivers, GPS HATs, and cellular modem GPS with automatic detection
+- **Enhanced GNSS**: GPS + GLONASS + Galileo + BeiDou constellation support with detailed metrics
 
 ### 🔧 System Management
 - **Real-time Diagnostics**: System health monitoring with hardware status display
@@ -220,7 +223,9 @@ The RPI Streamer installation creates and manages several systemd services:
 ### GPS and Connectivity Services
 - **ModemManager.service**: Cellular modem management (standard Linux cellular service)
 - **NetworkManager.service**: Network connection management (WiFi, Ethernet, Cellular)
-- **`gps-daemon.service`**: GPS daemon for continuous NMEA parsing and multi-client support
+- **`gps-daemon.service`**: Modern GPS daemon with integrated initialization and multi-client support
+- **`hostapd.service`**: WiFi hotspot access point service
+- **`dnsmasq.service`**: DHCP server for hotspot functionality
 
 ### Optional Services
 - **`gps-startup.service`**: GPS tracking startup manager (configured via Flight Settings)
@@ -309,10 +314,10 @@ bash install_rpi_streamer.sh --tailscale
 - **NetworkManager Integration**: Seamless integration with system network management
 
 ### GPS Tracking Hardware
-- **Universal GPS Support**: Compatible with USB GPS receivers, GPS HATs, and cellular modem GPS
-- **Enhanced GNSS**: GPS + GLONASS + Galileo + BeiDou constellation support via GPS daemon
+- **Universal GPS Support**: USB GPS receivers, GPS HATs, and cellular modem GPS with automatic detection
+- **Enhanced GNSS**: GPS + GLONASS + Galileo + BeiDou constellation support via modern GPS daemon
 - **High accuracy tracking**: Professional-grade positioning for flight recording
-- **GPS Daemon Architecture**: Lightweight daemon eliminates race conditions and provides real-time data to multiple clients
+- **Modern GPS Architecture**: Streamlined daemon eliminates race conditions and provides real-time data to multiple clients
 - **Constellation-Specific Metrics**: Detailed satellite tracking with per-constellation visibility and signal quality
 
 ### Power Management (Optional)

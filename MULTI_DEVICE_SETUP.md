@@ -1,12 +1,14 @@
-# RPI Streamer Multi-Device Integration Guide
+# RPI Streamer Multi-Device Integration Guide v3.00
 
-🎥 **Complete setup guide for managing multiple RPI Streamer devices through your AlmaLinux server**
+🎥 **Complete setup guide for managing multiple RPI Streamer v3.00 devices through your AlmaLinux server**
 
 ## 📋 Overview
 
 This setup allows you to:
-- ✅ Manage unlimited RPI Streamer devices from one central server
-- ✅ Access each device via SSH port forwarding (e.g., `ssh -L 8080:localhost:45001 user@server -p 45002`)
+- ✅ Manage unlimited RPI Streamer v3.00 devices from one central server
+- ✅ Access each device via SSH port forwarding with modern WiFi management interface
+- ✅ Complete WiFi management and hotspot control through tunneled connections
+- ✅ GPS tracking and modern daemon monitoring
 - ✅ Automatic port allocation (no conflicts)
 - ✅ Secure reverse SSH tunnels with AutoSSH reliability
 - ✅ Hardware registration integration with gyropilots.org
@@ -19,8 +21,8 @@ Your Computer/Laptop
     ↓ SSH Port Forward: ssh -L 8080:localhost:45001 user@server -p 45002
 Your AlmaLinux Server
     ↓ Reverse SSH Tunnels (internal ports 45000-70000)
-RPI Streamer Devices (home networks)
-    ↓ Access via: http://localhost:8080
+RPI Streamer v3.00 Devices (home networks)
+    ↓ Access modern WiFi interface via: http://localhost:8080
 ```
 
 ## 🚀 Quick Start

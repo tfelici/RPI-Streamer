@@ -1,8 +1,8 @@
-# RPI Streamer Flight Settings
+# RPI Streamer Flight Settings v3.00
 
 ## Overview
 
-Flight Settings provides comprehensive configuration and control for GPS tracking functionality in the RPI Streamer system. This feature enables seamless integration with flight tracking platforms (Gyropilots.org and Gapilots.org) with flexible startup modes, vehicle registration, and automated streaming coordination.
+Flight Settings provides comprehensive configuration and control for GPS tracking functionality in the RPI Streamer system. This feature enables seamless integration with flight tracking platforms (Gyropilots.org and Gapilots.org) with flexible startup modes, vehicle registration, and automated streaming coordination using the modern GPS daemon architecture.
 
 ## Core Features
 

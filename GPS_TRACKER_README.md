@@ -1,14 +1,14 @@
-# RPI Streamer GPS Tracking System
+# RPI Streamer GPS Tracking System v3.00
 
-The RPI Streamer includes a comprehensive GPS tracking system that integrates seamlessly with the Gyropilots and Gapilots flight tracking platforms, providing real-time location tracking for aviation applications.
+The RPI Streamer includes a comprehensive GPS tracking system with modern daemon architecture that integrates seamlessly with the Gyropilots and Gapilots flight tracking platforms, providing real-time location tracking for aviation applications.
 
 ## Key Features
 
 ### 🛰️ Hardware Integration
-- **Universal GPS Support**: Compatible with USB GPS receivers, GPS HATs, and other GNSS hardware
+- **Universal GPS Support**: USB GPS receivers, GPS HATs, and other GNSS hardware with automatic detection
 - **Enhanced GNSS**: GPS + GLONASS + Galileo + BeiDou satellite constellation support via direct NMEA parsing
-- **SIM7600G-H Integration**: Direct cellular modem GPS communication without middleware dependencies
-- **Automatic Hardware Detection**: Robust detection and handling of GPS hardware
+- **SIM7600G-H Integration**: Direct cellular modem GPS communication with integrated initialization
+- **Automatic Hardware Detection**: Robust detection and handling of GPS hardware with modern daemon architecture
 
 ### 📍 Tracking Capabilities
 - **Real-time Tracking**: Continuous GPS coordinate collection and server synchronization
@@ -26,9 +26,9 @@ The RPI Streamer includes a comprehensive GPS tracking system that integrates se
 
 ### Core Files
 - **`gps_tracker.py`**: Main GPS tracking implementation with direct NMEA parsing
-- **`utils.py`**: GPS utility functions including `get_gnss_location()` for accessing GPS data
+- **`gps_client.py`**: GPS client for accessing GPS daemon data programmatically
 - **`gps_startup_manager.py`**: Service startup manager for automated GPS tracking
-- **`gps_daemon.py`**: GPS daemon with integrated initialization for SIM7600G-H cellular modems
+- **`gps_daemon.py`**: Modern GPS daemon with integrated initialization for all GPS hardware types
 
 ### Services
 - **`gps-startup.service`**: Systemd service for GPS startup management
@@ -37,17 +37,17 @@ The RPI Streamer includes a comprehensive GPS tracking system that integrates se
 ## Installation and Setup
 
 ### Automatic Installation
-GPS tracking is automatically installed with RPI Streamer:
+GPS tracking is automatically installed with RPI Streamer v3.00:
 
 ```bash
-# Standard installation includes GPS tracking
+# Standard installation includes modern GPS tracking system
 bash install_rpi_streamer.sh
 
 # Installation automatically:
-# ✅ Installs all GPS dependencies
+# ✅ Installs all GPS dependencies and modern daemon architecture
 # ✅ Creates GPS startup service (not enabled by default)
-# ✅ Sets up automatic GPS enablement for SIM7600G-H modems
-# ✅ Configures hardware integration
+# ✅ Sets up automatic GPS enablement for all supported GPS hardware
+# ✅ Configures hardware integration with streamlined architecture
 ```
 
 ### Flight Settings Configuration
@@ -67,7 +67,7 @@ sudo systemctl status gps-startup.service
 # View GPS service logs
 sudo journalctl -u gps-startup.service -f
 
-# Check GPS auto-enable status (for SIM7600G-H modems)
+# Check GPS auto-enable status (for all supported GPS hardware)
 sudo journalctl -u gps-daemon.service -f
 
 # Manual service control (when configured for manual mode)

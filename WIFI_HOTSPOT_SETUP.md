@@ -1,53 +1,73 @@
-# WiFi Hotspot Mode Setup Guide
+# WiFi Management System Guide v3.00
 
 ## Overview
-The RPI Streamer now supports WiFi hotspot mode, allowing the Raspberry Pi to create its own WiFi network that other devices can connect to. This is useful for:
+The RPI Streamer v3.00 features a complete WiFi management system with modern network scanning interface and comprehensive hotspot functionality. This system allows the Raspberry Pi to both connect to existing networks and create its own WiFi access point with full routing capabilities.
 
-- Remote locations without existing WiFi infrastructure
-- Direct connection from mobile devices for configuration
-- Isolated network environments
-- Backup connectivity when primary WiFi is unavailable
+Key capabilities:
+- Modern network scanner with real-time discovery and one-click connections
+- Complete hotspot mode with NAT routing via ethernet connection
+- Real-time WiFi status with connected network display
+- Automatic service management for hostapd, dnsmasq, and iptables routing
 
 ## Features
 
+### WiFi Network Management
+- **Network Scanner**: Real-time discovery of available WiFi networks with signal strength indicators
+- **One-Click Connection**: Connect to networks with password entry and automatic configuration
+- **Real-Time Status**: Display of connected network names and IP addresses
+- **Password Management**: Secure password handling with toggle visibility
+
 ### WiFi Mode Options
-- **Client Mode**: Connect to existing WiFi networks (traditional behavior)
-- **Hotspot Mode**: Create a WiFi access point that other devices can join
+- **Client Mode**: Connect to existing WiFi networks with modern scanning interface
+- **Hotspot Mode**: Create "RPI-Streamer" WiFi access point with full internet routing
+- **Seamless Switching**: Easy mode switching through web interface
 
 ### Hotspot Configuration
-- **Custom SSID**: Set your own network name (default: "RPI-Streamer")
-- **Password Protection**: WPA2 security with custom password (minimum 8 characters)
-- **Channel Selection**: Choose WiFi channel 1, 6, or 11
-- **IP Configuration**: Set custom IP address for the Pi (default: 192.168.4.1)
-- **DHCP Server**: Automatically assigns IP addresses to connected devices
+- **Fixed SSID**: Creates "RPI-Streamer" network for consistent identification
+- **Password Protection**: WPA2 security with configurable password (minimum 8 characters)
+- **Channel Selection**: Choose WiFi channel 1, 6, or 11 (6 is default)
+- **IP Configuration**: Fixed IP address 192.168.4.1 for the Pi
+- **DHCP Server**: Automatic IP assignment to connected devices (192.168.4.2-192.168.4.20)
+- **Internet Routing**: Full NAT routing via ethernet connection with iptables configuration
 
 ## Quick Setup
 
-### Via Web Interface
+### WiFi Network Connection
+1. Navigate to **System Settings** in the RPI Streamer web interface
+2. In the **WiFi Management** section, view the **Available Networks** list
+3. Networks are automatically discovered with signal strength indicators
+4. Click **Connect** next to your desired network
+5. Enter the network password in the provided field
+6. Click **Connect** to join the network
+7. Status will show "Connected to [Network Name]" when successful
+
+### Hotspot Mode Setup
 1. Navigate to **System Settings** in the RPI Streamer web interface
 2. In the **WiFi Management** section, select **Hotspot Mode**
 3. Configure your hotspot settings:
-   - **Hotspot Name (SSID)**: Your network name
-   - **Password**: At least 8 characters (WPA2 security)
-   - **WiFi Channel**: 1, 6, or 11 (6 is recommended)
-   - **IP Address**: The Pi's IP address (default: 192.168.4.1)
-4. Click **Switch to Hotspot Mode**
-5. Wait for the configuration to complete (30-60 seconds)
-
-### Manual Configuration
-If you need to configure the hotspot manually:
-
-```bash
-# Install required packages
-sudo apt-get install hostapd dnsmasq
-
-# Configure hotspot via RPI Streamer web interface
-# Or edit configuration files manually (see Advanced Configuration below)
-```
+   - **Password**: Set secure password (minimum 8 characters)
+   - **WiFi Channel**: Select 1, 6, or 11 (6 is recommended)
+4. Click **Save Hotspot Settings**
+5. The system creates "RPI-Streamer" network with internet routing via ethernet
+6. Connected devices automatically receive internet access through the Pi
 
 ## Network Configuration
 
-### Default Settings
+### Default Hotspot Settings
+- **SSID**: "RPI-Streamer" (fixed for consistent identification)
+- **Security**: WPA2 with configurable password
+- **IP Address**: 192.168.4.1 (Pi's address in hotspot mode)
+- **DHCP Range**: 192.168.4.2 to 192.168.4.20
+- **Subnet Mask**: 255.255.255.0
+- **Default Gateway**: 192.168.4.1 (the Pi)
+- **DNS Servers**: Forwarded through Pi to internet via ethernet
+
+### Automatic Internet Routing
+The hotspot mode automatically configures:
+- **iptables NAT**: Routes traffic from WiFi clients to ethernet internet connection
+- **IP Forwarding**: Enables packet forwarding between WiFi and ethernet interfaces
+- **DHCP Server**: Provides automatic IP configuration to connected devices
+- **DNS Forwarding**: Routes DNS queries through the Pi to upstream servers
 - **SSID**: RPI-Streamer
 - **Password**: rpistreamer123
 - **IP Range**: 192.168.4.1 - 192.168.4.50
