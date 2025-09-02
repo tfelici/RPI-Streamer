@@ -59,8 +59,8 @@ authInternalUsers:
   # IPs or networks allowed to use this user. An empty list means any IP.
   ips: []
   # List of permissions.
-  # Available actions are: publish, read, playback, api, metrics, pprof.
   permissions:
+    # Available actions are: publish, read, playback, api, metrics, pprof.
   - action: publish
     # Paths can be set to further restrict access to a specific path.
     # An empty path means any path.
@@ -89,6 +89,7 @@ authInternalUsers:
 # {
 #   "user": "user",
 #   "password": "password",
+#   "token": "token",
 #   "ip": "ip",
 #   "action": "publish|read|playback|api|metrics|pprof",
 #   "path": "path",
@@ -119,21 +120,30 @@ authHTTPExclude:
 #     }
 #   ]
 # }
-# Users are expected to pass the JWT in the Authorization header or as a query parameter.
+# Users are expected to pass the JWT in the Authorization header, password or query parameter.
 # This is the JWKS URL that will be used to pull (once) the public key that allows
 # to validate JWTs.
 authJWTJWKS:
+# If the JWKS URL has a self-signed or invalid certificate,
+# you can provide the fingerprint of the certificate in order to
+# validate it anyway. It can be obtained by running:
+# openssl s_client -connect jwt_jwks_domain:443 </dev/null 2>/dev/null | sed -n '/BEGIN/,/END/p' > server.crt
+# openssl x509 -in server.crt -noout -fingerprint -sha256 | cut -d "=" -f2 | tr -d ':'
+authJWTJWKSFingerprint:
 # name of the claim that contains permissions.
 authJWTClaimKey: mediamtx_permissions
 # Actions to exclude from JWT-based authentication.
 # Format is the same as the one of user permissions.
 authJWTExclude: []
+# allow passing the JWT through query parameters of HTTP requests (i.e. ?jwt=JWT).
+# This is a security risk.
+authJWTInHTTPQuery: true
 
 ###############################################
 # Global settings -> Control API
 
 # Enable controlling the server through the Control API.
-api: yes
+api: no
 # Address of the Control API listener.
 apiAddress: :9997
 # Enable TLS/HTTPS on the Control API server.
@@ -228,12 +238,12 @@ playbackTrustedProxies: []
 rtsp: yes
 # List of enabled RTSP transport protocols.
 # UDP is the most performant, but doesn't work when there's a NAT/firewall between
-# server and clients, and doesn't support encryption.
+# server and clients.
 # UDP-multicast allows to save bandwidth when clients are all in the same LAN.
-# TCP is the most versatile, and does support encryption.
+# TCP is the most versatile.
 # The handshake is always performed with TCP.
 rtspTransports: [udp, multicast, tcp]
-# Encrypt handshakes and TCP streams with TLS (RTSPS).
+# Use secure protocol variants (RTSPS, TLS, SRTP).
 # Available values are "no", "strict", "optional".
 rtspEncryption: "no"
 # Address of the TCP/RTSP listener. This is needed only when encryption is "no" or "optional".
@@ -250,6 +260,14 @@ multicastIPRange: 224.1.0.0/16
 multicastRTPPort: 8002
 # Port of all UDP-multicast/RTCP listeners. This is needed only when "multicast" is in rtspTransports.
 multicastRTCPPort: 8003
+# Address of the UDP/SRTP listener. This is needed only when "udp" is in rtspTransports and encryption is enabled.
+srtpAddress: :8004
+# Address of the UDP/SRTCP listener. This is needed only when "udp" is in rtspTransports and encryption is enabled.
+srtcpAddress: :8005
+# Port of all UDP-multicast/SRTP listeners. This is needed only when "multicast" is in rtspTransports and encryption is enabled.
+multicastSRTPPort: 8006
+# Port of all UDP-multicast/SRTCP listeners. This is needed only when "multicast" is in rtspTransports and encryption is enabled.
+multicastSRTCPPort: 8007
 # Path to the server key. This is needed only when encryption is "strict" or "optional".
 # This can be generated with:
 # openssl genrsa -out server.key 2048
@@ -260,6 +278,10 @@ rtspServerCert: server.crt
 # Authentication methods. Available are "basic" and "digest".
 # "digest" doesn't provide any additional security and is available for compatibility only.
 rtspAuthMethods: [basic]
+# Size of the UDP buffer of the RTSP server.
+# This can be increased to mitigate packet losses.
+# It defaults to the default value of the operating system.
+rtspUDPReadBufferSize: 0
 
 ###############################################
 # Global settings -> RTMP server
@@ -421,7 +443,10 @@ pathDefaults:
   # * rtmps://existing-url -> the stream is pulled from another RTMP server / camera with RTMPS
   # * http://existing-url/stream.m3u8 -> the stream is pulled from another HLS server / camera
   # * https://existing-url/stream.m3u8 -> the stream is pulled from another HLS server / camera with HTTPS
-  # * udp://ip:port -> the stream is pulled with UDP, by listening on the specified IP and port
+  # * udp+mpegts://ip:port -> the stream is pulled from MPEG-TS over UDP, by listening on the specified address
+  # * unix+mpegts://socket -> the stream is pulled from MPEG-TS over Unix socket, by using the socket
+  # * udp+rtp://ip:port -> the stream is pulled from RTP over UDP, by listening on the specified address
+  # * unix+rtp://socket -> the stream is pulled from RTP over Unix socket, by using the socket
   # * srt://existing-url -> the stream is pulled from another SRT server / camera
   # * whep://existing-url -> the stream is pulled from another WebRTC server / camera
   # * wheps://existing-url -> the stream is pulled from another WebRTC server / camera with HTTPS
@@ -449,14 +474,14 @@ pathDefaults:
   sourceOnDemandCloseAfter: 10s
   # Maximum number of readers. Zero means no limit.
   maxReaders: 0
-  # SRT encryption passphrase require to read from this path
+  # SRT encryption passphrase required to read from this path.
   srtReadPassphrase:
   # If the stream is not available, redirect readers to this path.
   # It can be can be a relative path (i.e. /otherstream) or an absolute RTSP URL.
   fallback:
-  # Use original absolute timestamps of RTSP and WebRTC frames.
-  # In RTSP and WebRTC, absolute timestamps are transported through RTCP reports.
+  # Route original absolute timestamps of RTSP and WebRTC frames, instead of replacing them.
   useAbsoluteTimestamp: false
+
 
   ###############################################
   # Default path settings -> Record
@@ -476,6 +501,8 @@ pathDefaults:
   # When a system failure occurs, the last part gets lost.
   # Therefore, the part duration is equal to the RPO (recovery point objective).
   recordPartDuration: 1s
+  # This prevents RAM exhaustion.
+  recordMaxPartSize: 50M
   # Minimum duration of each segment.
   recordSegmentDuration: 1h
   # Delete segments after this timespan.
@@ -487,7 +514,7 @@ pathDefaults:
 
   # Allow another client to disconnect the current publisher and publish in its place.
   overridePublisher: yes
-  # SRT encryption passphrase required to publish to this path
+  # SRT encryption passphrase required to publish to this path.
   srtPublishPassphrase:
 
   ###############################################
@@ -509,6 +536,28 @@ pathDefaults:
   # * npt: duration such as "300ms", "1.5m" or "2h45m", valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h"
   # * smpte: duration such as "300ms", "1.5m" or "2h45m", valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h"
   rtspRangeStart:
+  # Size of the UDP buffer of the RTSP client.
+  # This can be increased to mitigate packet losses.
+  # It defaults to the default value of the operating system.
+  rtspUDPReadBufferSize: 0
+
+  ###############################################
+  # Default path settings -> MPEG-TS source (when source is MPEG-TS)
+
+  # Size of the UDP buffer of the MPEG-TS client.
+  # This can be increased to mitigate packet losses.
+  # It defaults to the default value of the operating system.
+  mpegtsUDPReadBufferSize: 0
+
+  ###############################################
+  # Default path settings -> RTP source (when source is RTP)
+
+  # session description protocol (SDP) of the RTP stream.
+  rtpSDP:
+  # Size of the UDP buffer of the RTP client.
+  # This can be increased to mitigate packet losses.
+  # It defaults to the default value of the operating system.
+  rtpUDPReadBufferSize: 0
 
   ###############################################
   # Default path settings -> Redirect source (when source is "redirect")
@@ -544,22 +593,20 @@ pathDefaults:
   # values: normal, short, long, custom.
   rpiCameraExposure: normal
   # Auto-white-balance mode.
-  # values: auto, incandescent, tungsten, fluorescent, indoor, daylight, cloudy, custom.
+  # (auto, incandescent, tungsten, fluorescent, indoor, daylight, cloudy or custom).
   rpiCameraAWB: auto
   # Auto-white-balance fixed gains. This can be used in place of rpiCameraAWB.
   # format: [red,blue].
   rpiCameraAWBGains: [0, 0]
-  # Denoise operating mode.
-  # values: off, cdn_off, cdn_fast, cdn_hq.
+  # Denoise operating mode (off, cdn_off, cdn_fast, cdn_hq).
   rpiCameraDenoise: "off"
   # Fixed shutter speed, in microseconds.
   rpiCameraShutter: 0
-  # Metering mode of the AEC/AGC algorithm.
-  # values: centre, spot, matrix, custom.
+  # Metering mode of the AEC/AGC algorithm (centre, spot, matrix or custom).
   rpiCameraMetering: centre
   # Fixed gain.
   rpiCameraGain: 0
-  # EV compensation of the image [-10, 10].
+  # EV compensation of the image in range [-10, 10].
   rpiCameraEV: 0
   # Region of interest, in format x,y,width,height (all normalized between 0 and 1).
   rpiCameraROI:
@@ -572,14 +619,11 @@ pathDefaults:
   rpiCameraMode:
   # frames per second.
   rpiCameraFPS: 30
-  # Autofocus mode.
-  # values: auto, manual, continuous.
+  # Autofocus mode (auto, manual or continuous).
   rpiCameraAfMode: continuous
-  # Autofocus range.
-  # values: normal, macro, full.
+  # Autofocus range (normal, macro or full).
   rpiCameraAfRange: normal
-  # Autofocus speed.
-  # values: normal, fast.
+  # Autofocus speed (normal or fast).
   rpiCameraAfSpeed: normal
   # Lens position (for manual autofocus only), will be set to focus to a specific distance
   # calculated by the following formula: d = 1 / value
@@ -587,7 +631,7 @@ pathDefaults:
   #           0.5 moves the lens to focus on objects 2m away.
   #           2 moves the lens to focus on objects 50cm away.
   rpiCameraLensPosition: 0.0
-  # Specifies the autofocus window, in the form x,y,width,height where the coordinates
+  # Autofocus window, in the form x,y,width,height where the coordinates
   # are given as a proportion of the entire image.
   rpiCameraAfWindow:
   # Manual flicker correction period, in microseconds.
@@ -597,18 +641,24 @@ pathDefaults:
   # Text that is printed on each frame.
   # format is the one of the strftime() function.
   rpiCameraTextOverlay: '%Y-%m-%d %H:%M:%S - MediaMTX'
-  # Codec. Available values: auto, hardwareH264, softwareH264, mjpeg.
+  # Codec (auto, hardwareH264, softwareH264 or mjpeg).
+  # When is "auto" and stream is primary, it defaults to hardwareH264 (if available) or softwareH264.
+  # When is "auto" and stream is secondary, it defaults to mjpeg.
   rpiCameraCodec: auto
-  # Period between H264 IDR frames.
+  # Period between IDR frames (when codec is hardwareH264 or softwareH264).
   rpiCameraIDRPeriod: 60
-  # H264 Bitrate.
+  # Bitrate (when codec is hardwareH264 or softwareH264).
   rpiCameraBitrate: 5000000
-  # H264 profile.
-  rpiCameraProfile: main
-  # H264 level.
-  rpiCameraLevel: '4.1'
-  # JPEG quality.
-  rpiCameraJPEGQuality: 60
+  # Hardware H264 profile (baseline, main or high) (when codec is hardwareH264).
+  rpiCameraHardwareH264Profile: main
+  # Hardware H264 level (4.0, 4.1 or 4.2) (when codec is hardwareH264).
+  rpiCameraHardwareH264Level: '4.1'
+  # Software H264 profile (baseline, main or high) (when codec is softwareH264).
+  rpiCameraSoftwareH264Profile: baseline
+  # Software H264 level (4.0, 4.1 or 4.2) (when codec is softwareH264).
+  rpiCameraSoftwareH264Level: '4.1'
+  # M-JPEG JPEG quality (when codec is mjpeg).
+  rpiCameraMJPEGQuality: 60
 
   ###############################################
   # Default path settings -> Hooks
@@ -640,12 +690,12 @@ pathDefaults:
   runOnDemandRestart: no
   # Readers will be put on hold until the runOnDemand command starts publishing
   # or until this amount of time has passed.
-  runOnDemandStartTimeout: 5s
+  runOnDemandStartTimeout: 10s
   # The command will be closed when there are no
   # readers connected and this amount of time has passed.
   runOnDemandCloseAfter: 10s
   # Command to run when there are no readers anymore.
-  # Environment variables are the same of runOnDemand.s
+  # Environment variables are the same of runOnDemand.
   runOnUnDemand:
 
   # Command to run when the stream is ready to be read, whenever it is
@@ -710,7 +760,7 @@ pathDefaults:
 # Any setting in "pathDefaults" can be overridden here.
 # It's possible to use regular expressions by using a tilde as prefix,
 # for example "~^(test1|test2)$" will match both "test1" and "test2",
-# for example "~^prefix" will match all paths that start with "prefix".   
+# for example "~^prefix" will match all paths that start with "prefix".
 paths:
   # example:
   # my_camera:
