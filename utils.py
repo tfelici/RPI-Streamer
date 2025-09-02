@@ -29,6 +29,7 @@ import atexit
 import psutil
 import time
 import math
+import socket
 from datetime import datetime
 
 def generate_gps_track_id() -> str:
@@ -60,6 +61,16 @@ STREAMER_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'
 SETTINGS_FILE = os.path.join(STREAMER_DATA_DIR, 'settings.json')
 STREAM_PIDFILE = "/tmp/relay-ffmpeg-webcam.pid"
 
+def get_default_hotspot_ssid():
+    """Get the system hostname to use as default hotspot SSID"""
+    try:
+        hostname = socket.gethostname()
+        # Clean up hostname to be WiFi-safe (alphanumeric and hyphens only)
+        clean_hostname = re.sub(r'[^a-zA-Z0-9-]', '-', hostname)
+        return clean_hostname if clean_hostname else "RPI-Streamer"
+    except:
+        return "RPI-Streamer"
+
 DEFAULT_SETTINGS = {
     "stream_url": "",
     "upload_url": "",
@@ -84,7 +95,7 @@ DEFAULT_SETTINGS = {
     "gps_stop_on_power_loss": False,
     "gps_stop_power_loss_minutes": 1,
     "wifi_mode": "client",  # "client" or "hotspot"
-    "hotspot_ssid": "RPI-Streamer",
+    "hotspot_ssid": get_default_hotspot_ssid(),
     "hotspot_password": "rpistreamer123",
     "hotspot_channel": 6,
     "hotspot_ip": "192.168.4.1"

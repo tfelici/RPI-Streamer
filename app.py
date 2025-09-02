@@ -23,7 +23,7 @@ from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, generate_gps_track_id
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, generate_gps_track_id, get_default_hotspot_ssid
 from gps_client import get_gnss_location
 
 # Use pymediainfo for fast video duration extraction
@@ -2192,6 +2192,27 @@ def system_settings_reboot():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/system-settings-factory-reset', methods=['POST'])
+def system_settings_factory_reset():
+    try:
+        # Remove the settings file to reset to defaults
+        if os.path.exists(SETTINGS_FILE):
+            os.remove(SETTINGS_FILE)
+        
+        # Also remove any cached authentication files
+        auth_file = os.path.join(STREAMER_DATA_DIR, 'auth.json')
+        if os.path.exists(auth_file):
+            os.remove(auth_file)
+        
+        # Remove WiFi credentials file if it exists
+        wifi_file = os.path.join(STREAMER_DATA_DIR, 'wifi.json')
+        if os.path.exists(wifi_file):
+            os.remove(wifi_file)
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 def get_current_git_branch():
     """
     Get the current git branch name to compare against the correct remote branch.
@@ -2462,7 +2483,7 @@ def get_connection_info():
                     # Add hotspot details
                     settings = load_settings()
                     hotspot_details = {
-                        'ssid': settings.get('hotspot_ssid', 'RPI-Hotspot'),
+                        'ssid': settings.get('hotspot_ssid', get_default_hotspot_ssid()),
                         'clients_count': hotspot_clients,
                         'mode': 'hotspot'
                     }

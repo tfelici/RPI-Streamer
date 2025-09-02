@@ -143,6 +143,16 @@
                 <div id="reboot-result" class="status-message" style="display: none;"></div>
             </div>
             
+            <!-- Factory Reset Section -->
+            <div style="text-align: center; margin-bottom: 2rem;">
+                <h3 style="color: #d32f2f; margin-bottom: 1rem;">Factory Reset</h3>
+                <p style="color: #666; margin-bottom: 1rem; font-size: 0.9rem;">
+                    This will reset all settings to factory defaults. WiFi credentials, authentication, and all configuration will be lost.
+                </p>
+                <button id="factory-reset-btn" class="btn btn-danger">Reset to Factory Defaults</button>
+                <div id="factory-reset-result" class="status-message" style="display: none;"></div>
+            </div>
+            
             <!-- Update Section -->
             <div class="update-section">
                 <h2>System Updates</h2>
@@ -635,6 +645,42 @@
                     resultDiv.className = 'status-message status-error';
                     resultDiv.style.display = 'block';
                     rebootBtn.disabled = false;
+                });
+        };
+        
+        // Factory Reset button
+        document.getElementById('factory-reset-btn').onclick = function() {
+            if (!confirm('Are you sure you want to reset all settings to factory defaults? This cannot be undone!')) return;
+            if (!confirm('This will erase ALL settings including WiFi, authentication, and configuration. Are you absolutely sure?')) return;
+            
+            const resultDiv = document.getElementById('factory-reset-result');
+            const resetBtn = document.getElementById('factory-reset-btn');
+            
+            // Show updating message
+            resultDiv.textContent = 'Resetting to factory defaults...';
+            resultDiv.className = 'status-message';
+            resultDiv.style.display = 'block';
+            resetBtn.disabled = true;
+            
+            fetch('/system-settings-factory-reset', { method: 'POST' })
+                .then(r => r.json())
+                .then(function(data) {
+                    if (data.success) {
+                        resultDiv.textContent = 'Factory reset complete. System will reload...';
+                        resultDiv.className = 'status-message status-success';
+                        // Reload the page after a short delay
+                        setTimeout(function() {
+                            window.location.reload();
+                        }, 2000);
+                    } else {
+                        resultDiv.textContent = data.error || 'Factory reset failed';
+                        resultDiv.className = 'status-message status-error';
+                        resetBtn.disabled = false;
+                    }
+                }).catch(error => {
+                    resultDiv.textContent = 'Error during factory reset: ' + error.message;
+                    resultDiv.className = 'status-message status-error';
+                    resetBtn.disabled = false;
                 });
         };
         
