@@ -9,7 +9,7 @@ Flight Settings provides comprehensive configuration and control for GPS trackin
 ### 🛰️ GPS Tracking Configuration
 - **Username Management**: Required identification for flight tracking platforms
 - **Vehicle Registration**: Aircraft identification (tail numbers, registration codes)
-- **Platform Selection**: Support for Gyropilots.org and Gapilots.org tracking systems
+- **Platform Selection**: Support for configurable tracking platforms (Gyropilots.org, Gapilots.org, or custom servers)
 - **Real-time Status**: Live GPS tracking status and coordinate monitoring
 
 ### ⚙️ Startup Mode Selection
@@ -30,7 +30,7 @@ Flight Settings provides comprehensive configuration and control for GPS trackin
 1. **Access Flight Settings**: Navigate to `/flight-settings` in the RPI Streamer web interface
 2. **Username Configuration**: Enter your tracking platform username (required)
 3. **Vehicle Registration**: Optionally enter aircraft registration (e.g., N123AB, G-ABCD)
-4. **Platform Selection**: Choose between Gyropilots.org or Gapilots.org
+4. **Platform Selection**: Enter your preferred tracking platform domain (e.g., gyropilots.org, gapilots.org, or custom server)
 5. **Save Configuration**: Apply settings to enable GPS tracking functionality
 
 ### Startup Mode Configuration
@@ -90,7 +90,7 @@ Access the configuration interface at `/flight-settings`:
 #### Configuration Fields
 - **GPS Username**: Required for platform integration and flight identification
 - **Vehicle Registration**: Optional aircraft identifier (tail number, registration)
-- **Platform Domain**: Select Gyropilots.org or Gapilots.org
+- **Platform Domain**: Configure tracking platform domain (gyropilots.org, gapilots.org, or custom server)
 - **Start Mode**: Choose Manual, Auto (Boot), or Auto (Motion)
 - **Stream Integration**: Toggle automatic video streaming coordination
 
@@ -160,12 +160,12 @@ sudo systemctl restart gps-startup.service
 
 ### Platform Connection Issues
 ```bash
-# Test internet connectivity
-ping -c 3 gyropilots.org
+# Test internet connectivity to your configured platform
+ping -c 3 [your-configured-domain]
 
-# Check GPS tracker operation
+# Check GPS tracker operation with your platform
 cd ~/flask_app
-python3 gps_tracker.py [username] --domain gyropilots.org --simulate --duration 30
+python3 gps_tracker.py [username] --domain [your-configured-domain] --simulate --duration 30
 
 # Verify platform credentials
 # Ensure username exists on tracking platform
@@ -197,7 +197,7 @@ Example configuration:
 {
     "gps_username": "pilot123",
     "vehicle_registration": "N123AB",
-    "gps_domain": "gyropilots.org",
+    "gps_domain": "your-tracking-platform.com",
     "gps_start_mode": "manual",
     "auto_start_stop_streaming": false
 }

@@ -19,11 +19,11 @@ Key capabilities:
 
 ### WiFi Mode Options
 - **Client Mode**: Connect to existing WiFi networks with modern scanning interface
-- **Hotspot Mode**: Create "RPI-Streamer" WiFi access point with full internet routing
+- **Hotspot Mode**: Create dynamic hostname-based WiFi access point with full internet routing
 - **Seamless Switching**: Easy mode switching through web interface
 
 ### Hotspot Configuration
-- **Fixed SSID**: Creates "RPI-Streamer" network for consistent identification
+- **Dynamic SSID**: Uses device hostname for unique network identification (e.g., "raspberrypi", "streamer-01")
 - **Password Protection**: WPA2 security with configurable password (minimum 8 characters)
 - **Channel Selection**: Choose WiFi channel 1, 6, or 11 (6 is default)
 - **IP Configuration**: Fixed IP address 192.168.4.1 for the Pi
@@ -48,13 +48,13 @@ Key capabilities:
    - **Password**: Set secure password (minimum 8 characters)
    - **WiFi Channel**: Select 1, 6, or 11 (6 is recommended)
 4. Click **Save Hotspot Settings**
-5. The system creates "RPI-Streamer" network with internet routing via ethernet
+5. The system creates a hostname-based network (e.g., "raspberrypi") with internet routing via ethernet
 6. Connected devices automatically receive internet access through the Pi
 
 ## Network Configuration
 
 ### Default Hotspot Settings
-- **SSID**: "RPI-Streamer" (fixed for consistent identification)
+- **SSID**: Dynamic hostname-based (e.g., "raspberrypi", "streamer-01") for unique device identification
 - **Security**: WPA2 with configurable password
 - **IP Address**: 192.168.4.1 (Pi's address in hotspot mode)
 - **DHCP Range**: 192.168.4.2 to 192.168.4.20
@@ -68,7 +68,7 @@ The hotspot mode automatically configures:
 - **IP Forwarding**: Enables packet forwarding between WiFi and ethernet interfaces
 - **DHCP Server**: Provides automatic IP configuration to connected devices
 - **DNS Forwarding**: Routes DNS queries through the Pi to upstream servers
-- **SSID**: RPI-Streamer
+- **SSID**: Dynamic hostname-based (unique per device)
 - **Password**: rpistreamer123
 - **IP Range**: 192.168.4.1 - 192.168.4.50
 - **Channel**: 6
