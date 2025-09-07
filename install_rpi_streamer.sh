@@ -7,16 +7,19 @@
 #                     (use existing local files without checking for updates)
 #   --main            Install stable main branch (default)
 #   --develop         Install latest develop branch (may be unstable)
-#   --daemon          Run in daemon mode (no interactive prompts)
+#   --reverse-ssh     Setup reverse SSH tunnel to your server for remote access
+#   --tailscale       Setup Tailscale VPN for secure mesh networking
+#   --remote          Interactive remote access menu
 #
 # Examples:
 #   bash install_rpi_streamer.sh                     # Basic installation with main branch
 #   bash install_rpi_streamer.sh --develop          # Installation with develop branch
 #   bash install_rpi_streamer.sh --skip-update      # Installation without updating codebase
-#   bash install_rpi_streamer.sh --daemon           # Silent installation without prompts
+#   bash install_rpi_streamer.sh --reverse-ssh      # Installation with reverse SSH tunnel
+#   bash install_rpi_streamer.sh --tailscale        # Installation with Tailscale VPN
 
 # This script installs the RPI Streamer Flask app and MediaMTX on a Raspberry Pi running Raspberry Pi OS Lite.
-# It also sets up a systemd service for the Flask app and MediaMTX, with optional remote access configuration.
+# It also sets up a systemd service for the Flask app and MediaMTX, and installs Tailscale for remote access.
 #
 # Optional UPS Management: Install UPS monitoring before running this script:
 #   curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_ups_management.sh?$(date +%s)
@@ -29,13 +32,26 @@ set -e
 echo "🌐 Checking for internet connectivity..."
 INTERNET_FOUND=false
 for i in {1..30}; do
-    if ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
-        echo "✅ Internet connection confirmed - proceeding with installation"
+    # Try multiple connectivity tests in order of preference
+    if ping -c 1 -w 5 google.com >/dev/null 2>&1; then
+        echo "✅ Internet connection confirmed (ping google.com) - proceeding with installation"
+        INTERNET_FOUND=true
+        break
+    elif ping -c 1 -w 5 8.8.8.8 >/dev/null 2>&1; then
+        echo "✅ Internet connection confirmed (ping 8.8.8.8) - proceeding with installation"
+        INTERNET_FOUND=true
+        break
+    elif command -v curl >/dev/null 2>&1 && curl -s --connect-timeout 5 --max-time 10 http://google.com >/dev/null 2>&1; then
+        echo "✅ Internet connection confirmed (curl google.com) - proceeding with installation"
+        INTERNET_FOUND=true
+        break
+    elif command -v wget >/dev/null 2>&1 && wget -q --spider --timeout=5 --tries=1 http://google.com >/dev/null 2>&1; then
+        echo "✅ Internet connection confirmed (wget google.com) - proceeding with installation"
         INTERNET_FOUND=true
         break
     fi
-    echo "Waiting for internet connection... ($i/30)"
-    sleep 1
+    echo "Waiting for internet connection... ($i/30) - Testing multiple methods"
+    sleep 2
 done
 
 if [ "$INTERNET_FOUND" = "false" ]; then
@@ -329,24 +345,34 @@ sudo apt-get install mediainfo -y
 
 # GPS Tracker dependencies (using direct NMEA parsing)
 
-# Ensure WiFi interface is ready for NetworkManager management
-echo "📡 Preparing WiFi interface for NetworkManager management..."
+# WiFi hotspot dependencies (for hotspot mode functionality)
+# Pre-configure iptables-persistent to avoid interactive prompts
+echo iptables-persistent iptables-persistent/autosave_v4 boolean true | sudo debconf-set-selections
+echo iptables-persistent iptables-persistent/autosave_v6 boolean true | sudo debconf-set-selections
+sudo apt-get install hostapd dnsmasq iptables iptables-persistent -y
 
-# Unblock WiFi radio if needed (defensive measure - app.py will also do this when creating hotspot)
-sudo rfkill unblock wifi 2>/dev/null || echo "Note: WiFi radio unblock not needed or already active"
+# Configure hotspot services for proper startup
+echo "🔧 Configuring hotspot services..."
 
-# Ensure WiFi radio is enabled for NetworkManager (modern Pi OS default)
-sudo nmcli radio wifi on 2>/dev/null || echo "Note: WiFi radio already enabled or not available"
+# Unmask hostapd service (it's often masked by default)
+sudo systemctl unmask hostapd
 
-# Disconnect any existing WiFi connections to ensure clean state
-sudo nmcli device disconnect wlan0 2>/dev/null || true
+# Enable hotspot services but don't start them (they'll be managed by the Flask app)
+sudo systemctl enable hostapd
+sudo systemctl enable dnsmasq
 
-echo "✅ WiFi interface prepared for hotspot mode via NetworkManager"
-echo "� WiFi hotspot configuration available via web interface:"
-echo "   • Access the RPI Streamer web interface after installation"
-echo "   • Navigate to Network Settings or WiFi Hotspot section"
-echo "   • Configure hotspot name, password, and IP settings"
-echo "   • Enable/disable hotspot as needed through the web interface"
+# Stop services initially (Flask app will control them)
+sudo systemctl stop hostapd 2>/dev/null || true
+sudo systemctl stop dnsmasq 2>/dev/null || true
+
+# Ensure WiFi interface is unblocked and ready for hotspot mode
+echo "📡 Ensuring WiFi interface is ready for hotspot mode..."
+sudo rfkill unblock wifi 2>/dev/null || true
+# Bring up the WiFi interface to ensure it's ready
+sudo ip link set wlan0 up 2>/dev/null || echo "Note: wlan0 interface may need manual configuration"
+
+echo "✅ Hotspot services configured (hostapd and dnsmasq enabled for boot)"
+echo "✅ WiFi interface prepared for hotspot mode"
 
 # AutoSSH for reliable reverse tunnel management
 sudo apt-get install autossh -y
@@ -637,6 +663,10 @@ chmod +x "$HOME/flask_app/gps_startup_manager.py"
 chmod +x "$HOME/flask_app/gps_daemon.py"
 echo "✅ Made GPS daemon scripts executable"
 
+#make streamer-config executable
+chmod +x "$HOME/flask_app/streamer-config.sh"
+echo "✅ Made streamer-config script executable"
+
 # Install udev rule for automatic GPS daemon startup when SIM7600G-H is inserted
 printf "🔌 Installing udev rule for SIM7600G-H auto-detection...\n"
 
@@ -854,7 +884,7 @@ Wants=network-online.target
 User=$USER
 Type=oneshot
 ExecStart=/usr/bin/curl -H "Cache-Control: no-cache" -L -o $HOME/flask_app/install_rpi_streamer.sh "https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh?$(date +%s)"
-ExecStartPost=/bin/bash -e $HOME/flask_app/install_rpi_streamer.sh $BRANCH_FLAG --daemon
+ExecStartPost=/bin/bash -e $HOME/flask_app/install_rpi_streamer.sh $BRANCH_FLAG
 RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
@@ -1167,27 +1197,56 @@ EOF
     echo "📄 Configuration saved to: /home/$USER/tunnel-config.txt"
 }
 
+# Function for Tailscale setup
+setup_tailscale_vpn() {
+    echo ""
+    echo "=========================================="
+    echo "🔐 TAILSCALE VPN SETUP"
+    echo "=========================================="
+    echo ""
+    echo "📦 Installing Tailscale..."
+    curl -fsSL https://tailscale.com/install.sh | sh
+    echo "✅ Tailscale installed successfully!"
+    echo ""
+    echo "🚀 Starting Tailscale connection..."
+    sudo tailscale up --accept-routes --accept-dns
+    echo ""
+    echo "📋 Your Tailscale IP address:"
+    tailscale ip -4 2>/dev/null || echo "   Run 'tailscale ip' after authentication"
+    echo ""
+    echo "🌐 Remote Access URLs (after Tailscale authentication):"
+    echo "   HTTP: http://$(tailscale ip -4 2>/dev/null || echo '[TAILSCALE-IP]')"
+    echo "   SSH:  ssh $(whoami)@$(tailscale ip -4 2>/dev/null || echo '[TAILSCALE-IP]')"
+    echo ""
+    echo "📱 Complete setup:"
+    echo "   1. Install Tailscale on your phone/computer"
+    echo "   2. Login with the same account"
+    echo "   3. Access your RPI Streamer from anywhere!"
+    TAILSCALE_INSTALLED=true
+}
+
 # Function for interactive remote access menu
 setup_remote_access_menu() {
     echo ""
     echo "🌐 REMOTE ACCESS SETUP"
     echo "======================================"
     echo ""
-    echo "Would you like to set up reverse SSH tunnel for remote access?"
-    echo "This allows secure access to your device from anywhere via your server."
-    echo ""
-    echo "Options:"
-    echo "  1) Yes - Set up reverse SSH tunnel (recommended)"
-    echo "  2) No - Skip remote access setup"
+    echo "Choose your remote access method:"
+    echo "1) Reverse SSH Tunnel (to your server) - Recommended"
+    echo "2) Tailscale VPN (mesh networking)"
+    echo "3) Skip remote access setup"
     echo ""
     
-    read -p "Enter your choice [1-2]: " access_choice
+    read -p "Enter your choice [1-3]: " access_choice
     
     case $access_choice in
         1)
             setup_reverse_ssh_tunnel
             ;;
         2)
+            setup_tailscale_vpn
+            ;;
+        3)
             echo "Skipping remote access setup"
             return
             ;;
@@ -1208,7 +1267,13 @@ echo "   HTTP: http://$(hostname -I | awk '{print $1}')"
 echo "   SSH:  ssh $USER@$(hostname -I | awk '{print $1}')"
 echo ""
 
-echo ""
+if [ "$TAILSCALE_INSTALLED" = true ]; then
+    echo "🔐 Remote Access (Tailscale VPN):"
+    echo "   HTTP: http://$(tailscale ip -4 2>/dev/null || echo '[TAILSCALE-IP-AFTER-AUTH]')"
+    echo "   SSH:  ssh $USER@$(tailscale ip -4 2>/dev/null || echo '[TAILSCALE-IP-AFTER-AUTH]')"
+    echo "   📱 Install Tailscale app on your devices and login"
+    echo ""
+fi
 
 echo "⚙️ Flight Settings available for GPS tracking configuration"
 echo "🔧 Configure GPS username and tracking modes in Flight Settings"
@@ -1225,20 +1290,25 @@ echo "   ✅ MediaMTX (Streaming server)"
 echo "   💓 Heartbeat Daemon (independent device monitoring)"
 echo "   ⚙️ GPS Daemon (auto-starts and enables GPS with hardware)"
 echo "   ⚙️ GPS Startup Manager (configure via web interface)"
-if systemctl is-active --quiet reverse-ssh-tunnel.service; then
-    echo "   🔒 Reverse SSH Tunnel (secure remote access)"
+if [ "$TAILSCALE_INSTALLED" = true ]; then
+    echo "   🔐 Tailscale VPN (secure remote access)"
 fi
-echo "   🔑 SSH Server (remote terminal access)"
+if systemctl is-active --quiet reverse-ssh-tunnel.service; then
+    echo "   � Reverse SSH Tunnel (secure remote access)"
+fi
+echo "   �🔑 SSH Server (remote terminal access)"
 
 echo ""
 echo "🛠️ Installation Script Options:"
 echo "   --skip-update  : Skip updating codebase from GitHub (use existing local files)"
-echo "   --daemon       : Run in daemon mode (no interactive prompts)"
+echo "   --reverse-ssh  : Reverse SSH tunnel to your server"
+echo "   --tailscale    : Tailscale VPN for secure mesh networking"
+echo "   --remote       : Interactive remote access menu"
 echo ""
 echo "🌐 Examples:"
-echo "   bash install_rpi_streamer.sh                      # Interactive installation"
-echo "   bash install_rpi_streamer.sh --daemon             # Silent installation"
-echo "   bash install_rpi_streamer.sh --skip-update        # Use existing local files"
+echo "   bash install_rpi_streamer.sh --reverse-ssh"
+echo "   bash install_rpi_streamer.sh --tailscale"
+echo "   bash install_rpi_streamer.sh --skip-update"
 echo ""
 echo "📚 Documentation:"
 echo "   GPS Tracker: GPS_TRACKER_README.md"
@@ -1278,11 +1348,18 @@ fi
 echo "📋 Hardware ID: $hardwareid"
 echo "🔗 Registering device with hardware console..."
 # Remote Access Setup
-if [[ "$@" == *"--daemon"* ]]; then
-    echo ""
-    echo "🤖 Running in daemon mode - skipping remote access setup"
-else
+if [[ "$@" == *"--reverse-ssh"* ]]; then
+    setup_reverse_ssh_tunnel
+elif [[ "$@" == *"--tailscale"* ]]; then
+    setup_tailscale_vpn
+elif [[ "$@" == *"--remote"* ]]; then
     setup_remote_access_menu
+else
+    echo ""
+    echo "🌐 For remote access setup, run with one of these flags:"
+    echo "   --reverse-ssh  : Reverse SSH tunnel to your server (recommended)"
+    echo "   --tailscale    : Tailscale VPN mesh networking"
+    echo "   --remote       : Interactive remote access menu"
 fi
 
 # WiFi Hotspot Setup Option
@@ -1291,27 +1368,22 @@ echo "=========================================="
 echo "📶 WIFI HOTSPOT CONFIGURATION"
 echo "=========================================="
 echo ""
+echo "Would you like to configure this device as a WiFi hotspot?"
+echo "This allows you to connect directly to the device when no internet is available."
+echo ""
+echo "Options:"
+echo "  1) Yes - Create WiFi hotspot now (default)"
+echo "  2) No - Keep current network configuration"
+echo ""
+read -p "Enter your choice (1-2) [1]: " hotspot_choice
+hotspot_choice=${hotspot_choice:-1}
 
-if [[ "$@" == *"--daemon"* ]]; then
-    echo "🤖 Running in daemon mode - skipping hotspot configuration"
-    echo "   WiFi hotspot can be configured later via the web interface"
-else
-    echo "Would you like to configure this device as a WiFi hotspot?"
-    echo "This allows you to connect directly to the device when no internet is available."
-    echo ""
-    echo "Options:"
-    echo "  1) Yes - Create WiFi hotspot now (default)"
-    echo "  2) No - Keep current network configuration"
-    echo ""
-    read -p "Enter your choice (1-2) [1]: " hotspot_choice
-    hotspot_choice=${hotspot_choice:-1}
-
-    case $hotspot_choice in
-        1)
-            echo ""
-            echo "🔧 Setting up WiFi hotspot..."
-            
-            # Ensure WiFi interface is ready before configuration
+case $hotspot_choice in
+    1)
+        echo ""
+        echo "🔧 Setting up WiFi hotspot..."
+        
+        # Ensure WiFi interface is ready before configuration
         echo "📡 Preparing WiFi interface for hotspot mode..."
         sudo rfkill unblock wifi 2>/dev/null || true
         sudo ip link set wlan0 up 2>/dev/null || echo "Warning: Could not bring up wlan0 interface"
@@ -1436,5 +1508,4 @@ else
     *)
         echo "❌ Invalid choice, keeping current network configuration"
         ;;
-    esac
-fi
+esac
