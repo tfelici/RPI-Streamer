@@ -314,8 +314,9 @@ sudo chmod +x /etc/NetworkManager/dispatcher.d/99-interface-priority
 sudo touch /var/log/network-priority.log
 sudo chmod 644 /var/log/network-priority.log
 
-# Reload NetworkManager to pick up the new connections
-sudo systemctl reload NetworkManager
+# Note: NetworkManager will automatically pick up new connection files
+# We avoid reloading NetworkManager during installation to prevent network disruption
+echo "📝 NetworkManager configuration files created (will be loaded on next boot/restart)"
 
 echo "✅ ModemManager and NetworkManager configured for automatic connectivity with interface priority"
 echo "🌐 Network interface priority configuration:"
@@ -662,7 +663,6 @@ printf "🛰️ Installing GPS Daemon System...\n"
 chmod +x "$HOME/flask_app/gps_startup_manager.py"
 chmod +x "$HOME/flask_app/gps_daemon.py"
 echo "✅ Made GPS daemon scripts executable"
-
 #make streamer-config executable
 chmod +x "$HOME/flask_app/streamer-config.sh"
 echo "✅ Made streamer-config script executable"
