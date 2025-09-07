@@ -365,7 +365,14 @@ sudo systemctl enable dnsmasq
 sudo systemctl stop hostapd 2>/dev/null || true
 sudo systemctl stop dnsmasq 2>/dev/null || true
 
+# Ensure WiFi interface is unblocked and ready for hotspot mode
+echo "📡 Ensuring WiFi interface is ready for hotspot mode..."
+sudo rfkill unblock wifi 2>/dev/null || true
+# Bring up the WiFi interface to ensure it's ready
+sudo ip link set wlan0 up 2>/dev/null || echo "Note: wlan0 interface may need manual configuration"
+
 echo "✅ Hotspot services configured (hostapd and dnsmasq enabled for boot)"
+echo "✅ WiFi interface prepared for hotspot mode"
 
 # AutoSSH for reliable reverse tunnel management
 sudo apt-get install autossh -y
@@ -1371,6 +1378,22 @@ case $hotspot_choice in
     1)
         echo ""
         echo "🔧 Setting up WiFi hotspot..."
+        
+        # Ensure WiFi interface is ready before configuration
+        echo "📡 Preparing WiFi interface for hotspot mode..."
+        sudo rfkill unblock wifi 2>/dev/null || true
+        sudo ip link set wlan0 up 2>/dev/null || echo "Warning: Could not bring up wlan0 interface"
+        
+        # Verify WiFi interface is available
+        if ! ip link show wlan0 >/dev/null 2>&1; then
+            echo "❌ WiFi interface wlan0 not found!"
+            echo "   This device may not have WiFi capability or the driver is not loaded."
+            echo "   Skipping hotspot configuration."
+            echo ""
+            break
+        fi
+        
+        echo "✅ WiFi interface ready for hotspot configuration"
         
         # Wait for Flask app to be ready first
         echo "⏳ Waiting for Flask app to start..."
