@@ -32,13 +32,26 @@ set -e
 echo "🌐 Checking for internet connectivity..."
 INTERNET_FOUND=false
 for i in {1..30}; do
-    if ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
-        echo "✅ Internet connection confirmed - proceeding with installation"
+    # Try multiple connectivity tests in order of preference
+    if ping -c 1 -w 5 google.com >/dev/null 2>&1; then
+        echo "✅ Internet connection confirmed (ping google.com) - proceeding with installation"
+        INTERNET_FOUND=true
+        break
+    elif ping -c 1 -w 5 8.8.8.8 >/dev/null 2>&1; then
+        echo "✅ Internet connection confirmed (ping 8.8.8.8) - proceeding with installation"
+        INTERNET_FOUND=true
+        break
+    elif command -v curl >/dev/null 2>&1 && curl -s --connect-timeout 5 --max-time 10 http://google.com >/dev/null 2>&1; then
+        echo "✅ Internet connection confirmed (curl google.com) - proceeding with installation"
+        INTERNET_FOUND=true
+        break
+    elif command -v wget >/dev/null 2>&1 && wget -q --spider --timeout=5 --tries=1 http://google.com >/dev/null 2>&1; then
+        echo "✅ Internet connection confirmed (wget google.com) - proceeding with installation"
         INTERNET_FOUND=true
         break
     fi
-    echo "Waiting for internet connection... ($i/30)"
-    sleep 1
+    echo "Waiting for internet connection... ($i/30) - Testing multiple methods"
+    sleep 2
 done
 
 if [ "$INTERNET_FOUND" = "false" ]; then
