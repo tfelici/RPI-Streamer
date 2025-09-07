@@ -930,3 +930,139 @@ def get_app_version():
         mtime_dt = datetime.fromtimestamp(latest_mtime)
         return mtime_dt.strftime('%Y-%m-%d %H:%M')
     return ''
+
+def load_wifi_settings():
+    """Load WiFi settings from wifi.json with defaults"""
+    wifi_path = os.path.join(STREAMER_DATA_DIR, 'wifi.json')
+    
+    # Default WiFi settings (wifi_mode is now determined from hardware state)
+    wifi_defaults = {
+        "hotspot_ssid": get_default_hotspot_ssid(),
+        "hotspot_password": "rpistreamer123",
+        "hotspot_channel": 6,
+        "hotspot_ip": "192.168.4.1",
+        "manual_ssid": "",  # User's manual WiFi SSID
+        "manual_password": ""  # User's manual WiFi password
+    }
+    
+    if os.path.exists(wifi_path):
+        try:
+            with open(wifi_path, 'r') as f:
+                wifi_settings = json.load(f)
+                # Merge with defaults to ensure all keys exist
+                for key, default_value in wifi_defaults.items():
+                    if key not in wifi_settings:
+                        wifi_settings[key] = default_value
+                return wifi_settings
+        except (json.JSONDecodeError, ValueError):
+            # Silent error handling in utils
+            pass
+    
+    return wifi_defaults
+
+def save_wifi_settings(wifi_settings):
+    """Save WiFi settings to wifi.json"""
+    wifi_path = os.path.join(STREAMER_DATA_DIR, 'wifi.json')
+    try:
+        os.makedirs(STREAMER_DATA_DIR, exist_ok=True)
+        with open(wifi_path, 'w') as f:
+            json.dump(wifi_settings, f, indent=2)
+    except Exception:
+        # Silent error handling in utils - let calling code handle errors
+        pass
+
+def get_wifi_mode_status():
+    """Get current WiFi mode and connection status using simplified NetworkManager commands"""
+    wifi_settings = load_wifi_settings()
+    
+    # Default values
+    wifi_mode = 'client'
+    hotspot_active = False
+    current_ip = None
+    current_ssid = None
+    wifi_connected = False
+    
+    try:
+        # Get connection name and IP address directly
+        result = subprocess.run(['nmcli', '-g', 'GENERAL.CONNECTION,IP4.ADDRESS', 'device', 'show', 'wlan0'], 
+                              capture_output=True, text=True, timeout=5)
+        
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            if len(lines) >= 2:
+                current_ssid = lines[0].strip() if lines[0].strip() != '--' else None
+                ip_with_mask = lines[1].strip() if lines[1].strip() != '--' else None
+                
+                if current_ssid and ip_with_mask:
+                    wifi_connected = True
+                    current_ip = ip_with_mask.split('/')[0]  # Remove subnet mask
+                    
+                    # Check WiFi mode using the connection name
+                    try:
+                        mode_result = subprocess.run(['nmcli', '-g', '802-11-wireless.mode', 
+                                                    'connection', 'show', current_ssid], 
+                                                   capture_output=True, text=True, timeout=3)
+                        
+                        if mode_result.returncode == 0:
+                            mode_output = mode_result.stdout.strip().lower()
+                            if 'ap' in mode_output:
+                                wifi_mode = 'hotspot'
+                                hotspot_active = True
+                            else:
+                                wifi_mode = 'client'
+                                hotspot_active = False
+                                
+                    except Exception:
+                        # Silent fallback - don't print errors in utils
+                        pass
+            
+    except Exception:
+        # Silent error handling in utils
+        pass
+    
+    # Additional information based on mode
+    client_count = 0
+    signal_strength = None
+    signal_percent = None
+    
+    if wifi_connected:
+        if hotspot_active:
+            # Count connected clients for hotspot mode
+            try:
+                # Count connected clients using iw command
+                clients_result = subprocess.run(['sudo', 'iw', 'dev', 'wlan0', 'station', 'dump'], 
+                                              capture_output=True, text=True, timeout=3)
+                if clients_result.returncode == 0:
+                    client_count = clients_result.stdout.count('Station ')
+            except Exception:
+                client_count = 0
+        else:
+            # Client mode - get signal strength using nmcli
+            try:
+                wifi_result = subprocess.run(['nmcli', '-g', 'IN-USE,SSID,SIGNAL', 'device', 'wifi', 'list'], 
+                                           capture_output=True, text=True, timeout=3)
+                if wifi_result.returncode == 0:
+                    for line in wifi_result.stdout.strip().split('\n'):
+                        if line.startswith('*:'):  # Currently connected network
+                            parts = line.split(':')
+                            if len(parts) >= 3:
+                                signal_percent = int(parts[2]) if parts[2].isdigit() else None
+                                if signal_percent is not None:
+                                    # Convert percentage to approximate dBm (reverse of our earlier calculation)
+                                    signal_strength = int((signal_percent * 60 / 100) - 90)
+                                break
+            except Exception:
+                pass
+    
+    return {
+        'mode': wifi_mode,
+        'hotspot_active': hotspot_active,
+        'current_ip': current_ip,
+        'current_ssid': current_ssid,
+        'wifi_connected': wifi_connected,
+        'hotspot_ssid': wifi_settings['hotspot_ssid'],
+        'hotspot_ip': wifi_settings['hotspot_ip'],
+        'client_count': client_count,
+        'signal_strength': signal_strength,
+        'signal_percent': int(signal_percent) if signal_percent is not None else None
+    }

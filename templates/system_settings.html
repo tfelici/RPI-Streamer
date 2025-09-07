@@ -84,7 +84,7 @@
                             </label>
                         </div>
                         
-                        <button type="submit" class="btn btn-primary">Connect to Network</button>
+                        <button type="submit" id="wifi-connect-btn" class="btn btn-primary">Connect to Network</button>
                         <div id="wifi-result" class="status-message" style="display: none;"></div>
                     </form>
                 </details>
@@ -94,6 +94,14 @@
             <div id="hotspot-settings" style="display: none;">
                 <form id="hotspot-form">
                     <h3>Hotspot Settings</h3>
+                    
+                    <!-- QR Code Display -->
+                    <div id="hotspot-qr-section" style="text-align: center; margin-bottom: 1.5rem; padding: 1rem; background: #f8f9fa; border-radius: 0.5rem; border: 1px solid #dee2e6;">
+                        <div style="margin-bottom: 0.5rem; font-weight: bold; color: #495057;">Scan to Connect</div>
+                        <div id="hotspot-qr-code" style="margin-bottom: 0.5rem;"></div>
+                        <div id="hotspot-qr-info" style="font-size: 0.9rem; color: #6c757d;"></div>
+                    </div>
+                    
                     <label for="hotspot-ssid">Hotspot Name (SSID)</label>
                     <input type="text" id="hotspot-ssid" name="hotspot_ssid" required>
                     
@@ -123,15 +131,9 @@
                         </div>
                     </div>
                     
-                    <button type="submit" class="btn btn-primary">Save Hotspot Settings</button>
+                    <button type="submit" id="hotspot-submit-btn" class="btn btn-primary">Save Hotspot Settings</button>
                     <div id="hotspot-result" class="status-message" style="display: none;"></div>
                 </form>
-            </div>
-            
-            <!-- Mode Switch Controls -->
-            <div id="mode-controls" style="margin-top: 1.5rem; text-align: center;">
-                <button id="apply-mode-btn" class="btn btn-success" style="display: none;">Apply WiFi Mode</button>
-                <div id="mode-result" class="status-message" style="display: none; margin-top: 1rem;"></div>
             </div>
         </div>
         
@@ -173,8 +175,10 @@
     </div>
     <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // Global variable to track current WiFi mode
+        // Global variables to track current WiFi state
         let currentWifiMode = 'client'; // default
+        let currentWifiSSID = null;
+        let currentWifiConnected = false;
         
         // Load current auth settings and WiFi status
         fetch('/system-settings-data').then(r => r.json()).then(data => {
@@ -209,6 +213,62 @@
             const passField = document.getElementById('hotspot-pass');
             passField.type = this.checked ? 'text' : 'password';
         });
+        
+        // WiFi SSID input handler to update connect button text
+        document.getElementById('wifi-ssid').addEventListener('input', updateWifiConnectButton);
+        
+        // Hotspot settings input handlers to update QR code
+        document.getElementById('hotspot-ssid').addEventListener('input', updateHotspotQR);
+        document.getElementById('hotspot-pass').addEventListener('input', updateHotspotQR);
+        
+        // Initial QR code generation on page load
+        setTimeout(() => {
+            updateHotspotQR();
+        }, 100);
+        
+        function updateHotspotQR() {
+            const ssid = document.getElementById('hotspot-ssid').value.trim();
+            const password = document.getElementById('hotspot-pass').value;
+            const qrCodeDiv = document.getElementById('hotspot-qr-code');
+            const qrInfoDiv = document.getElementById('hotspot-qr-info');
+            
+            if (!ssid) {
+                qrCodeDiv.innerHTML = '<div style="color: #6c757d; font-style: italic;">Enter SSID to generate QR code</div>';
+                qrInfoDiv.textContent = '';
+                return;
+            }
+            
+            // Create WiFi QR code string (WIFI:T:WPA;S:SSID;P:password;H:false;;)
+            const wifiString = `WIFI:T:WPA;S:${ssid};P:${password};H:false;;`;
+            
+            // Generate QR code using a public API service
+            const qrSize = 200;
+            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${qrSize}x${qrSize}&data=${encodeURIComponent(wifiString)}`;
+            
+            qrCodeDiv.innerHTML = `<img src="${qrUrl}" alt="WiFi QR Code" style="max-width: 200px; height: auto; border: 1px solid #dee2e6; border-radius: 0.25rem;">`;
+            qrInfoDiv.innerHTML = `Network: <strong>${ssid}</strong><br>Scan with your device to connect automatically`;
+        }
+        
+        function updateWifiConnectButton() {
+            const wifiConnectBtn = document.getElementById('wifi-connect-btn');
+            const enteredSSID = document.getElementById('wifi-ssid').value.trim();
+            
+            if (currentWifiConnected && currentWifiSSID) {
+                if (enteredSSID === currentWifiSSID) {
+                    wifiConnectBtn.textContent = 'Reconnect to Network';
+                    wifiConnectBtn.className = 'btn btn-info';
+                } else if (enteredSSID) {
+                    wifiConnectBtn.textContent = 'Switch Network';
+                    wifiConnectBtn.className = 'btn btn-warning';
+                } else {
+                    wifiConnectBtn.textContent = 'Connect to Network';
+                    wifiConnectBtn.className = 'btn btn-primary';
+                }
+            } else {
+                wifiConnectBtn.textContent = 'Connect to Network';
+                wifiConnectBtn.className = 'btn btn-primary';
+            }
+        }
         
         function scanWifiNetworks() {
             const scanBtn = document.getElementById('scan-wifi-btn');
@@ -357,16 +417,33 @@
         
         function connectToNetwork(ssid, hasPassword, index) {
             const password = hasPassword === 'true' ? document.getElementById(`pass-${index}`).value : '';
+            const connectBtn = document.querySelector(`[data-index="${index}"]`);
             
             if (hasPassword === 'true' && !password) {
                 alert('Please enter the password for this network');
                 return;
             }
             
+            // Provide immediate visual feedback on the connect button
+            const originalText = connectBtn.textContent;
+            const originalClass = connectBtn.className;
+            connectBtn.textContent = 'Connecting...';
+            connectBtn.className = 'btn btn-secondary';
+            connectBtn.disabled = true;
+            
+            // Add a subtle animation to the button
+            connectBtn.style.opacity = '0.7';
+            
             // Update the manual form fields and submit
             document.getElementById('wifi-ssid').value = ssid;
             document.getElementById('wifi-pass').value = password;
             document.getElementById('wifi-pass').required = hasPassword === 'true';
+            
+            // Update the connect button text based on the selected network
+            updateWifiConnectButton();
+            
+            // Store button reference for restoration later
+            window.currentConnectingBtn = { btn: connectBtn, originalText, originalClass };
             
             // Trigger the existing form submission
             document.getElementById('wifi-form').dispatchEvent(new Event('submit'));
@@ -376,8 +453,10 @@
             fetch('/system-settings-wifi-status')
                 .then(r => r.json())
                 .then(data => {
-                    // Store current mode globally
+                    // Store current mode and connection info globally
                     currentWifiMode = data.mode || 'client';
+                    currentWifiSSID = data.current_ssid || null;
+                    currentWifiConnected = !!(data.mode === 'client' && data.current_ip);
                     
                     // Set current mode
                     const modeRadio = document.getElementById(data.mode === 'hotspot' ? 'mode-hotspot' : 'mode-client');
@@ -392,7 +471,7 @@
                     
                     // Update status display
                     const statusDiv = document.getElementById('wifi-status');
-                    if (data.mode === 'hotspot' && data.hostapd_active) {
+                    if (data.mode === 'hotspot' && data.hotspot_active) {
                         statusDiv.textContent = `Hotspot "${data.hotspot_ssid}" active at ${data.current_ip || data.hotspot_ip}`;
                         statusDiv.className = 'status-message status-success';
                     } else if (data.mode === 'client' && data.current_ip) {
@@ -417,107 +496,35 @@
             const selectedMode = document.querySelector('input[name="wifi-mode"]:checked').value;
             const clientSettings = document.getElementById('client-settings');
             const hotspotSettings = document.getElementById('hotspot-settings');
-            const applyBtn = document.getElementById('apply-mode-btn');
+            const hotspotBtn = document.getElementById('hotspot-submit-btn');
+            const wifiConnectBtn = document.getElementById('wifi-connect-btn');
             
             // Show/hide appropriate settings panel
             if (selectedMode === 'client') {
                 clientSettings.style.display = 'block';
                 hotspotSettings.style.display = 'none';
+                
+                // Update WiFi connect button text based on current connection state
+                updateWifiConnectButton();
             } else {
                 clientSettings.style.display = 'none';
                 hotspotSettings.style.display = 'block';
-            }
-            
-            // Button logic: show only when selected panel differs from current mode
-            if (selectedMode === 'client' && currentWifiMode === 'hotspot') {
-                applyBtn.textContent = 'Switch to Client Mode';
-                applyBtn.style.display = 'block';
-            } else if (selectedMode === 'hotspot' && currentWifiMode === 'client') {
-                applyBtn.textContent = 'Switch to Hotspot Mode';
-                applyBtn.style.display = 'block';
-            } else {
-                applyBtn.style.display = 'none';
+                
+                // Generate QR code when switching to hotspot mode
+                updateHotspotQR();
+                
+                // Update hotspot button text based on current mode
+                if (currentWifiMode === 'hotspot') {
+                    hotspotBtn.textContent = 'Update Hotspot Settings';
+                    hotspotBtn.className = 'btn btn-success';
+                } else {
+                    hotspotBtn.textContent = 'Activate Hotspot';
+                    hotspotBtn.className = 'btn btn-primary';
+                }
             }
         }
         
-        // Apply mode button handler
-        document.getElementById('apply-mode-btn').addEventListener('click', function() {
-            const selectedMode = document.querySelector('input[name="wifi-mode"]:checked').value;
-            const resultDiv = document.getElementById('mode-result');
-            const applyBtn = this;
-            
-            resultDiv.textContent = `Switching to ${selectedMode} mode...`;
-            resultDiv.className = 'status-message';
-            resultDiv.style.display = 'block';
-            applyBtn.disabled = true;
-            
-            // Add a progress indicator
-            let dots = 0;
-            const progressInterval = setInterval(() => {
-                dots = (dots + 1) % 4;
-                resultDiv.textContent = `Switching to ${selectedMode} mode${'.'.repeat(dots)}`;
-            }, 500);
-            
-            const requestData = { mode: selectedMode };
-            
-            if (selectedMode === 'hotspot') {
-                requestData.hotspot_ssid = document.getElementById('hotspot-ssid').value;
-                requestData.hotspot_password = document.getElementById('hotspot-pass').value;
-                requestData.hotspot_channel = document.getElementById('hotspot-channel').value;
-                requestData.hotspot_ip = document.getElementById('hotspot-ip').value;
-                
-                if (requestData.hotspot_password.length < 8) {
-                    resultDiv.textContent = 'Hotspot password must be at least 8 characters';
-                    resultDiv.className = 'status-message status-error';
-                    applyBtn.disabled = false;
-                    return;
-                }
-            }
-            
-            // Create AbortController for timeout
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => {
-                controller.abort();
-            }, 120000); // 2 minute timeout
-            
-            fetch('/system-settings-wifi-mode', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestData),
-                signal: controller.signal
-            })
-            .then(r => {
-                clearTimeout(timeoutId);
-                clearInterval(progressInterval);
-                if (!r.ok) {
-                    throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-                }
-                return r.json();
-            })
-            .then(data => {
-                resultDiv.textContent = data.message || (data.success ? 'WiFi mode changed successfully' : data.error);
-                resultDiv.className = data.success ? 'status-message status-success' : 'status-message status-error';
-                
-                if (data.success) {
-                    // Reload status after a moment
-                    setTimeout(loadWifiStatus, 2000);
-                }
-            })
-            .catch(error => {
-                clearTimeout(timeoutId);
-                clearInterval(progressInterval);
-                if (error.name === 'AbortError') {
-                    resultDiv.textContent = 'Request timed out. The hotspot configuration may still be in progress. Check the status in a few minutes.';
-                } else {
-                    resultDiv.textContent = 'Error changing WiFi mode: ' + error.message;
-                }
-                resultDiv.className = 'status-message status-error';
-            })
-            .finally(() => {
-                applyBtn.disabled = false;
-            });
-        });
-          // Auth form submit
+        // Auth form submit
         document.getElementById('auth-form').onsubmit = function(e) {
             e.preventDefault();
             const resultDiv = document.getElementById('auth-result');
@@ -572,6 +579,22 @@
                 resultDiv.className = data.success ? 'status-message status-success' : 'status-message status-error';
                 resultDiv.style.display = 'block';
                 
+                // Restore the network list connect button if it was clicked
+                if (window.currentConnectingBtn) {
+                    const { btn, originalText, originalClass } = window.currentConnectingBtn;
+                    if (data.success) {
+                        btn.textContent = 'Connected';
+                        btn.className = 'btn btn-success';
+                        btn.disabled = true;
+                    } else {
+                        btn.textContent = originalText;
+                        btn.className = originalClass;
+                        btn.disabled = false;
+                    }
+                    btn.style.opacity = '1';
+                    window.currentConnectingBtn = null;
+                }
+                
                 if (data.success) {
                     setTimeout(() => {
                         loadWifiStatus();
@@ -583,15 +606,26 @@
                 resultDiv.textContent = 'Error connecting to WiFi: ' + error.message;
                 resultDiv.className = 'status-message status-error';
                 resultDiv.style.display = 'block';
+                
+                // Restore the network list connect button on error
+                if (window.currentConnectingBtn) {
+                    const { btn, originalText, originalClass } = window.currentConnectingBtn;
+                    btn.textContent = originalText;
+                    btn.className = originalClass;
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                    window.currentConnectingBtn = null;
+                }
             }).finally(() => {
                 submitBtn.disabled = false;
             });
         };
         
-        // Hotspot form submit (just saves settings, doesn't activate)
+        // Hotspot form submit (applies settings and activates hotspot)
         document.getElementById('hotspot-form').onsubmit = function(e) {
             e.preventDefault();
             const resultDiv = document.getElementById('hotspot-result');
+            const submitBtn = document.getElementById('hotspot-submit-btn');
             
             if (document.getElementById('hotspot-pass').value.length < 8) {
                 resultDiv.textContent = 'Password must be at least 8 characters';
@@ -600,9 +634,68 @@
                 return;
             }
             
-            resultDiv.textContent = 'Hotspot settings saved! Use "Switch to Hotspot Mode" to activate.';
-            resultDiv.className = 'status-message status-success';
+            resultDiv.textContent = 'Applying hotspot settings...';
+            resultDiv.className = 'status-message';
             resultDiv.style.display = 'block';
+            submitBtn.disabled = true;
+            
+            // Add a progress indicator
+            let dots = 0;
+            const progressInterval = setInterval(() => {
+                dots = (dots + 1) % 4;
+                resultDiv.textContent = `Applying hotspot settings${'.'.repeat(dots)}`;
+            }, 500);
+            
+            const requestData = {
+                mode: 'hotspot',
+                hotspot_ssid: document.getElementById('hotspot-ssid').value,
+                hotspot_password: document.getElementById('hotspot-pass').value,
+                hotspot_channel: document.getElementById('hotspot-channel').value,
+                hotspot_ip: document.getElementById('hotspot-ip').value
+            };
+            
+            // Create AbortController for timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => {
+                controller.abort();
+            }, 120000); // 2 minute timeout
+            
+            fetch('/system-settings-wifi-mode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData),
+                signal: controller.signal
+            })
+            .then(r => {
+                clearTimeout(timeoutId);
+                clearInterval(progressInterval);
+                if (!r.ok) {
+                    throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                }
+                return r.json();
+            })
+            .then(data => {
+                resultDiv.textContent = data.message || (data.success ? 'Hotspot settings applied successfully!' : data.error);
+                resultDiv.className = data.success ? 'status-message status-success' : 'status-message status-error';
+                
+                if (data.success) {
+                    // Reload status after a moment
+                    setTimeout(loadWifiStatus, 2000);
+                }
+            })
+            .catch(error => {
+                clearTimeout(timeoutId);
+                clearInterval(progressInterval);
+                if (error.name === 'AbortError') {
+                    resultDiv.textContent = 'Request timed out. The hotspot configuration may still be in progress. Check the status in a few minutes.';
+                } else {
+                    resultDiv.textContent = 'Error applying hotspot settings: ' + error.message;
+                }
+                resultDiv.className = 'status-message status-error';
+            })
+            .finally(() => {
+                submitBtn.disabled = false;
+            });
         };
           // Reboot button
         document.getElementById('reboot-btn').onclick = function() {

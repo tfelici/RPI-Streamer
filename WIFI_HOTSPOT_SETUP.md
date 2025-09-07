@@ -1,13 +1,13 @@
 # WiFi Management System Guide v3.00
 
 ## Overview
-The RPI Streamer v3.00 features a complete WiFi management system with modern network scanning interface and comprehensive hotspot functionality. This system allows the Raspberry Pi to both connect to existing networks and create its own WiFi access point with full routing capabilities.
+The RPI Streamer v3.00 features a complete WiFi management system with modern network scanning interface and comprehensive hotspot functionality powered by NetworkManager. This system allows the Raspberry Pi to both connect to existing networks and create its own WiFi access point with full routing capabilities.
 
 Key capabilities:
 - Modern network scanner with real-time discovery and one-click connections
 - Complete hotspot mode with NAT routing via ethernet connection
 - Real-time WiFi status with connected network display
-- Automatic service management for hostapd, dnsmasq, and iptables routing
+- Automatic service management via NetworkManager
 
 ## Features
 
@@ -27,8 +27,8 @@ Key capabilities:
 - **Password Protection**: WPA2 security with configurable password (minimum 8 characters)
 - **Channel Selection**: Choose WiFi channel 1, 6, or 11 (6 is default)
 - **IP Configuration**: Fixed IP address 192.168.4.1 for the Pi
-- **DHCP Server**: Automatic IP assignment to connected devices (192.168.4.2-192.168.4.20)
-- **Internet Routing**: Full NAT routing via ethernet connection with iptables configuration
+- **DHCP Server**: Automatic IP assignment to connected devices via NetworkManager
+- **Internet Routing**: Full NAT routing via ethernet connection with NetworkManager configuration
 
 ## Quick Setup
 
@@ -103,32 +103,33 @@ If the Pi has internet access via Ethernet or 4G dongle:
 ### Client to Hotspot
 1. In System Settings, select "Hotspot Mode"
 2. Configure hotspot settings
-3. Click "Switch to Hotspot Mode"
-4. NetworkManager will be stopped
-5. hostapd and dnsmasq will be started
-6. Static IP will be assigned to wlan0
+3. Click "Update Hotspot" or "Activate Hotspot"
+4. NetworkManager will create and activate the hotspot connection
+5. Static IP will be assigned to wlan0
+6. DHCP server will be automatically configured
 
 ### Hotspot to Client
-1. In System Settings, select "Client Mode"
-2. Click "Switch to Client Mode"
-3. hostapd and dnsmasq will be stopped
-4. NetworkManager will be restarted
-5. Pi will attempt to reconnect to saved WiFi networks
+1. In System Settings, scan for available networks
+2. Click "Connect" next to your desired network
+3. Enter the network password
+4. NetworkManager will automatically switch from hotspot to client mode
+5. Pi will connect to the selected WiFi network
 
 ## Troubleshooting
 
 ### Hotspot Not Starting
 ```bash
-# Check service status
-sudo systemctl status hostapd
-sudo systemctl status dnsmasq
+# Check NetworkManager status
+sudo systemctl status NetworkManager
 
 # Check interface status
 ip addr show wlan0
 
-# View logs
-sudo journalctl -u hostapd -f
-sudo journalctl -u dnsmasq -f
+# View NetworkManager logs
+sudo journalctl -u NetworkManager -f
+
+# Check active connections
+nmcli connection show --active
 ```
 
 ### Can't Connect to Hotspot
@@ -136,11 +137,13 @@ sudo journalctl -u dnsmasq -f
 - Check if SSID is visible in WiFi scan
 - Try different channel (1, 6, or 11)
 - Ensure password is at least 8 characters
+- Check NetworkManager connection status
 
 ### No Internet Access
 - Check if Pi has internet via Ethernet/4G
-- Verify iptables NAT rules are configured
+- Verify NetworkManager routing configuration
 - Check IP forwarding: `cat /proc/sys/net/ipv4/ip_forward`
+- Check connection sharing: `nmcli connection show <hotspot-name>`
 
 ### Web Interface Not Accessible
 - Verify Pi IP address: `ip addr show wlan0`
@@ -149,41 +152,50 @@ sudo journalctl -u dnsmasq -f
 
 ## Advanced Configuration
 
-### Manual hostapd Configuration
-File: `/etc/hostapd/hostapd.conf`
-```
-interface=wlan0
-driver=nl80211
-ssid=RPI-Streamer
-hw_mode=g
-channel=6
-wmm_enabled=0
-macaddr_acl=0
-auth_algs=1
-ignore_broadcast_ssid=0
-wpa=2
-wpa_passphrase=rpistreamer123
-wpa_key_mgmt=WPA-PSK
-wpa_pairwise=TKIP
-rsn_pairwise=CCMP
+### Manual NetworkManager Hotspot Configuration
+You can manually create a hotspot connection using nmcli:
+```bash
+# Create hotspot connection
+sudo nmcli connection add type wifi ifname wlan0 con-name Hotspot autoconnect no \
+  wifi.mode ap wifi.ssid "RPI-Streamer" wifi.channel 6 \
+  ipv4.method shared ipv6.method ignore \
+  wifi-sec.key-mgmt wpa-psk wifi-sec.psk "your-password"
+
+# Activate the hotspot
+sudo nmcli connection up Hotspot
 ```
 
-### Manual dnsmasq Configuration
-File: `/etc/dnsmasq.conf`
-```
-interface=wlan0
-dhcp-range=192.168.4.10,192.168.4.50,255.255.255.0,24h
+### NetworkManager WiFi Configuration
+You can view and modify WiFi connections using nmcli:
+```bash
+# List all connections
+nmcli connection show
+
+# Show WiFi networks
+nmcli device wifi list
+
+# Connect to a network
+nmcli device wifi connect "NetworkName" password "password"
+
+# Show connection details
+nmcli connection show "ConnectionName"
 ```
 
 ### NAT/Forwarding Rules
-```bash
-# Enable IP forwarding
-sudo sysctl net.ipv4.ip_forward=1
+NetworkManager with ipv4.method shared automatically handles:
+- IP forwarding configuration
+- NAT/masquerading rules via iptables
+- DHCP server functionality
+- Internet connection sharing
 
-# Configure iptables for internet sharing
-sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-sudo iptables -A FORWARD -i eth0 -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT
-sudo iptables -A FORWARD -i wlan0 -o eth0 -j ACCEPT
+Manual verification:
+```bash
+# Check IP forwarding (should be 1)
+cat /proc/sys/net/ipv4/ip_forward
+
+# View iptables rules
+sudo iptables -t nat -L
+sudo iptables -L FORWARD
 ```
 
 ## Integration with Other Features
@@ -230,23 +242,33 @@ sudo iptables -A FORWARD -i wlan0 -o eth0 -j ACCEPT
 ## Support
 
 ### Log Files
-- hostapd: `/var/log/daemon.log` or `journalctl -u hostapd`
-- dnsmasq: `/var/log/daemon.log` or `journalctl -u dnsmasq`
 - NetworkManager: `journalctl -u NetworkManager`
+- WiFi interface: `dmesg | grep wlan0`
+- System logs: `/var/log/syslog`
 
 ### Common Commands
 ```bash
+# Check NetworkManager status
+sudo systemctl status NetworkManager
+
+# View WiFi interface status
+nmcli device status
+
+# Show active connections
+nmcli connection show --active
+
+# Restart NetworkManager
+sudo systemctl restart NetworkManager
+
 # Check WiFi interface
 iwconfig
 
 # Scan for networks (client mode)
-sudo iwlist wlan0 scan
+nmcli device wifi list
 
 # Check connected devices (hotspot mode)
-arp -a
+nmcli device wifi show-password
 
-# Restart WiFi services
-sudo systemctl restart NetworkManager
-sudo systemctl restart hostapd
-sudo systemctl restart dnsmasq
+# View connection details
+nmcli connection show "connection-name"
 ```

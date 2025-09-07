@@ -40,7 +40,7 @@ logger.propagate = True
 
 # Import functions from the main app to avoid duplication
 try:
-    from utils import load_settings, get_default_hotspot_ssid, get_hardwareid, get_app_version, HEARTBEAT_FILE, add_files_from_path, get_active_recording_info, get_video_duration_mediainfo, is_streaming, is_gps_tracking, find_usb_storage, STREAMER_DATA_DIR
+    from utils import load_settings, get_default_hotspot_ssid, get_hardwareid, get_app_version, HEARTBEAT_FILE, add_files_from_path, get_active_recording_info, get_video_duration_mediainfo, is_streaming, is_gps_tracking, find_usb_storage, STREAMER_DATA_DIR, get_wifi_mode_status
     logger.info("Successfully imported from utils.py")
 except ImportError as e:
     logger.error(f"Error importing functions from utils.py: {e}")
@@ -282,215 +282,33 @@ def get_connection_info():
                                         connection_info["wifi"] = "Connected"
         except Exception:
             pass
-              # Try to get WiFi SSID, signal strength, and bitrates if connected
+        
+        # Get WiFi status using the enhanced function from utils.py
         try:
-            if connection_info["wifi"] == "Connected":
-                # Check if we're actually in hotspot mode vs client mode
-                is_hotspot = False
-                hotspot_clients = 0
-                
-                # First, check if we're connected to an external WiFi network (client mode)
-                # by looking for an active WiFi connection with nmcli
-                client_mode_detected = False
-                connected_ssid = None
-                
-                try:
-                    # Check for active WiFi connections that are NOT hotspot networks
-                    nmcli_result = subprocess.run(['nmcli', '-t', '-f', 'NAME,TYPE,STATE', 'connection', 'show', '--active'], 
-                                                capture_output=True, text=True, timeout=3)
-                    if nmcli_result.returncode == 0:
-                        for line in nmcli_result.stdout.strip().split('\n'):
-                            if line:
-                                parts = line.split(':')
-                                if len(parts) >= 3:
-                                    conn_name, conn_type, conn_state = parts[0], parts[1], parts[2]
-                                    # If we have an active 802-11-wireless connection that's not our hotspot
-                                    if (conn_type == '802-11-wireless' and conn_state == 'activated' and 
-                                        not conn_name.lower().startswith('hotspot')):
-                                        client_mode_detected = True
-                                        connected_ssid = conn_name
-                                        break
-                except Exception:
-                    pass
-                
-                # Additional check: look at IP address ranges to determine mode
-                if not client_mode_detected:
-                    # Check if wlan0 has an IP in a typical client range vs hotspot range
-                    try:
-                        for ip_info in connection_info.get("ip_addresses", []):
-                            if ip_info.get("interface") == "wlan0":
-                                ip = ip_info.get("ip", "")
-                                # If IP is in common home/office ranges, likely client mode
-                                if (ip.startswith("192.168.1.") or ip.startswith("192.168.0.") or 
-                                    ip.startswith("10.") or ip.startswith("172.")):
-                                    client_mode_detected = True
-                                    break
-                                # If IP is in typical hotspot ranges, likely hotspot mode
-                                elif (ip.startswith("192.168.4.") or ip.startswith("192.168.43.") or 
-                                      ip.startswith("10.42.")):
-                                    # This suggests hotspot mode, continue to hostapd check
-                                    break
-                    except Exception:
-                        pass
-                
-                # Only check for hotspot mode if we didn't detect client mode
-                if not client_mode_detected:
-                    # Check if hostapd is running (indicates hotspot mode)
-                    try:
-                        hostapd_result = subprocess.run(['sudo', 'systemctl', 'is-active', 'hostapd'], 
-                                                      capture_output=True, text=True, timeout=2)
-                        if hostapd_result.stdout.strip() == 'active':
-                            is_hotspot = True
-                            
-                            # Count connected clients using iw command
-                            try:
-                                clients_result = subprocess.run(['sudo', 'iw', 'dev', 'wlan0', 'station', 'dump'], 
-                                                              capture_output=True, text=True, timeout=3)
-                                if clients_result.returncode == 0:
-                                    # Count the number of "Station" entries
-                                    hotspot_clients = clients_result.stdout.count('Station ')
-                            except Exception:
-                                # Fallback: check DHCP leases file
-                                try:
-                                    with open('/var/lib/dhcp/dhcpd.leases', 'r') as f:
-                                        leases_content = f.read()
-                                        # Count active leases (rough estimate)
-                                        hotspot_clients = leases_content.count('binding state active')
-                                except Exception:
-                                    # Fallback: check ARP table for hotspot subnet
-                                    try:
-                                        settings = load_settings()
-                                        hotspot_ip = settings.get('hotspot_ip', '192.168.4.1')
-                                        subnet = '.'.join(hotspot_ip.split('.')[:-1]) + '.'
-                                        
-                                        arp_result = subprocess.run(['arp', '-a'], capture_output=True, text=True, timeout=2)
-                                        if arp_result.returncode == 0:
-                                            # Count ARP entries in hotspot subnet (excluding the AP itself)
-                                            for line in arp_result.stdout.split('\n'):
-                                                if subnet in line and hotspot_ip not in line:
-                                                    hotspot_clients += 1
-                                    except Exception:
-                                        hotspot_clients = 0
-                    except Exception:
-                        pass
-                
-                if is_hotspot:
-                    # Show number of connected clients instead of regular WiFi info
-                    if hotspot_clients == 0:
+            wifi_status = get_wifi_mode_status()
+            connection_info["wifi_status"] = wifi_status
+            
+            # Set simplified display status for backward compatibility
+            if wifi_status['wifi_connected']:
+                if wifi_status['hotspot_active']:
+                    # Show number of connected clients
+                    client_count = wifi_status.get('client_count', 0)
+                    if client_count == 0:
                         connection_info["wifi"] = "Hotspot (0 clients)"
-                    elif hotspot_clients == 1:
+                    elif client_count == 1:
                         connection_info["wifi"] = "Hotspot (1 client)"
                     else:
-                        connection_info["wifi"] = f"Hotspot ({hotspot_clients} clients)"
-                    
-                    # Add hotspot details
-                    settings = load_settings()
-                    hotspot_details = {
-                        'ssid': settings.get('hotspot_ssid', get_default_hotspot_ssid()),
-                        'clients_count': hotspot_clients,
-                        'mode': 'hotspot'
-                    }
-                    connection_info['wifi_details'] = hotspot_details
+                        connection_info["wifi"] = f"Hotspot ({client_count} clients)"
                 else:
-                    # Regular WiFi client mode - get SSID, signal strength, etc.
-                    wifi_details = {}
-                    
-                    # Use the SSID we detected from nmcli active connections if available
-                    if connected_ssid:
-                        wifi_details['ssid'] = connected_ssid
-                    else:
-                        # Fallback: Get SSID using nmcli dev wifi
-                        try:
-                            result = subprocess.run(['nmcli', '-t', '-f', 'active,ssid', 'dev', 'wifi'], capture_output=True, text=True, timeout=2)
-                            if result.returncode == 0:
-                                lines = result.stdout.strip().split('\n')
-                                for line in lines:
-                                    if line.startswith('yes:'):
-                                        ssid = line.split(':', 1)[1]
-                                        if ssid:
-                                            wifi_details['ssid'] = ssid
-                                            break
-                        except Exception:
-                            pass
-                    
-                    # Get detailed WiFi information using iw command (always run for client mode)
-                    # Try different interface names, including dynamic detection
-                    wifi_interfaces = ['wlan0', 'wlp2s0', 'wlp3s0', 'wlo1']
-                    
-                    # Try to detect available wireless interfaces dynamically
-                    try:
-                        iw_dev_result = subprocess.run(['iw', 'dev'], capture_output=True, text=True, timeout=2)
-                        if iw_dev_result.returncode == 0:
-                            # Parse output to find wireless interfaces
-                            for line in iw_dev_result.stdout.split('\n'):
-                                if 'Interface' in line:
-                                    iface_match = re.search(r'Interface\s+(\w+)', line)
-                                    if iface_match:
-                                        iface = iface_match.group(1)
-                                        if iface not in wifi_interfaces:
-                                            wifi_interfaces.append(iface)
-                    except Exception:
-                        pass  # Fall back to default list
-                    
-                    for iface in wifi_interfaces:
-                        try:
-                            iw_result = subprocess.run(['iw', 'dev', iface, 'link'], capture_output=True, text=True, timeout=5)
-                            if iw_result.returncode == 0 and ('Connected to' in iw_result.stdout or 'SSID:' in iw_result.stdout):
-                                lines = iw_result.stdout.split('\n')
-                                interface_found = True
-                                for line in lines:
-                                    line = line.strip()
-                                    # Parse signal strength
-                                    if 'signal:' in line:
-                                        # Extract signal strength (e.g., "signal: -45 dBm")
-                                        signal_match = re.search(r'signal:\s*(-?\d+)\s*dBm', line)
-                                        if signal_match:
-                                            signal_dbm = int(signal_match.group(1))
-                                            wifi_details['signal_dbm'] = signal_dbm
-                                            # Convert to percentage (rough estimation)
-                                            # -30 dBm = 100%, -90 dBm = 0%
-                                            signal_percent = max(0, min(100, (signal_dbm + 90) * 100 / 60))
-                                            wifi_details['signal_percent'] = int(signal_percent)
-                                    # Parse TX bitrate
-                                    elif 'tx bitrate:' in line:
-                                        # Extract TX bitrate (e.g., "tx bitrate: 72.2 MBit/s")
-                                        tx_match = re.search(r'tx bitrate:\s*([\d.]+)\s*MBit/s', line)
-                                        if tx_match:
-                                            wifi_details['tx_bitrate'] = float(tx_match.group(1))
-                                    # Parse RX bitrate
-                                    elif 'rx bitrate:' in line:
-                                        # Extract RX bitrate (e.g., "rx bitrate: 65.0 MBit/s")
-                                        rx_match = re.search(r'rx bitrate:\s*([\d.]+)\s*MBit/s', line)
-                                        if rx_match:
-                                            wifi_details['rx_bitrate'] = float(rx_match.group(1))
-                                break  # Found working interface, stop trying others
-                        except Exception as e:
-                            # Log the error for debugging but continue trying other interfaces
-                            continue
-                    
-                    # Update connection_info with detailed WiFi information for client mode
-                    if wifi_details:
-                        # Set the mode to client for non-hotspot WiFi connections
-                        wifi_details['mode'] = 'client'
-                        connection_info['wifi_details'] = wifi_details
-                        # Update main wifi status with SSID if available
-                        if 'ssid' in wifi_details:
-                            wifi_status = f"Connected ({wifi_details['ssid']})"
-                            # Add signal strength if available
-                            if 'signal_percent' in wifi_details:
-                                wifi_status += f" - {wifi_details['signal_percent']}%"
-                            connection_info["wifi"] = wifi_status
-                    else:
-                        # Fallback: if we detected client mode but couldn't get details
-                        if client_mode_detected:
-                            connection_info['wifi_details'] = {
-                                'mode': 'client',
-                                'ssid': connected_ssid or 'Unknown'
-                            }
-                            if connected_ssid:
-                                connection_info["wifi"] = f"Connected ({connected_ssid})"
+                    # Client mode - show SSID and signal strength
+                    wifi_status_text = f"Connected ({wifi_status['current_ssid']})"
+                    if wifi_status.get('signal_percent') is not None:
+                        wifi_status_text += f" - {wifi_status['signal_percent']}%"
+                    connection_info["wifi"] = wifi_status_text
+            else:
+                connection_info["wifi"] = "Disconnected"
         except Exception:
-            pass
+            connection_info["wifi"] = "Error getting WiFi status"
     
         # Get 4G dongle status using ModemManager
         dongle_status = {

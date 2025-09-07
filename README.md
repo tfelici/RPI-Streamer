@@ -71,7 +71,7 @@ bash install_rpi_streamer.sh
 Every installation automatically includes:
 
 - **Complete WiFi Management**: Modern network scanner with real-time network discovery and one-click connections
-- **WiFi Hotspot with Routing**: Full NAT routing via ethernet with automatic iptables/hostapd/dnsmasq configuration
+- **WiFi Hotspot with Routing**: Full NAT routing via ethernet with automatic NetworkManager configuration
 - **GPS Daemon System**: Streamlined GPS daemon with integrated initialization, multi-client architecture, and simulation mode
 - **Cellular Modem Support**: Universal support for USB cellular modems via ModemManager
 - **MediaMTX Streaming Server**: Professional RTMP/WebRTC streaming capabilities
@@ -229,8 +229,6 @@ The RPI Streamer installation creates and manages several systemd services:
 - **ModemManager.service**: Cellular modem management (standard Linux cellular service)
 - **NetworkManager.service**: Network connection management (WiFi, Ethernet, Cellular)
 - **`gps-daemon.service`**: Modern GPS daemon with integrated initialization, multi-client support, and simulation mode
-- **`hostapd.service`**: WiFi hotspot access point service
-- **`dnsmasq.service`**: DHCP server for hotspot functionality
 
 ### Optional Services
 - **`gps-startup.service`**: GPS tracking startup manager (configured via Flight Settings)
