@@ -9,13 +9,13 @@ Run the following commands in your home directory (do **not** use superuser/root
 ### Latest Development Version (Recommended)
 ```sh
 curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/develop/install_rpi_streamer.sh?$(date +%s)
-bash install_rpi_streamer.sh --develop --remote
+bash install_rpi_streamer.sh --develop
 ```
 
 ### Stable Release Version
 ```sh
 curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh?$(date +%s)
-bash install_rpi_streamer.sh --remote
+bash install_rpi_streamer.sh --main
 ```
 
 ## Installation Options
@@ -26,20 +26,44 @@ The installation script provides several configuration options:
 # Development installation with latest features (recommended)
 bash install_rpi_streamer.sh --develop
 
-# Stable release installation
-bash install_rpi_streamer.sh
+# Stable release installation (main branch)
+bash install_rpi_streamer.sh --main
 
-# Installation with Tailscale VPN for secure remote access
-bash install_rpi_streamer.sh --develop --tailscale
-
-# Installation with reverse SSH tunnel to your server
-bash install_rpi_streamer.sh --develop --reverse-ssh
-
-# Interactive remote access configuration menu
-bash install_rpi_streamer.sh --develop --remote
+# Silent installation without interactive prompts
+bash install_rpi_streamer.sh --develop --daemon
 
 # Use existing local files without updating from GitHub
-bash install_rpi_streamer.sh --skip-update
+bash install_rpi_streamer.sh --develop --skip-update
+
+# Combined options for automated deployment
+bash install_rpi_streamer.sh --develop --daemon --skip-update
+```
+
+### Installation Option Details
+
+- **`--develop`**: Install latest development branch with newest features
+- **`--main`**: Install stable main branch (default if no branch specified)
+- **`--daemon`**: Run in daemon mode with no interactive prompts (ideal for automated deployment)
+- **`--skip-update`**: Use existing local files without checking GitHub for updates
+- **Multiple options**: Can be combined (e.g., `--develop --daemon --skip-update`)
+
+### Use Cases
+
+```sh
+# First-time installation with latest features
+bash install_rpi_streamer.sh --develop
+
+# Production deployment (stable)
+bash install_rpi_streamer.sh --main
+
+# Automated deployment without prompts
+bash install_rpi_streamer.sh --develop --daemon
+
+# Development work with local changes
+bash install_rpi_streamer.sh --develop --skip-update
+
+# Testing local modifications silently
+bash install_rpi_streamer.sh --develop --daemon --skip-update
 ```
 
 ## Branch Structure
@@ -80,6 +104,51 @@ Every installation automatically includes:
 - **USB Storage Detection**: Automatic recording storage to USB devices
 - **Heartbeat Monitoring**: Independent daemon for continuous system health monitoring
 - **Mobile Responsive Interface**: Modern mobile-friendly web interface for device management
+
+## Development Configuration Tool
+
+For development and maintenance tasks, the RPI Streamer includes an interactive configuration menu:
+
+```sh
+# Run the configuration menu
+bash streamer-config.sh
+```
+
+### Available Options
+
+The `streamer-config.sh` script provides a user-friendly menu with the following options:
+
+1. **Restart Flask App Service** - Quick restart of the main web application
+2. **Install/Update (Develop Branch)** - Full installation with latest develop branch features
+3. **Install Local Code (Develop, No Update)** - Install using existing local files without GitHub updates
+4. **Restart GPS Daemon (Simulation Mode)** - Start GPS daemon with simulated location data for testing
+5. **Restart GPS Daemon (Real Mode)** - Start GPS daemon for real GPS hardware
+6. **Show System Status** - Display current service states and system information
+7. **Exit** - Close the configuration menu
+
+### Features
+
+- **🎨 Color-coded interface** with clear status indicators
+- **🔧 System status overview** showing all service states
+- **⚡ Quick service management** without memorizing systemd commands
+- **🛰️ GPS mode switching** between simulation and real hardware
+- **📊 Real-time status** updates and error reporting
+- **🔒 Privilege detection** automatically handles sudo requirements
+
+### Usage Examples
+
+```sh
+# Interactive development menu
+bash streamer-config.sh
+
+# Check if script exists first
+[ -f "streamer-config.sh" ] && bash streamer-config.sh || echo "Run from RPI Streamer directory"
+
+# Make executable and run directly (on Raspberry Pi)
+chmod +x streamer-config.sh && ./streamer-config.sh
+```
+
+This tool streamlines common development workflows and eliminates the need to remember complex systemd commands during development and testing.
 
 ## Core Features
 
@@ -261,11 +330,15 @@ The RPI Streamer includes branch-aware automatic update capabilities via the web
 
 ### Manual Updates
 ```bash
-# Check for updates (web interface System Settings → Check for Updates)
+# Using the development configuration tool (recommended)
+bash streamer-config.sh
+# Then select option 2 or 3 for installation/updates
+
 # Or manually update via installation script:
 cd ~/flask_app
-bash install_rpi_streamer.sh --skip-update  # Update dependencies only
-bash install_rpi_streamer.sh --develop       # Full update from development branch
+bash install_rpi_streamer.sh --develop --skip-update  # Use local files only
+bash install_rpi_streamer.sh --develop               # Full update from develop branch
+bash install_rpi_streamer.sh --main                  # Update to stable main branch
 ```
 
 ### Update Process
@@ -352,16 +425,24 @@ bash install_rpi_streamer.sh --tailscale
    **Development version (recommended):**
    ```bash
    curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/develop/install_rpi_streamer.sh?$(date +%s)
-   bash install_rpi_streamer.sh --develop --remote
+   bash install_rpi_streamer.sh --develop
    ```
    
-   **Previous stable version:**
+   **Stable version:**
    ```bash
    curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh?$(date +%s)
-   bash install_rpi_streamer.sh --remote
+   bash install_rpi_streamer.sh --main
    ```
+
+   **Automated deployment (no prompts):**
+   ```bash
+   curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/develop/install_rpi_streamer.sh?$(date +%s)
+   bash install_rpi_streamer.sh --develop --daemon
+   ```
+
 4. **Configure Flight Settings** via web interface (if using GPS tracking)
 5. **Connect hardware** (cellular modem, cameras, etc.) as needed
+6. **Use development tools** - Run `bash streamer-config.sh` for quick maintenance tasks
 
 ## Web Interface Access
 
@@ -383,13 +464,19 @@ After installation, access the control panel at:
 
 ### Common Issues
 ```bash
-# Check service status
+# Quick system status check
+bash streamer-config.sh  # Select option 6 for system status
+
+# Individual service checks
 sudo systemctl status flask_app.service
 sudo systemctl status NetworkManager.service
 
 # View logs
 sudo journalctl -u flask_app.service -f
 sudo journalctl -u NetworkManager.service -f
+
+# Development tools
+bash streamer-config.sh  # Interactive menu for maintenance tasks
 
 # Test cellular connectivity
 ping -c 3 8.8.8.8
