@@ -1630,6 +1630,14 @@ def system_settings_reboot():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/system-settings-shutdown', methods=['POST'])
+def system_settings_shutdown():
+    try:
+        subprocess.Popen(['sudo', 'shutdown', '-h', 'now'])
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 @app.route('/system-settings-factory-reset', methods=['POST'])
 def system_settings_factory_reset():
     try:

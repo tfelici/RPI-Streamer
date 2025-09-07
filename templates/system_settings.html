@@ -145,6 +145,11 @@
                 <div id="reboot-result" class="status-message" style="display: none;"></div>
             </div>
             
+            <div style="text-align: center; margin-bottom: 2rem;">
+                <button id="shutdown-btn" class="btn btn-danger">Shutdown System</button>
+                <div id="shutdown-result" class="status-message" style="display: none;"></div>
+            </div>
+            
             <!-- Factory Reset Section -->
             <div style="text-align: center; margin-bottom: 2rem;">
                 <h3 style="color: #d32f2f; margin-bottom: 1rem;">Factory Reset</h3>
@@ -738,6 +743,41 @@
                     resultDiv.className = 'status-message status-error';
                     resultDiv.style.display = 'block';
                     rebootBtn.disabled = false;
+                });
+        };
+        
+        // Shutdown button
+        document.getElementById('shutdown-btn').onclick = function() {
+            if (!confirm('Are you sure you want to shutdown the system?')) return;
+            const resultDiv = document.getElementById('shutdown-result');
+            const shutdownBtn = document.getElementById('shutdown-btn');
+            
+            // Show updating message
+            resultDiv.textContent = 'Initiating system shutdown...';
+            resultDiv.className = 'status-message';
+            resultDiv.style.display = 'block';
+            shutdownBtn.disabled = true;
+            
+            fetch('/system-settings-shutdown', { method: 'POST' })
+                .then(r => r.json())
+                .then(function(data) {
+                    if (data.success) {
+                        resultDiv.textContent = 'System shutting down...';
+                        resultDiv.className = 'status-message status-success';
+                        // Show overlay for shutdown (no polling needed as system will be off)
+                        document.getElementById('overlay').style.display = 'flex';
+                        document.querySelector('#overlay div').innerHTML = '<div style="margin-top: 1rem; font-size: 1.2rem; color: var(--text-primary); font-weight: 500;">Shutting down... System will be offline</div>';
+                    } else {
+                        resultDiv.textContent = data.error || 'Shutdown failed';
+                        resultDiv.className = 'status-message status-error';
+                        resultDiv.style.display = 'block';
+                        shutdownBtn.disabled = false;
+                    }
+                }).catch(error => {
+                    resultDiv.textContent = 'Error initiating shutdown: ' + error.message;
+                    resultDiv.className = 'status-message status-error';
+                    resultDiv.style.display = 'block';
+                    shutdownBtn.disabled = false;
                 });
         };
         
