@@ -43,8 +43,8 @@ netstat -tlnp | grep :450  # Shows active tunnel ports
 ### 2. Device Setup (Run on each RPI Streamer)
 
 ```bash
-# Download and run the enhanced installer with reverse SSH tunnel setup
-curl -sSL https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh | bash -s -- --reverse-ssh
+# Download and run the enhanced installer
+curl -sSL https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh | bash
 
 # The installer will prompt you for:
 #   - AlmaLinux server hostname/IP
@@ -192,8 +192,8 @@ ssh pi@localhost -p TUNNEL_SSH_PORT
    # Check device registration status
    cat /home/pi/device-info.json
    
-   # Re-run registration manually
-   bash install_rpi_streamer.sh --reverse-ssh
+   # Re-run installation manually
+   bash install_rpi_streamer.sh
    
    # Check internet connectivity
    ping -c 4 gyropilots.org
@@ -369,7 +369,7 @@ done
 **🎉 Congratulations!** You now have a complete multi-device RPI Streamer management system using secure SSH tunnels. Each device is accessible via SSH port forwarding, providing secure remote access without exposing devices directly to the internet.
 
 **Next Steps:**
-1. Add more devices using the installer with `--reverse-ssh` flag
+1. Add more devices using the installer
 2. Create helper scripts for easier device connections
 3. Set up SSH client apps on mobile devices for remote access
 4. Monitor tunnel health and device connectivity

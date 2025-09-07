@@ -301,7 +301,6 @@ The RPI Streamer installation creates and manages several systemd services:
 
 ### Optional Services
 - **`gps-startup.service`**: GPS tracking startup manager (configured via Flight Settings)
-- **`reverse-ssh-tunnel.service`**: AutoSSH tunnel for remote access (with --reverse-ssh)
 - **`install_rpi_streamer.service`**: Automatic update service for maintenance
 
 ### Service Management
@@ -346,40 +345,6 @@ bash install_rpi_streamer.sh --main                  # Update to stable main bra
 2. **Update**: Downloads and applies changes from the correct branch (develop/main)
 3. **Restart**: Automatically restarts services to apply changes
 4. **Verify**: Status confirmation through web interface
-
-## Remote Access Setup
-
-### Option 1: Reverse SSH Tunnel (Recommended)
-```sh
-bash install_rpi_streamer.sh --reverse-ssh
-```
-
-**Features:**
-- Automatic device registration with hardware console
-- Secure tunnels with AutoSSH reliability and reconnection
-- Unique port allocation preventing device conflicts
-- SSH key management with 4096-bit RSA keys
-- Central server access via SSH port forwarding
-
-**Access your device:**
-```bash
-# SSH to server with port forwarding
-ssh -L 8080:localhost:[device_port] user@streamer.lambda-tek.com -p 2024
-# Then visit: http://localhost:8080
-```
-
-### Option 2: Tailscale VPN
-```sh
-bash install_rpi_streamer.sh --tailscale
-```
-
-**Features:**
-- Mesh networking for direct device access
-- No server configuration required
-- Mobile app support for smartphone access
-- Automatic IP assignment and DNS resolution
-
-**For detailed multi-device setup**, see [MULTI_DEVICE_SETUP.md](MULTI_DEVICE_SETUP.md)
 
 ## Hardware Support
 

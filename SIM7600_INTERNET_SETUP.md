@@ -199,11 +199,12 @@ sudo mmcli -m 0 --disable
 ## Security Considerations
 
 ### VPN Recommendations
-For secure remote access over cellular:
+For secure remote access over cellular, configure VPN separately after installation:
 
 ```bash
-# Install Tailscale VPN during setup
-bash install_rpi_streamer.sh --develop --tailscale
+# Install RPI Streamer first
+bash install_rpi_streamer.sh --develop
+# Then configure VPN services as needed
 ```
 
 ### Firewall Configuration
