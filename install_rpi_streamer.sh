@@ -1337,3 +1337,135 @@ else
     echo "   --tailscale    : Tailscale VPN mesh networking"
     echo "   --remote       : Interactive remote access menu"
 fi
+
+# WiFi Hotspot Setup Option
+echo ""
+echo "=========================================="
+echo "📶 WIFI HOTSPOT CONFIGURATION"
+echo "=========================================="
+echo ""
+echo "Would you like to configure this device as a WiFi hotspot?"
+echo "This allows you to connect directly to the device when no internet is available."
+echo ""
+echo "Options:"
+echo "  1) Yes - Create WiFi hotspot now (default)"
+echo "  2) No - Keep current network configuration"
+echo ""
+read -p "Enter your choice (1-2) [1]: " hotspot_choice
+hotspot_choice=${hotspot_choice:-1}
+
+case $hotspot_choice in
+    1)
+        echo ""
+        echo "🔧 Setting up WiFi hotspot..."
+        
+        # Wait for Flask app to be ready first
+        echo "⏳ Waiting for Flask app to start..."
+        flask_ready=false
+        for i in {1..30}; do
+            if curl -s http://localhost/system-settings-data >/dev/null 2>&1; then
+                echo "✅ Flask app is ready"
+                flask_ready=true
+                break
+            fi
+            if [ $i -eq 30 ]; then
+                echo "❌ Flask app did not start in time, skipping hotspot setup"
+                echo "   You can configure the hotspot later via the web interface"
+                echo "   Exiting hotspot configuration..."
+                break
+            fi
+            sleep 2
+        done
+        
+        # Exit early if Flask app is not reachable
+        if [ "$flask_ready" = "false" ]; then
+            echo ""
+            echo "⚠️  Cannot configure hotspot without Flask app running"
+            echo "   Please ensure the RPI Streamer service is running and try again"
+            echo "   Check status with: sudo systemctl status flask_app"
+            break
+        fi
+        
+        # Get current settings from the application
+        echo "📡 Getting current WiFi settings from application..."
+        
+        # Fetch current settings via API
+        settings_response=$(curl -s http://localhost/system-settings-data)
+        
+        # Extract current WiFi settings using jq (guaranteed to be available)
+        current_hotspot_ssid=$(echo "$settings_response" | jq -r '.wifi.hotspot_ssid // ""')
+        current_hotspot_password=$(echo "$settings_response" | jq -r '.wifi.hotspot_password // ""')
+        current_hotspot_channel=$(echo "$settings_response" | jq -r '.wifi.hotspot_channel // 6')
+        current_hotspot_ip=$(echo "$settings_response" | jq -r '.wifi.hotspot_ip // "192.168.4.1"')
+        
+        # Use current settings as defaults, with fallbacks
+        default_ssid="${current_hotspot_ssid:-RPI-Streamer-${hardwareid: -6}}"
+        default_password="${current_hotspot_password:-rpistreamer123}"
+        default_channel="${current_hotspot_channel:-6}"
+        default_ip="${current_hotspot_ip:-192.168.4.1}"
+        
+        echo "📋 Current hotspot settings loaded from application"
+        
+        # Get hotspot configuration from user with current settings as defaults
+        read -p "Enter hotspot SSID [$default_ssid]: " hotspot_ssid
+        hotspot_ssid=${hotspot_ssid:-$default_ssid}
+        
+        while true; do
+            read -s -p "Enter hotspot password (minimum 8 characters) [$default_password]: " hotspot_password
+            echo ""
+            # Use default if no input provided
+            hotspot_password=${hotspot_password:-$default_password}
+            if [ ${#hotspot_password} -ge 8 ]; then
+                break
+            else
+                echo "❌ Password must be at least 8 characters long. Please try again."
+            fi
+        done
+        
+        read -p "Enter hotspot channel [$default_channel]: " hotspot_channel
+        hotspot_channel=${hotspot_channel:-$default_channel}
+        
+        read -p "Enter hotspot IP address [$default_ip]: " hotspot_ip
+        hotspot_ip=${hotspot_ip:-$default_ip}
+        
+        # Configure hotspot via API (Flask app already verified as running)
+        echo "🔧 Configuring WiFi hotspot..."
+        
+        response=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -d "{
+                \"mode\": \"hotspot\",
+                \"hotspot_ssid\": \"$hotspot_ssid\",
+                \"hotspot_password\": \"$hotspot_password\",
+                \"hotspot_channel\": $hotspot_channel,
+                \"hotspot_ip\": \"$hotspot_ip\"
+            }" \
+            http://localhost/system-settings-wifi-mode)
+        
+        if echo "$response" | grep -q '"success": *true'; then
+            echo "✅ WiFi hotspot configured successfully!"
+            echo ""
+            echo "📶 Hotspot Details:"
+            echo "   SSID: $hotspot_ssid"
+            echo "   IP Address: $hotspot_ip"
+            echo "   Channel: $hotspot_channel"
+            echo ""
+            echo "🔌 Connect to the hotspot and access:"
+            echo "   HTTP: http://$hotspot_ip"
+            echo ""
+            echo "ℹ️  You can switch back to client mode anytime via the web interface"
+        else
+            echo "❌ Failed to configure WiFi hotspot"
+            echo "   Response: $response"
+            echo "   You can configure the hotspot later via the web interface"
+        fi
+        ;;
+    2)
+        echo "ℹ️  Keeping current network configuration"
+        echo "   You can set up a WiFi hotspot later via the web interface at:"
+        echo "   System Settings > WiFi Settings > Hotspot Mode"
+        ;;
+    *)
+        echo "❌ Invalid choice, keeping current network configuration"
+        ;;
+esac
