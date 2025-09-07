@@ -140,9 +140,12 @@ if [ -d .git ]; then
 else
     echo "Repository not found, this is a new installation..."
     IS_NEW_INSTALLATION=true
-    rm -rf *
+    cd ..
+    rm -rf flask_app
+    mkdir flask_app
+    cd flask_app
     sudo git clone https://github.com/tfelici/RPI-Streamer.git .
-    
+
     # Determine which branch to checkout after cloning (support both old and new naming)
     if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
         sudo git checkout develop
