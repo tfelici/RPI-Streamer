@@ -1700,7 +1700,7 @@ def system_check_update():
         fetch_result = subprocess.run(['git', 'fetch', 'origin'], capture_output=True, text=True)
         if fetch_result.returncode != 0:
             return jsonify({'success': False, 'error': fetch_result.stderr.strip()})
-        # Compare local and remote tracked files (ignoring timestamps)
+        # Compare local and remote tracked files (ignoring timestamps and permission)
         diff_result = subprocess.run(['git', '-c', 'core.filemode=false', 'diff', '--name-status', remote_branch], capture_output=True, text=True)
         if diff_result.returncode != 0:
             return jsonify({'success': False, 'error': diff_result.stderr.strip()})
