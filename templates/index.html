@@ -375,6 +375,10 @@
                             <span class="stat-value" id="gps-location">--</span>
                             <div class="stat-label">Location</div>
                         </div>
+                        <div class="stat-item">
+                            <span class="stat-value" id="gps-altitude">--</span>
+                            <div class="stat-label">Altitude</div>
+                        </div>
                     </div>
                     
                     <h4>GNSS Constellations</h4>
@@ -1360,6 +1364,7 @@
         const gpsSatellites = document.getElementById('gps-satellites');
         const gpsAccuracy = document.getElementById('gps-accuracy');
         const gpsLocation = document.getElementById('gps-location');
+        const gpsAltitude = document.getElementById('gps-altitude');
         const gpsConstellationSummary = document.getElementById('gps-constellation-summary');
 
         // GNSS Constellation display functions
@@ -1423,10 +1428,10 @@
                     if (connection.gps) {
                         const gpsStatus = connection.gps;
                         
-                        if (gpsStatus.available && gpsStatus.fix_status === "Valid fix") {
+                        if (gpsStatus.available && gpsStatus.fix_status === "valid") {
                             gps.textContent = "Valid fix";
                             gps.style.color = '#28a745'; // green
-                        } else if (gpsStatus.available && gpsStatus.fix_status === "No satellite fix") {
+                        } else if (gpsStatus.available && gpsStatus.fix_status === "no_fix") {
                             gps.textContent = "No fix";
                             gps.style.color = '#ffc107'; // yellow
                         } else if (gpsStatus.available) {
@@ -1448,19 +1453,35 @@
                     if (isWifiConnected) {
                         wifiDetailsDiv.style.display = 'block';
                         
+                        // Get references to the labels so we can change them dynamically
+                        const wifiSignalLabel = document.querySelector('#wifi-signal').nextElementSibling;
+                        const wifiTxLabel = document.querySelector('#wifi-tx-bitrate').nextElementSibling;
+                        const wifiRxLabel = document.querySelector('#wifi-rx-bitrate').nextElementSibling;
+                        
                         // Check if we're in hotspot mode
                         if (connection.wifi_details && connection.wifi_details.mode === 'hotspot') {
-                            // Hotspot mode - show client count and SSID
-                            wifiSignal.textContent = `${connection.wifi_details.clients_count} clients`;
+                            // Hotspot mode - update labels and show appropriate info
+                            wifiSignalLabel.textContent = 'Connected Clients';
+                            wifiTxLabel.textContent = 'Hotspot SSID';
+                            wifiRxLabel.textContent = 'Mode';
+                            
+                            // Show client count
+                            wifiSignal.textContent = `${connection.wifi_details.clients_count} client${connection.wifi_details.clients_count !== 1 ? 's' : ''}`;
                             wifiSignal.style.color = connection.wifi_details.clients_count > 0 ? '#28a745' : '#6c757d'; // green if clients, gray if none
                             
-                            // Show hotspot SSID in TX field
+                            // Show hotspot SSID
                             wifiTxBitrate.textContent = connection.wifi_details.ssid || '--';
+                            wifiTxBitrate.style.color = '#007bff'; // blue for info
                             
-                            // Show hotspot mode in RX field
+                            // Show hotspot mode
                             wifiRxBitrate.textContent = 'Hotspot Mode';
+                            wifiRxBitrate.style.color = '#28a745'; // green for active
                         } else {
-                            // Regular WiFi client mode - show signal, bitrates
+                            // Regular WiFi client mode - restore original labels and show signal, bitrates
+                            wifiSignalLabel.textContent = 'Signal Strength';
+                            wifiTxLabel.textContent = 'TX Bitrate';
+                            wifiRxLabel.textContent = 'RX Bitrate';
+                            
                             // Signal strength
                             if (connection.wifi_details && connection.wifi_details.signal_percent !== undefined) {
                                 const signalPercent = connection.wifi_details.signal_percent;
@@ -1496,10 +1517,22 @@
                         }
                     } else {
                         wifiDetailsDiv.style.display = 'none';
+                        
+                        // Reset labels to default when WiFi is disconnected
+                        const wifiSignalLabel = document.querySelector('#wifi-signal').nextElementSibling;
+                        const wifiTxLabel = document.querySelector('#wifi-tx-bitrate').nextElementSibling;
+                        const wifiRxLabel = document.querySelector('#wifi-rx-bitrate').nextElementSibling;
+                        
+                        if (wifiSignalLabel) wifiSignalLabel.textContent = 'Signal Strength';
+                        if (wifiTxLabel) wifiTxLabel.textContent = 'TX Bitrate';
+                        if (wifiRxLabel) wifiRxLabel.textContent = 'RX Bitrate';
+                        
                         wifiSignal.textContent = '--';
                         wifiTxBitrate.textContent = '--';
                         wifiRxBitrate.textContent = '--';
                         wifiSignal.style.color = '';
+                        wifiTxBitrate.style.color = '';
+                        wifiRxBitrate.style.color = '';
                     }
 
                     // Update 4G dongle details if available
@@ -1554,7 +1587,7 @@
 
                     // Update GPS details if available
                     const isGpsAvailable = connection.gps && connection.gps.available;
-                    const hasGpsFix = isGpsAvailable && connection.gps.fix_status === "Valid fix";
+                    const hasGpsFix = isGpsAvailable && connection.gps.fix_status === "valid";
                     
                     if (isGpsAvailable) {
                         gpsDetailsDiv.style.display = 'block';
@@ -1562,40 +1595,58 @@
                         const gpsInfo = connection.gps;
                         
                         // Fix status with color coding
-                        gpsFixStatus.textContent = gpsInfo.fix_status || '--';
-                        if (gpsInfo.fix_status === "Valid fix") {
+                        const fixStatus = gpsInfo.fix_status || '--';
+                        if (fixStatus === 'valid') {
+                            gpsFixStatus.textContent = 'Valid fix';
                             gpsFixStatus.style.color = '#28a745'; // green
-                        } else if (gpsInfo.fix_status === "No satellite fix") {
+                        } else if (fixStatus === 'no_fix') {
+                            gpsFixStatus.textContent = 'No satellite fix';
                             gpsFixStatus.style.color = '#ffc107'; // yellow
                         } else {
+                            gpsFixStatus.textContent = fixStatus;
                             gpsFixStatus.style.color = '#dc3545'; // red
                         }
                         
-                        // Satellites count
-                        gpsSatellites.textContent = gpsInfo.satellites ? gpsInfo.satellites.toString() : '--';
-                        if (gpsInfo.satellites) {
-                            if (gpsInfo.satellites >= 8) {
-                                gpsSatellites.style.color = '#28a745'; // green
-                            } else if (gpsInfo.satellites >= 4) {
-                                gpsSatellites.style.color = '#ffc107'; // yellow
-                            } else {
-                                gpsSatellites.style.color = '#dc3545'; // red
-                            }
+                        // Satellites count - access from satellites object
+                        const satelliteCount = gpsInfo.satellites ? gpsInfo.satellites.total || gpsInfo.satellites.used || 0 : 0;
+                        gpsSatellites.textContent = satelliteCount.toString();
+                        if (satelliteCount >= 8) {
+                            gpsSatellites.style.color = '#28a745'; // green
+                        } else if (satelliteCount >= 4) {
+                            gpsSatellites.style.color = '#ffc107'; // yellow
                         } else {
-                            gpsSatellites.style.color = '';
+                            gpsSatellites.style.color = '#dc3545'; // red
                         }
                         
-                        // Accuracy
-                        gpsAccuracy.textContent = gpsInfo.accuracy || '--';
+                        // Accuracy - use direct accuracy value in meters
+                        if (gpsInfo.accuracy && typeof gpsInfo.accuracy === 'number') {
+                            gpsAccuracy.textContent = `~${gpsInfo.accuracy.toFixed(1)}m`;
+                        } else {
+                            gpsAccuracy.textContent = '--';
+                        }
                         
-                        // Location (lat, lon)
-                        gpsLocation.textContent = gpsInfo.location || '--';
-                        if (gpsInfo.location) {
+                        // Altitude - access directly from GPS data
+                        if (gpsInfo.altitude !== null && gpsInfo.altitude !== undefined) {
+                            gpsAltitude.textContent = `${gpsInfo.altitude.toFixed(1)}m`;
+                        } else {
+                            gpsAltitude.textContent = '--';
+                        }
+                        
+                        // Enhanced Location display with coordinates only
+                        if (gpsInfo.latitude !== null && gpsInfo.latitude !== undefined && 
+                            gpsInfo.longitude !== null && gpsInfo.longitude !== undefined) {
+                            let locationText = `${gpsInfo.latitude.toFixed(6)}, ${gpsInfo.longitude.toFixed(6)}`;
+                            
+                            gpsLocation.textContent = locationText;
                             gpsLocation.style.fontSize = '0.8em'; // smaller font for coordinates
+                            gpsLocation.style.whiteSpace = 'nowrap'; // Keep coordinates on single line
+                        } else {
+                            gpsLocation.textContent = '--';
+                            gpsLocation.style.whiteSpace = '';
                         }
                         
-                        // GNSS Constellations - Use the correct path from GPS client
-                        const satelliteData = gpsInfo.details?.satellites_detail?.constellations || {};
+                        // GNSS Constellations - Use the satellites.constellations path from GPS client
+                        const satelliteData = gpsInfo.satellites?.constellations || {};
                         updateGnssConstellations({ constellations: satelliteData });
                     } else {
                         gpsDetailsDiv.style.display = 'none';
@@ -1603,9 +1654,11 @@
                         gpsSatellites.textContent = '--';
                         gpsAccuracy.textContent = '--';
                         gpsLocation.textContent = '--';
+                        gpsAltitude.textContent = '--';
                         gpsFixStatus.style.color = '';
                         gpsSatellites.style.color = '';
                         gpsLocation.style.fontSize = '';
+                        gpsLocation.style.whiteSpace = '';
                         
                         // Clear constellation display
                         clearGnssConstellations();

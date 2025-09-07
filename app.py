@@ -18,19 +18,13 @@ import uuid
 import requests
 import socket
 import random
-import glob
+import fcntl
 from datetime import datetime
-from functools import wraps
 from pathlib import Path
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, generate_gps_track_id, get_default_hotspot_ssid
-from gps_client import get_gnss_location
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR,HEARTBEAT_FILE, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, generate_gps_track_id, get_default_hotspot_ssid, get_hardwareid, get_app_version, get_active_recording_info, add_files_from_path
 
-# Use pymediainfo for fast video duration extraction
-try:
-    from pymediainfo import MediaInfo
-except ImportError:
-    MediaInfo = None
+# Use pymediainfo for fast video duration extraction - now imported in utils.py
 
 app = Flask(__name__)
 
@@ -47,265 +41,35 @@ def add_no_cache_headers(response):
     response.headers["Expires"] = "0"
     return response
 
-def get_hardwareid():
+def read_stats_file_with_lock(stats_file):
     """
-    Get the hardware ID using the same logic as the installation script.
-    First tries to get CPU serial from /proc/cpuinfo, then falls back to MAC address.
-    """
-    try:
-        # First try to get CPU serial from /proc/cpuinfo (Raspberry Pi)
-        with open('/proc/cpuinfo', 'r') as f:
-            for line in f:
-                if line.startswith('Serial'):
-                    serial = line.split(':')[1].strip()
-                    if serial and serial != '0000000000000000':
-                        return serial
-    except (FileNotFoundError, IOError, IndexError):
-        pass
+    Read stats file with shared lock for thread safety.
     
-    # Fallback to MAC address
+    Uses file locking to prevent race conditions between the heartbeat daemon
+    (writer) and the web application (reader). Multiple readers can access
+    simultaneously with shared locks, but writers get exclusive access.
+    
+    Args:
+        stats_file (str): Path to the stats file to read
+        
+    Returns:
+        dict: Stats data from file
+        
+    Raises:
+        IOError: If file cannot be read
+        json.JSONDecodeError: If file contains invalid JSON
+    """
     try:
-        for interface_path in glob.glob('/sys/class/net/*/address'):
+        with open(stats_file, 'r') as f:
+            # Acquire shared (read) lock - allows multiple readers
+            fcntl.flock(f.fileno(), fcntl.LOCK_SH)
             try:
-                with open(interface_path, 'r') as f:
-                    mac = f.read().strip()
-                    if mac and mac != '00:00:00:00:00:00':
-                        # Remove colons like in the installation script
-                        return mac.replace(':', '')
-            except (IOError, OSError):
-                continue
-    except Exception:
-        pass
-    
-    # Final fallback - generate based on timestamp like installation script
-    return f"fallback-{int(time.time())}"
-
-def get_flight_parameters():
-    """
-    Retrieve flight parameters from the server using the hardware ID.
-    Returns the response data or None if failed.
-    """
-    try:
-        hardwareid = get_hardwareid()
-        url = f"https://streamer.lambda-tek.com/?command=getflightpars&hardwareid={hardwareid}"
-
-        print(f"Retrieving flight parameters for hardware ID: {hardwareid}")
-        print(f"Request URL: {url}")
-        
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()  # Raises an HTTPError for bad responses
-        
-        print(f"Response status: {response.status_code}")
-        print(f"Response content: {response.text[:500]}...")  # First 500 chars for debugging
-        
-        # Try to parse as JSON first
-        try:
-            json_data = response.json()
-            print(f"Parsed JSON response: {json_data}")
-            return json_data
-        except json.JSONDecodeError:
-            print("Response is not valid JSON, returning as text")
-            # If not JSON, return the text content
-            return {"text_response": response.text}
-            
-    except requests.exceptions.RequestException as e:
-        print(f"Error retrieving flight parameters: {e}")
-        return None
-    except Exception as e:
-        print(f"Unexpected error in get_flight_parameters: {e}")
-        return None
-
-def get_temperature():
-    # Use vcgencmd like in get_system_diagnostics for consistency
-    try:
-        # Check if vcgencmd is available first
-        subprocess.run(['vcgencmd', 'version'], capture_output=True, text=True, timeout=2)
-        
-        # Get temperature using vcgencmd
-        result = subprocess.run(['vcgencmd', 'measure_temp'], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            output = result.stdout.strip()
-            # Extract temperature from "temp=48.8'C"
-            temp_match = re.search(r'temp=([\d.]+)', output)
-            if temp_match:
-                return f"{temp_match.group(1)}°C"
-            else:
-                return output
-        else:
-            return "N/A"
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        # vcgencmd not available, fallback to "--" like in diagnostics
-        return "--"
-    except Exception:
-        return "N/A"
-
-def get_fan_rpm():
-    try:
-        sys_devices_path = Path('/sys/devices/platform/cooling_fan')
-        fan_input_files = list(sys_devices_path.rglob('fan1_input'))
-        if not fan_input_files:
-            return "No fan?"
-        with open(fan_input_files[0], 'r') as file:
-            rpm = file.read().strip()
-        return f"{rpm} RPM"
-    except FileNotFoundError:
-        return "Fan RPM file not found"
-    except PermissionError:
-        return "Permission denied accessing the fan RPM file"
-    except Exception as e:
-        return f"Unexpected error: {e}"
-
-def power_consumption_watts():
-    """
-    Calculate total power consumption in watts by parsing all PMIC voltage and current readings.
-    Returns formatted power string like "2.45 W", or fallback values if not available.
-    """
-    # First try system power supply files
-    power_paths = [
-        '/sys/class/power_supply/rpi_battery/power_now',
-        '/sys/class/power_supply/battery/power_now',
-        '/sys/class/power_supply/axp20x-battery/power_now',
-        '/sys/class/power_supply/usb/power_now',
-    ]
-    for path in power_paths:
-        if os.path.exists(path):
-            try:
-                with open(path) as f:
-                    val = int(f.read().strip())
-                    if val > 10000:
-                        return f"{val/1_000_000:.2f} W"
-                    else:
-                        return f"{val} uW"
-            except Exception:
-                continue
-    
-    try:
-        # Check if vcgencmd is available first
-        subprocess.run(['vcgencmd', 'version'], capture_output=True, text=True, timeout=2)
-        
-        # Get all PMIC ADC readings
-        output = subprocess.check_output(['vcgencmd', 'pmic_read_adc'], timeout=5).decode("utf-8")
-        lines = output.split('\n')
-        amperages = {}
-        voltages = {}
-        
-        for line in lines:
-            cleaned_line = line.strip()
-            if cleaned_line and '=' in cleaned_line:
-                try:
-                    parts = cleaned_line.split(' ')
-                    label, value = parts[0], parts[-1]
-                    val = float(value.split('=')[1][:-1])  # Remove unit (V or A)
-                    short_label = label[:-2]  # Remove _V or _A suffix
-                    if label.endswith('A'):
-                        amperages[short_label] = val
-                    elif label.endswith('V'):
-                        voltages[short_label] = val
-                except (ValueError, IndexError):
-                    continue
-        
-        # Calculate total wattage (V * A = W) for matching voltage/current pairs
-        wattage = sum(amperages[key] * voltages[key] for key in amperages if key in voltages)
-        if wattage > 0:
-            return f"{wattage:.2f} W"
-        
-        # Fallback: Try individual VDD_CORE readings if comprehensive method failed
-        voltage = None
-        current = None
-        
-        # Get VDD_CORE voltage
-        result = subprocess.run(['vcgencmd', 'pmic_read_adc', 'VDD_CORE_V'], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0 and 'VDD_CORE_V' in result.stdout:
-            volt_match = re.search(r'=([\d.]+)V', result.stdout)
-            if volt_match:
-                voltage = float(volt_match.group(1))
-        
-        # Get VDD_CORE current
-        result = subprocess.run(['vcgencmd', 'pmic_read_adc', 'VDD_CORE_A'], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0 and 'VDD_CORE_A' in result.stdout:
-            current_match = re.search(r'=([\d.]+)A', result.stdout)
-            if current_match:
-                current = float(current_match.group(1))
-        
-        # Calculate power if both voltage and current are available
-        if voltage is not None and current is not None:
-            watts = voltage * current
-            return f"{watts:.2f} W"
-        elif voltage is not None:
-            return f"{voltage:.3f} V (core)"
-        
-        return "0.00 W"
-        
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        # vcgencmd not available, fallback to "--" like in diagnostics
-        return "--"
-    except Exception as e:
-        print(f"Error calculating power consumption: {e}")
-        return "N/A"
-
-def get_app_version():
-    # Find the latest mtime among all .py, .html, .png files in the project
-    exts = {'.py', '.html', '.png'}
-    latest_mtime = 0
-    latest_file = ''
-    for root, dirs, files in os.walk(os.path.dirname(__file__)):
-        for f in files:
-            ext = os.path.splitext(f)[1].lower()
-            if ext in exts:
-                path = os.path.join(root, f)
-                mtime = os.path.getmtime(path)
-                if mtime > latest_mtime:
-                    latest_mtime = mtime
-                    latest_file = path
-    if latest_mtime:
-        mtime_dt = datetime.fromtimestamp(latest_mtime)
-        return mtime_dt.strftime('%Y-%m-%d %H:%M')
-    return ''
-
-def get_active_recording_info():
-    """Return (pid, file_path) if an active recording is in progress, else (None, None)"""
-    ACTIVE_PIDFILE = "/tmp/relay-ffmpeg-record-webcam.pid"
-    if os.path.exists(ACTIVE_PIDFILE):
-        try:
-            with open(ACTIVE_PIDFILE, 'r') as f:
-                line = f.read().strip()
-                if line:
-                    pid_str, file_path = line.split(':', 1)
-                    pid = int(pid_str)
-                    if is_pid_running(pid):
-                        return pid, file_path
-        except Exception:
-            pass
-    return None, None
-
-def add_files_from_path(recording_files, path, source_label="", location="Local"):
-    """Helper function to add files from a given path. Appends to the passed-in recording_files list."""
-    active_pid, active_file = get_active_recording_info()
-    if os.path.isdir(path):
-        files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
-        files.sort(key=lambda f: os.path.getmtime(os.path.join(path, f)), reverse=True)
-        for f in files:
-            file_path = os.path.join(path, f)
-            file_size = os.path.getsize(file_path)
-            display_name = f"{source_label}{f}" if source_label else f
-            is_active = (active_file is not None and os.path.abspath(file_path) == os.path.abspath(active_file) and is_pid_running(active_pid))
-            # Add duration if file is not active
-            if is_active:
-                duration = None
-            else:
-                duration = get_video_duration_mediainfo(file_path)
-            # Extract timestamp from filename if possible
-            m = re.match(r'^(\d+)\.mp4$', f)
-            timestamp = int(m.group(1)) if m else None
-            recording_files.append({
-                'path': file_path,
-                'size': file_size,
-                'active': is_active,
-                'name': display_name,
-                'location': location,
-                'duration': duration,
-                'timestamp': timestamp
-            })
+                return json.load(f)
+            finally:
+                # Lock is automatically released when file is closed
+                pass
+    except (IOError, json.JSONDecodeError) as e:
+        raise e
 
 @app.route('/')
 def home():
@@ -338,33 +102,68 @@ def home():
 @app.route('/stats')
 def stats():
     def event_stream():
-        client_timeout = 0
-        max_timeout = 30  # Stop after 30 seconds of no activity
+        """
+        Server-Sent Events stream for real-time system statistics.
+
+        This function reads stats data from HEARTBEAT_FILE
+        which is written by the heartbeat daemon every 5 seconds.
         
-        while client_timeout < max_timeout:
+        This centralized approach ensures:
+        - Consistency between web interface and heartbeat data
+        - No code duplication for stats collection
+        - Web server independence from system metrics collection
+        """
+        update_interval = 5  # poll update every 5 seconds
+
+        while True:  # Remove timeout - run continuously
             try:
-                cpu = psutil.cpu_percent(interval=1)
-                mem = psutil.virtual_memory().percent
-                temp = get_temperature()
-                power = power_consumption_watts()
-                fan_rpm = get_fan_rpm()
-                connection = get_connection_info()
+                # Read stats from file written by heartbeat daemon with read lock
+                if os.path.exists(HEARTBEAT_FILE):
+                    try:
+                        stats_data = read_stats_file_with_lock(HEARTBEAT_FILE)
+
+                        # Ensure we have a valid timestamp (not too old)
+                        current_time = time.time()
+                        file_age = current_time - stats_data.get('timestamp', 0)
+                        
+                        if file_age < 30:  # Use data if it's less than 30 seconds old
+                            # Format data for SSE clients
+                            data = f"data: {json.dumps(stats_data)}\n\n"
+                            yield data
+                        else:
+                            # File is too old, send error message
+                            error_data = {
+                                'error': 'Stats data too old',
+                                'file_age': file_age,
+                                'timestamp': current_time
+                            }
+                            data = f"data: {json.dumps(error_data)}\n\n"
+                            yield data
+                    except (json.JSONDecodeError, IOError) as e:
+                        # File exists but can't be read/parsed
+                        error_data = {
+                            'error': f'Stats file error: {e}',
+                            'timestamp': time.time()
+                        }
+                        data = f"data: {json.dumps(error_data)}\n\n"
+                        yield data
+                else:
+                    # Stats file doesn't exist (heartbeat daemon not running?)
+                    error_data = {
+                        'error': 'Stats file not found - heartbeat daemon may not be running',
+                        'timestamp': time.time()
+                    }
+                    data = f"data: {json.dumps(error_data)}\n\n"
+                    yield data
                 
-                # Format connection info for JSON
-                import json
-                
-                data = f"data: {json.dumps({'cpu': cpu, 'mem': mem, 'temp': temp, 'power': power, 'fan_rpm': fan_rpm, 'connection': connection})}\n\n"
-                yield data
-                client_timeout = 0  # Reset timeout on successful yield
-                time.sleep(1)
+                time.sleep(update_interval)
             except GeneratorExit:
                 # Client disconnected
                 print("Stats SSE client disconnected")
                 break
             except Exception as e:
                 print(f"Stats SSE error: {e}")
-                client_timeout += 1
-                time.sleep(1)
+                time.sleep(update_interval)
         print("Stats SSE stream ended")
     return Response(event_stream(), mimetype='text/event-stream')
 
@@ -459,7 +258,7 @@ def flight_settings_save():
     # Update flight settings
     settings['username'] = request.form.get('username', '').strip()
     settings['vehicle'] = request.form.get('vehicle', '').strip()
-    settings['domain'] = request.form.get('domain', 'gyropilots.org').strip()
+    settings['domain'] = request.form.get('domain', '').strip()
     settings['gps_stream_link'] = request.form.get('gps_stream_link') == 'on'
     old_gps_start_mode = settings['gps_start_mode']
     settings['gps_start_mode'] = request.form.get('gps_start_mode', 'manual')
@@ -678,7 +477,7 @@ def update_gyropedia_flight(gyropedia_id, state, settings, track_id=None, vehicl
     try:
         # Check if Gyropedia integration is configured
         username = settings.get('username', '').strip()
-        domain = settings.get('domain', 'gyropilots.org').strip()
+        domain = settings.get('domain', '').strip()
         
         if not gyropedia_id or not username:
             print("Gyropedia integration not configured (missing gyropedia_id or username), skipping flight update")
@@ -799,37 +598,6 @@ def start_flight():
     
     # Get username and domain from settings and validate
     settings = load_settings()
-    # Get flight parameters from server and update settings
-    flight_params = get_flight_parameters()
-    if flight_params:
-        # Update settings with flight parameters if they exist in the response
-        if isinstance(flight_params, dict) and 'text_response' not in flight_params:
-            # Handle JSON response with expected fields: domain, username, rtmpkey, vehicle
-            if 'rtmpkey' in flight_params:
-                settings['rtmpkey'] = flight_params['rtmpkey']
-                print(f"Updated rtmpkey: {flight_params['rtmpkey']}")
-            
-            if 'vehicle' in flight_params:
-                # 'vehicle' maps to 'vehicle'
-                settings['vehicle'] = flight_params['vehicle']
-                print(f"Updated vehicle: {flight_params['vehicle']}")
-            
-            if 'domain' in flight_params:
-                settings['domain'] = flight_params['domain']
-                print(f"Updated domain: {flight_params['domain']}")
-            
-            if 'username' in flight_params:
-                settings['username'] = flight_params['username']
-                print(f"Updated username: {flight_params['username']}")
-            
-            # Save updated settings
-            save_settings(settings)
-            print(f"Updated settings with flight parameters from server")
-        else:
-            print(f"Flight parameters response format not recognized: {type(flight_params)}")
-    else:
-        print("No flight parameters received from server, using existing settings")
-
     username = settings['username'].strip()
     domain = settings.get('domain', '').strip()
     vehicle = settings.get('vehicle', '').strip()
@@ -850,7 +618,7 @@ def start_flight():
             f'https://{domain}/ajaxservices.php',
             data={
                 'command': 'init_streamer_flightpars',
-                'value': hardwareid
+                'hardwareid': hardwareid
             },
             timeout=10
         )
@@ -1228,13 +996,6 @@ def authenticate():
         {'WWW-Authenticate': 'Basic realm="Login Required"'
     })
 
-def requires_auth(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        # This decorator is no longer used globally
-        return f(*args, **kwargs)
-    return decorated
-
 @app.before_request
 def global_auth():
     # Allow static files and favicon.ico without auth
@@ -1273,28 +1034,48 @@ def durationformat_filter(value):
     except Exception:
         return str(value)
 
-# Fast duration extraction using pymediainfo
-def get_video_duration_mediainfo(path):
-    if MediaInfo is None:
-        return None
+def load_wifi_settings():
+    """Load WiFi settings from wifi.json with defaults"""
+    wifi_path = os.path.join(STREAMER_DATA_DIR, 'wifi.json')
+    
+    # Default WiFi settings (wifi_mode is now determined from hardware state)
+    wifi_defaults = {
+        "hotspot_ssid": get_default_hotspot_ssid(),
+        "hotspot_password": "rpistreamer123",
+        "hotspot_channel": 6,
+        "hotspot_ip": "192.168.4.1",
+        "manual_ssid": "",  # User's manual WiFi SSID
+        "manual_password": ""  # User's manual WiFi password
+    }
+    
+    if os.path.exists(wifi_path):
+        try:
+            with open(wifi_path, 'r') as f:
+                wifi_settings = json.load(f)
+                # Merge with defaults to ensure all keys exist
+                for key, default_value in wifi_defaults.items():
+                    if key not in wifi_settings:
+                        wifi_settings[key] = default_value
+                return wifi_settings
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Warning: Could not parse wifi.json: {e}")
+    
+    return wifi_defaults
+
+def save_wifi_settings(wifi_settings):
+    """Save WiFi settings to wifi.json"""
+    wifi_path = os.path.join(STREAMER_DATA_DIR, 'wifi.json')
     try:
-        media_info = MediaInfo.parse(path)
-        for track in media_info.tracks:
-            if track.track_type == 'Video' and track.duration:
-                return track.duration / 1000.0  # ms to seconds
-        # fallback: try general track
-        for track in media_info.tracks:
-            if track.track_type == 'General' and track.duration:
-                return track.duration / 1000.0
-    except Exception:
-        pass
-    return None
+        os.makedirs(STREAMER_DATA_DIR, exist_ok=True)
+        with open(wifi_path, 'w') as f:
+            json.dump(wifi_settings, f, indent=2)
+    except Exception as e:
+        print(f"Error saving WiFi settings: {e}")
+        raise
 
 def get_auth_and_wifi():
     auth = {}
-    wifi = {}
     auth_path = os.path.join(STREAMER_DATA_DIR, 'auth.json')
-    wifi_path = os.path.join(STREAMER_DATA_DIR, 'wifi.json')
     
     if os.path.exists(auth_path):
         try:
@@ -1304,13 +1085,8 @@ def get_auth_and_wifi():
             print(f"Warning: Could not parse auth.json: {e}")
             auth = {}
     
-    if os.path.exists(wifi_path):
-        try:
-            with open(wifi_path) as f:
-                wifi = json.load(f)
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"Warning: Could not parse wifi.json: {e}")
-            wifi = {}
+    # Load WiFi settings from separate file
+    wifi = load_wifi_settings()
     
     return auth, wifi
 
@@ -1351,10 +1127,13 @@ def system_settings_wifi():
     password = data.get('password', '').strip()
     if not ssid or not password:
         return jsonify({'success': False, 'error': 'SSID and password required.'})
-    wifi_path = os.path.join(STREAMER_DATA_DIR, 'wifi.json')
-    # Save to wifi.json for web UI
-    with open(wifi_path, 'w') as f:
-        json.dump({'ssid': ssid, 'password': password}, f)
+    
+    # Load current WiFi settings and update client credentials
+    wifi_settings = load_wifi_settings()
+    wifi_settings['manual_ssid'] = ssid
+    wifi_settings['manual_password'] = password
+    save_wifi_settings(wifi_settings)
+    
     # Use NetworkManager for RPI5 with Bookworm (instead of wpa_supplicant/dhcpcd)
     try:
         # First, remove any existing connection with the same SSID
@@ -1414,10 +1193,92 @@ def system_settings_wifi():
         return jsonify({'success': False, 'error': f'Failed to configure WiFi with NetworkManager: {e}'})
     return jsonify({'success': True})
 
+def detect_wifi_mode_from_hardware():
+    """
+    Detect current WiFi mode directly from hardware state using the same logic as heartbeat daemon.
+    
+    Returns:
+        str: 'client', 'hotspot', or 'unknown'
+    """
+    try:
+        # First, check if we're connected to an external WiFi network (client mode)
+        # by looking for an active WiFi connection with nmcli
+        client_mode_detected = False
+        
+        try:
+            # Check for active WiFi connections that are NOT hotspot networks
+            nmcli_result = subprocess.run(['nmcli', '-t', '-f', 'NAME,TYPE,STATE', 'connection', 'show', '--active'], 
+                                        capture_output=True, text=True, timeout=3)
+            if nmcli_result.returncode == 0:
+                for line in nmcli_result.stdout.strip().split('\n'):
+                    if line:
+                        parts = line.split(':')
+                        if len(parts) >= 3:
+                            conn_name, conn_type, conn_state = parts[0], parts[1], parts[2]
+                            # If we have an active 802-11-wireless connection that's not our hotspot
+                            if (conn_type == '802-11-wireless' and conn_state == 'activated' and 
+                                not conn_name.lower().startswith('hotspot')):
+                                client_mode_detected = True
+                                break
+        except Exception:
+            pass
+        
+        # Additional check: look at IP address ranges to determine mode
+        if not client_mode_detected:
+            try:
+                result = subprocess.run(['ip', 'addr', 'show', 'wlan0'], 
+                                      capture_output=True, text=True, timeout=3)
+                for line in result.stdout.split('\n'):
+                    if 'inet ' in line and not '127.0.0.1' in line:
+                        ip = line.strip().split()[1].split('/')[0]
+                        # If IP is in common home/office ranges, likely client mode
+                        if (ip.startswith("192.168.1.") or ip.startswith("192.168.0.") or 
+                            ip.startswith("10.") or ip.startswith("172.")):
+                            client_mode_detected = True
+                            break
+                        # If IP is in typical hotspot ranges, continue to hostapd check
+                        elif (ip.startswith("192.168.4.") or ip.startswith("192.168.43.") or 
+                              ip.startswith("10.42.")):
+                            # This suggests hotspot mode, continue to hostapd check
+                            break
+            except Exception:
+                pass
+        
+        # If we detected client mode, return it
+        if client_mode_detected:
+            return 'client'
+        
+        # Only check for hotspot mode if we didn't detect client mode
+        try:
+            hostapd_result = subprocess.run(['sudo', 'systemctl', 'is-active', 'hostapd'], 
+                                          capture_output=True, text=True, timeout=2)
+            if hostapd_result.stdout.strip() == 'active':
+                return 'hotspot'
+        except Exception:
+            pass
+        
+        # If we can't determine the mode, check if wlan0 has any IP at all
+        try:
+            result = subprocess.run(['ip', 'addr', 'show', 'wlan0'], 
+                                  capture_output=True, text=True, timeout=3)
+            for line in result.stdout.split('\n'):
+                if 'inet ' in line and not '127.0.0.1' in line:
+                    # Has IP but couldn't determine mode - default to client
+                    return 'client'
+        except Exception:
+            pass
+        
+        return 'unknown'
+        
+    except Exception:
+        return 'unknown'
+
 def get_wifi_mode_status():
     """Get current WiFi mode and hotspot status"""
-    settings = load_settings()
-    wifi_mode = settings['wifi_mode']
+    wifi_settings = load_wifi_settings()
+    
+    # Determine WiFi mode from hardware state, not from settings
+    wifi_mode = detect_wifi_mode_from_hardware()
     
     # Check if hostapd is running (indicates hotspot mode)
     try:
@@ -1457,8 +1318,8 @@ def get_wifi_mode_status():
         'hostapd_active': hostapd_active,
         'current_ip': current_ip,
         'current_ssid': current_ssid,
-        'hotspot_ssid': settings['hotspot_ssid'],
-        'hotspot_ip': settings['hotspot_ip']
+        'hotspot_ssid': wifi_settings['hotspot_ssid'],
+        'hotspot_ip': wifi_settings['hotspot_ip']
     }
 
 def check_wifi_ap_capabilities():
@@ -1994,27 +1855,26 @@ def system_settings_wifi_mode():
     data = request.get_json()
     mode = data.get('mode', 'client')
     
-    # Load current settings
-    settings = load_settings()
+    # Load current WiFi settings
+    wifi_settings = load_wifi_settings()
     
     if mode == 'hotspot':
-        ssid = data.get('hotspot_ssid', settings['hotspot_ssid'])
-        password = data.get('hotspot_password', settings['hotspot_password'])
-        channel = int(data.get('hotspot_channel', settings['hotspot_channel']))
-        ip_address = data.get('hotspot_ip', settings['hotspot_ip'])
+        ssid = data.get('hotspot_ssid', wifi_settings['hotspot_ssid'])
+        password = data.get('hotspot_password', wifi_settings['hotspot_password'])
+        channel = int(data.get('hotspot_channel', wifi_settings['hotspot_channel']))
+        ip_address = data.get('hotspot_ip', wifi_settings['hotspot_ip'])
         
         if len(password) < 8:
             return jsonify({'success': False, 'error': 'Hotspot password must be at least 8 characters'})
         
-        # Update settings
-        settings.update({
-            'wifi_mode': 'hotspot',
+        # Update WiFi settings (but not wifi_mode since it's determined from hardware)
+        wifi_settings.update({
             'hotspot_ssid': ssid,
             'hotspot_password': password,
             'hotspot_channel': channel,
             'hotspot_ip': ip_address
         })
-        save_settings(settings)
+        save_wifi_settings(wifi_settings)
         
         # Configure hotspot
         success, message = configure_wifi_hotspot(ssid, password, channel, ip_address)
@@ -2025,11 +1885,8 @@ def system_settings_wifi_mode():
             return jsonify({'success': False, 'error': message})
             
     elif mode == 'client':
-        # Update settings
-        settings['wifi_mode'] = 'client'
-        save_settings(settings)
-        
-        # Switch to client mode
+        # No need to update wifi_mode in settings since it's determined from hardware
+        # Just switch to client mode
         success, message = configure_wifi_client()
         
         if success:
@@ -2039,47 +1896,6 @@ def system_settings_wifi_mode():
     
     else:
         return jsonify({'success': False, 'error': 'Invalid WiFi mode'})
-
-@app.route('/system-settings-wifi-capabilities')
-def system_settings_wifi_capabilities():
-    """Get WiFi AP capabilities and detailed information"""
-    try:
-        capabilities = check_wifi_ap_capabilities()
-        
-        # Add some additional analysis
-        can_create_hotspot = (
-            capabilities['interface_exists'] and 
-            capabilities['supports_ap_mode'] and 
-            len(capabilities['channels_available']) > 0
-        )
-        
-        response = {
-            'success': True,
-            'capabilities': capabilities,
-            'can_create_hotspot': can_create_hotspot,
-            'recommendations': []
-        }
-        
-        # Add recommendations based on findings
-        if not capabilities['interface_exists']:
-            response['recommendations'].append("Install a WiFi adapter that supports AP mode")
-        elif not capabilities['supports_ap_mode']:
-            response['recommendations'].append("Current WiFi adapter does not support hotspot mode")
-            response['recommendations'].append("Consider using a USB WiFi adapter that supports AP mode (e.g., Realtek RTL8188CUS)")
-        elif len(capabilities['channels_available']) == 0:
-            response['recommendations'].append("No available WiFi channels - check regulatory domain settings")
-        else:
-            response['recommendations'].append("WiFi adapter appears capable of hotspot mode")
-            
-        return jsonify(response)
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': f'Failed to check WiFi capabilities: {e}',
-            'capabilities': {},
-            'can_create_hotspot': False
-        })
 
 @app.route('/system-settings-wifi-status')
 def system_settings_wifi_status():
@@ -2361,401 +2177,6 @@ def delete_recording():
     except Exception as e:
         return jsonify({'error': f'Failed to delete: {e}'}), 500
 
-def get_connection_info():
-    """
-    Get current network connection information including IP addresses and connection types.
-    Returns a dictionary with connection details.
-    """
-    connection_info = {
-        "ethernet": "Disconnected",
-        "wifi": "Disconnected", 
-        "ip_addresses": [],
-        "active_connections": []
-    }
-    
-    try:
-        # Get network interfaces and their addresses
-        
-        # Get all network interfaces with IP addresses
-        interfaces = psutil.net_if_addrs()
-        for interface_name, addresses in interfaces.items():
-            for addr in addresses:
-                if addr.family == socket.AF_INET and not addr.address.startswith('127.'):
-                    # Skip APIPA addresses (169.254.x.x) unless no other connections exist
-                    is_apipa = addr.address.startswith('169.254.')
-                    
-                    # Determine connection type based on interface name
-                    interface_lower = interface_name.lower()
-                    if any(keyword in interface_lower for keyword in ['ethernet', 'eth', 'en0', 'eno', 'enp']):
-                        conn_type = "ethernet"
-                        if not is_apipa:
-                            connection_info["ethernet"] = "Connected"
-                    elif any(keyword in interface_lower for keyword in ['wi-fi', 'wifi', 'wlan', 'wlp', 'wireless']):
-                        conn_type = "wifi"
-                        if not is_apipa:
-                            connection_info["wifi"] = "Connected"
-                    else:
-                        conn_type = "other"
-                    
-                    connection_info["ip_addresses"].append({
-                        "interface": interface_name,
-                        "ip": addr.address,
-                        "type": conn_type
-                    })
-        
-        # Use ip command to detect active connections
-        try:
-            result = subprocess.run(['ip', 'route', 'show', 'default'], capture_output=True, text=True, timeout=2)
-            if result.returncode == 0:
-                lines = result.stdout.strip().split('\n')
-                for line in lines:
-                    if 'dev' in line:
-                        parts = line.split()
-                        if 'dev' in parts:
-                            dev_index = parts.index('dev')
-                            if dev_index + 1 < len(parts):
-                                interface = parts[dev_index + 1]
-                                if interface not in connection_info["active_connections"]:
-                                    connection_info["active_connections"].append(interface)
-                                    
-                                    # Determine connection type
-                                    if any(keyword in interface.lower() for keyword in ["eth", "en", "eno", "enp"]):
-                                        connection_info["ethernet"] = "Connected"
-                                    elif any(keyword in interface.lower() for keyword in ["wlan", "wi", "wlp"]):
-                                        connection_info["wifi"] = "Connected"
-        except Exception:
-            pass
-              # Try to get WiFi SSID, signal strength, and bitrates if connected
-        try:
-            if connection_info["wifi"] == "Connected":
-                # First check if we're in hotspot mode
-                is_hotspot = False
-                hotspot_clients = 0
-                
-                # Check if hostapd is running (indicates hotspot mode)
-                try:
-                    hostapd_result = subprocess.run(['sudo', 'systemctl', 'is-active', 'hostapd'], 
-                                                  capture_output=True, text=True, timeout=2)
-                    if hostapd_result.stdout.strip() == 'active':
-                        is_hotspot = True
-                        
-                        # Count connected clients using iw command
-                        try:
-                            clients_result = subprocess.run(['sudo', 'iw', 'dev', 'wlan0', 'station', 'dump'], 
-                                                          capture_output=True, text=True, timeout=3)
-                            if clients_result.returncode == 0:
-                                # Count the number of "Station" entries
-                                hotspot_clients = clients_result.stdout.count('Station ')
-                        except Exception:
-                            # Fallback: check DHCP leases file
-                            try:
-                                with open('/var/lib/dhcp/dhcpd.leases', 'r') as f:
-                                    leases_content = f.read()
-                                    # Count active leases (rough estimate)
-                                    hotspot_clients = leases_content.count('binding state active')
-                            except Exception:
-                                # Fallback: check ARP table for hotspot subnet
-                                try:
-                                    settings = load_settings()
-                                    hotspot_ip = settings.get('hotspot_ip', '192.168.4.1')
-                                    subnet = '.'.join(hotspot_ip.split('.')[:-1]) + '.'
-                                    
-                                    arp_result = subprocess.run(['arp', '-a'], capture_output=True, text=True, timeout=2)
-                                    if arp_result.returncode == 0:
-                                        # Count ARP entries in hotspot subnet (excluding the AP itself)
-                                        for line in arp_result.stdout.split('\n'):
-                                            if subnet in line and hotspot_ip not in line:
-                                                hotspot_clients += 1
-                                except Exception:
-                                    hotspot_clients = 0
-                except Exception:
-                    pass
-                
-                if is_hotspot:
-                    # Show number of connected clients instead of regular WiFi info
-                    if hotspot_clients == 0:
-                        connection_info["wifi"] = "Hotspot (0 clients)"
-                    elif hotspot_clients == 1:
-                        connection_info["wifi"] = "Hotspot (1 client)"
-                    else:
-                        connection_info["wifi"] = f"Hotspot ({hotspot_clients} clients)"
-                    
-                    # Add hotspot details
-                    settings = load_settings()
-                    hotspot_details = {
-                        'ssid': settings.get('hotspot_ssid', get_default_hotspot_ssid()),
-                        'clients_count': hotspot_clients,
-                        'mode': 'hotspot'
-                    }
-                    connection_info['wifi_details'] = hotspot_details
-                else:
-                    # Regular WiFi client mode - get SSID, signal strength, etc.
-                    wifi_details = {}
-                    
-                    # Get SSID and detailed WiFi info using Linux commands
-                    # Try nmcli first (NetworkManager) for SSID
-                    result = subprocess.run(['nmcli', '-t', '-f', 'active,ssid', 'dev', 'wifi'], capture_output=True, text=True, timeout=2)
-                    if result.returncode == 0:
-                        lines = result.stdout.strip().split('\n')
-                        for line in lines:
-                            if line.startswith('yes:'):
-                                ssid = line.split(':', 1)[1]
-                                if ssid:
-                                    wifi_details['ssid'] = ssid
-                                    break
-                        
-                        # Get detailed WiFi information using iw command
-                        # Try different interface names, including dynamic detection
-                        wifi_interfaces = ['wlan0', 'wlp2s0', 'wlp3s0', 'wlo1']
-                        
-                        # Try to detect available wireless interfaces dynamically
-                        try:
-                            iw_dev_result = subprocess.run(['iw', 'dev'], capture_output=True, text=True, timeout=2)
-                            if iw_dev_result.returncode == 0:
-                                # Parse output to find wireless interfaces
-                                for line in iw_dev_result.stdout.split('\n'):
-                                    if 'Interface' in line:
-                                        iface_match = re.search(r'Interface\s+(\w+)', line)
-                                        if iface_match:
-                                            iface = iface_match.group(1)
-                                            if iface not in wifi_interfaces:
-                                                wifi_interfaces.append(iface)
-                        except Exception:
-                            pass  # Fall back to default list
-                        
-                        for iface in wifi_interfaces:
-                            try:
-                                iw_result = subprocess.run(['iw', 'dev', iface, 'link'], capture_output=True, text=True, timeout=5)
-                                if iw_result.returncode == 0 and ('Connected to' in iw_result.stdout or 'SSID:' in iw_result.stdout):
-                                    lines = iw_result.stdout.split('\n')
-                                    interface_found = True
-                                    for line in lines:
-                                        line = line.strip()
-                                        # Parse signal strength
-                                        if 'signal:' in line:
-                                            # Extract signal strength (e.g., "signal: -45 dBm")
-                                            signal_match = re.search(r'signal:\s*(-?\d+)\s*dBm', line)
-                                            if signal_match:
-                                                signal_dbm = int(signal_match.group(1))
-                                                wifi_details['signal_dbm'] = signal_dbm
-                                                # Convert to percentage (rough estimation)
-                                                # -30 dBm = 100%, -90 dBm = 0%
-                                                signal_percent = max(0, min(100, (signal_dbm + 90) * 100 / 60))
-                                                wifi_details['signal_percent'] = int(signal_percent)
-                                        # Parse TX bitrate
-                                        elif 'tx bitrate:' in line:
-                                            # Extract TX bitrate (e.g., "tx bitrate: 72.2 MBit/s")
-                                            tx_match = re.search(r'tx bitrate:\s*([\d.]+)\s*MBit/s', line)
-                                            if tx_match:
-                                                wifi_details['tx_bitrate'] = float(tx_match.group(1))
-                                        # Parse RX bitrate
-                                        elif 'rx bitrate:' in line:
-                                            # Extract RX bitrate (e.g., "rx bitrate: 65.0 MBit/s")
-                                            rx_match = re.search(r'rx bitrate:\s*([\d.]+)\s*MBit/s', line)
-                                            if rx_match:
-                                                wifi_details['rx_bitrate'] = float(rx_match.group(1))
-                                    break  # Found working interface, stop trying others
-                            except Exception as e:
-                                # Log the error for debugging but continue trying other interfaces
-                                continue
-                    
-                    # Update connection_info with detailed WiFi information for client mode
-                    if wifi_details:
-                        connection_info['wifi_details'] = wifi_details
-                        # Update main wifi status with SSID if available
-                        if 'ssid' in wifi_details:
-                            wifi_status = f"Connected ({wifi_details['ssid']})"
-                            # Add signal strength if available
-                            if 'signal_percent' in wifi_details:
-                                wifi_status += f" - {wifi_details['signal_percent']}%"
-                            connection_info["wifi"] = wifi_status
-        except Exception:
-            pass
-    
-        # Get 4G dongle status using ModemManager
-        dongle_status = {
-            "connected": False,
-            "signal_strength": None,
-            "operator": None,
-            "network_type": None,
-            "ip_address": None,
-            "device_present": False
-        }
-        
-        try:
-            # Use mmcli to get modem information
-            # List available modems
-            result = subprocess.run(['mmcli', '-L'], capture_output=True, text=True, timeout=5)
-            if result.returncode == 0 and result.stdout.strip():
-                # Parse modem list output to find modem index
-                modem_match = re.search(r'/org/freedesktop/ModemManager1/Modem/(\d+)', result.stdout)
-                if modem_match:
-                    modem_id = modem_match.group(1)
-                    dongle_status["device_present"] = True
-                    
-                    # Get detailed modem status
-                    modem_result = subprocess.run(['mmcli', '-m', modem_id], capture_output=True, text=True, timeout=5)
-                    if modem_result.returncode == 0:
-                        modem_output = modem_result.stdout
-                        
-                        # Parse connection state from ModemManager
-                        if 'state: connected' in modem_output.lower():
-                            dongle_status["connected"] = True
-                        
-                        # Also check NetworkManager for cellular connections
-                        if not dongle_status["connected"]:
-                            try:
-                                nm_result = subprocess.run(['nmcli', 'device', 'status'], capture_output=True, text=True, timeout=5)
-                                if nm_result.returncode == 0:
-                                    # Check for connected GSM/cellular devices
-                                    for line in nm_result.stdout.split('\n'):
-                                        if 'gsm' in line.lower() and 'connected' in line.lower():
-                                            dongle_status["connected"] = True
-                                            break
-                            except:
-                                pass  # NetworkManager check failed, continue with ModemManager only
-                        
-                        # Parse signal strength
-                        signal_match = re.search(r'signal quality:\s*(\d+)%', modem_output)
-                        if signal_match:
-                            signal_percent = int(signal_match.group(1))
-                            dongle_status["signal_strength"] = f"{signal_percent}%"
-                        
-                        # Parse operator
-                        operator_match = re.search(r'operator name:\s*\'([^\']+)\'', modem_output)
-                        if not operator_match:
-                            # Try without quotes (format: "operator name: vodafone UK")
-                            operator_match = re.search(r'operator name:\s*([^\r\n]+)', modem_output)
-                        if operator_match:
-                            dongle_status["operator"] = operator_match.group(1).strip()
-                        
-                        # Parse network type
-                        if 'access tech: lte' in modem_output.lower():
-                            dongle_status["network_type"] = "LTE"
-                        elif 'access tech: umts' in modem_output.lower():
-                            dongle_status["network_type"] = "3G"
-                        elif 'access tech: gsm' in modem_output.lower():
-                            dongle_status["network_type"] = "2G"
-                    
-                    # Get IP address if connected
-                    if dongle_status["connected"]:
-                        # Try ModemManager bearer info
-                        bearer_result = subprocess.run(['mmcli', '-m', modem_id, '--list-bearers'], capture_output=True, text=True, timeout=5)
-                        if bearer_result.returncode == 0:
-                            bearer_match = re.search(r'/org/freedesktop/ModemManager1/Bearer/(\d+)', bearer_result.stdout)
-                            if bearer_match:
-                                bearer_id = bearer_match.group(1)
-                                bearer_info = subprocess.run(['mmcli', '-b', bearer_id], capture_output=True, text=True, timeout=5)
-                                if bearer_info.returncode == 0:
-                                    ip_match = re.search(r'address:\s*(\d+\.\d+\.\d+\.\d+)', bearer_info.stdout)
-                                    if ip_match:
-                                        dongle_status["ip_address"] = ip_match.group(1)
-                        
-                        # If no IP from ModemManager, check common cellular interfaces
-                        if not dongle_status.get("ip_address"):
-                            try:
-                                # Check ppp0 interface (common for cellular connections)
-                                ip_result = subprocess.run(['ip', 'addr', 'show', 'ppp0'], capture_output=True, text=True, timeout=3)
-                                if ip_result.returncode == 0:
-                                    ip_match = re.search(r'inet (\d+\.\d+\.\d+\.\d+)', ip_result.stdout)
-                                    if ip_match:
-                                        dongle_status["ip_address"] = ip_match.group(1)
-                            except:
-                                pass  # ppp0 interface check failed
-                else:
-                    dongle_status["device_present"] = False
-            else:
-                dongle_status["device_present"] = False
-                
-        except FileNotFoundError:
-            dongle_status["error"] = "ModemManager (mmcli) not available"
-        except subprocess.TimeoutExpired:
-            dongle_status["error"] = "ModemManager timeout"
-        except Exception as e:
-            dongle_status["error"] = f"ModemManager error: {str(e)}"
-        
-        connection_info["4g_dongle"] = dongle_status
-        
-        # Add simplified 4G status for main display
-        if dongle_status.get("connected"):
-            status_text = "Connected"
-            if dongle_status.get("operator"):
-                status_text += f" ({dongle_status['operator']})"
-            if dongle_status.get("signal_strength"):
-                status_text += f" - {dongle_status['signal_strength']}"
-            connection_info["4g"] = status_text
-        elif dongle_status.get("device_present"):
-            connection_info["4g"] = "Device present, not connected"
-        elif dongle_status.get("error"):
-            connection_info["4g"] = "Error: " + dongle_status["error"]
-        else:
-            connection_info["4g"] = "No device"
-        
-        # Get GPS status from GPS daemon via client
-        gps_status = {
-            "available": False,
-            "fix_status": "No data",
-            "satellites": 0,
-            "accuracy": None,
-            "location": None
-        }
-        
-        try:
-            # Use the GPS daemon client
-            success, location_data = get_gnss_location()
-            
-            if success and location_data:
-                gps_status["available"] = True
-                
-                if location_data.get('fix_status') == 'valid':
-                    gps_status["fix_status"] = "Valid fix"
-                    satellites_info = location_data.get('satellites', {})
-                    gps_status["satellites"] = satellites_info.get('total', 0) if isinstance(satellites_info, dict) else 0
-                    
-                    # Calculate accuracy from HDOP if available
-                    hdop = location_data.get('hdop')
-                    if hdop and isinstance(hdop, (int, float)):
-                        # Rough accuracy estimate: HDOP * 3.5m
-                        gps_status["accuracy"] = f"~{hdop * 3.5:.1f}m"
-                    
-                    # Format location
-                    lat = location_data.get('latitude')
-                    lon = location_data.get('longitude')
-                    if lat is not None and lon is not None:
-                        gps_status["location"] = f"{lat:.6f}, {lon:.6f}"
-                    
-                    # Add additional details
-                    gps_status["details"] = {
-                        "fix_type": location_data.get('fix_type', 'Unknown'),
-                        "altitude": location_data.get('altitude'),
-                        "speed": location_data.get('speed'),
-                        "course": location_data.get('course'),
-                        "satellites_detail": location_data.get('satellites', {})
-                    }
-                    
-                elif location_data.get('fix_status') == 'no_fix':
-                    gps_status["fix_status"] = "No satellite fix"
-                    satellites_info = location_data.get('satellites', {})
-                    gps_status["satellites"] = satellites_info.get('total', 0) if isinstance(satellites_info, dict) else 0
-                else:
-                    # Error case
-                    error_msg = location_data.get('error', 'Unknown error')
-                    gps_status["fix_status"] = error_msg
-            else:
-                # Function call failed
-                error_msg = location_data.get('error', 'GPS function error') if location_data else 'GPS function failed'
-                gps_status["fix_status"] = error_msg
-                
-        except Exception as e:
-            gps_status["fix_status"] = f"Error: {e}"
-        
-        connection_info["gps"] = gps_status
-            
-    except Exception as e:
-        connection_info["error"] = str(e)
-    
-    return connection_info
-
 #sse entry point to return relay_status_webcam data
 @app.route('/relay-status-sse')
 def relay_status_sse():
@@ -2804,19 +2225,17 @@ def relay_status_sse():
 
 @app.route('/active-recordings-sse')
 def active_recordings_sse():
-    import json
     def event_stream():
         last_active_files = None
         usb_mount_point = find_usb_storage()
         while is_streaming() or last_active_files is None:
-            # Rebuild recording_files list (same as in home route)
-            recording_files = []
+            # Use utility function to get only active recordings
+            active_files = []
             local_recording_path = os.path.join(STREAMER_DATA_DIR, 'recordings', 'webcam')
-            add_files_from_path(recording_files, local_recording_path, "", "Local")
+            add_files_from_path(active_files, local_recording_path, "", "Local", active_only=True)
             if usb_mount_point:
                 usb_recording_path = os.path.join(usb_mount_point, 'streamerData', 'recordings', 'webcam')
-                add_files_from_path(recording_files, usb_recording_path, "[USB] ", "USB")
-            active_files = [f for f in recording_files if f.get('active')]
+                add_files_from_path(active_files, usb_recording_path, "[USB] ", "USB", active_only=True)
             # Only send if changed
             if active_files != last_active_files:
                 yield f"data: {json.dumps({'files': active_files})}\n\n"
@@ -2993,12 +2412,6 @@ def get_system_diagnostics():
         diagnostics['ups_capacity'] = None
         diagnostics['ups_battery_status'] = f"Error: {str(e)}"
         diagnostics['ups_ac_power'] = None
-    
-    # Add fan RPM information
-    try:
-        diagnostics['fan_rpm'] = get_fan_rpm()
-    except Exception as e:
-        diagnostics['fan_rpm'] = f"Error: {str(e)}"
     
     # Add INA219 power monitoring information
     try:

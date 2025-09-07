@@ -295,6 +295,10 @@ button:disabled,
     box-shadow: var(--shadow);
     text-align: center;
     transition: var(--transition);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 120px;
 }
 
 .stat-item:hover {
@@ -324,6 +328,8 @@ button:disabled,
     color: var(--text-secondary);
     font-size: 0.9rem;
     margin-top: 0.5rem;
+    align-self: center;
+    flex-shrink: 0;
 }
 
 /* Upload/Recording Management */

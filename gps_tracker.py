@@ -8,7 +8,6 @@ Tracks GPS coordinates and synchronizes them with the Gyropilots server.
 Features:
 - GNSS support via GPS daemon client (GPS + GLONASS + Galileo + BeiDou)
 - Background coordinate synchronization
-- Simulation mode for testing
 - Hardware resilience and auto-reconnection
 
 Requirements for real GPS hardware:
@@ -26,8 +25,6 @@ import threading
 import queue
 import signal
 import re
-import math
-import random
 import os
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -217,6 +214,7 @@ class GPSTracker:
     def add_location(self, latitude: float, longitude: float, 
                     altitude: Optional[float] = None, 
                     accuracy: Optional[float] = None,
+                    altitudeAccuracy: Optional[float] = None,
                     heading: Optional[float] = None, 
                     speed: Optional[float] = None) -> bool:
         """Add a GPS location point to the tracking session (only if movement detected)"""
@@ -237,14 +235,17 @@ class GPSTracker:
                 'longitude': longitude,
                 'altitude': altitude,
                 'accuracy': accuracy,
-                'altitudeAccuracy': None,  # Not available in this implementation
+                'altitudeAccuracy': altitudeAccuracy,
                 'heading': heading,
                 'speed': speed
             }
         }
         
         self.coordinates_to_sync.append(coordinate)
-        logger.info(f"Recorded location: lat={latitude:.6f}, lon={longitude:.6f}, alt={altitude}")
+        speed_info = f", speed={speed:.1f}m/s" if speed is not None and speed > 0 else ""
+        alt_info = f", alt={altitude:.1f}m" if altitude is not None else ""
+        acc_info = f", acc={accuracy:.1f}m" if accuracy is not None else ""
+        logger.info(f"Recorded location: lat={latitude:.6f}, lon={longitude:.6f}{alt_info}{speed_info}{acc_info}")
         
         # Queue sync if we have too many coordinates
         if len(self.coordinates_to_sync) >= self.sync_threshold:
@@ -376,162 +377,73 @@ class GPSTracker:
             'username': self.username
         }
 
-    def start_gps_tracking(self, update_interval: float = 2.0, simulate: bool = False):
-        """Start GPS coordinate collection with either real hardware or simulation"""
+    def start_gps_tracking(self, update_interval: float = 2.0):
+        """Start GPS coordinate collection with real hardware"""
         if not self.tracking_active:
             logger.error("Tracking session not started. Call start_tracking() first.")
             return False
         
-        if simulate:
-            logger.info("Starting GPS simulation mode")
-            logger.info("Running circular flight simulation from Oxford Airport UK")
-            write_gps_status("simulation", "GPS simulation mode active - Oxford Airport circular flight")
-            start_time = time.time()
-            
-            try:
-                while self.tracking_active:
-                    # Generate and add simulated GPS data
-                    gps_data = simulate_gps_data()
-                    self.add_location(**gps_data)
+        logger.info("Starting real GPS hardware tracking")
+        
+        try:
+            while self.tracking_active:
+                # Attempt to get coordinates from GPS daemon
+                try:
+                    # Use the GPS daemon client
+                    success, location_data = get_gnss_location()
                     
-                    # Update GPS status with current simulated position
-                    write_gps_status("simulation", f"GPS simulation - lat: {gps_data['latitude']:.6f}, lon: {gps_data['longitude']:.6f}", gps_data)
-                    
-                    # Log progress for circular flight
-                    elapsed = time.time() - start_time
-                    if elapsed <= 60:  # During the circular flight
-                        circle_progress = (elapsed / 60.0) * 100
-                        logger.info(f"Circle progress: {circle_progress:.1f}% - Heading: {gps_data['heading']:.1f}°")
-                    
-                    time.sleep(update_interval)
-            except KeyboardInterrupt:
-                logger.info("GPS simulation interrupted")
-                write_gps_status("simulation", "GPS simulation interrupted")
-        else:
-            logger.info("Starting real GPS hardware tracking")
-            
-            try:
-                while self.tracking_active:
-                    # Attempt to get coordinates from GPS daemon
-                    try:
-                        # Use the GPS daemon client
-                        success, location_data = get_gnss_location()
+                    if success and location_data and location_data.get('fix_status') == 'valid':
+                        # Get accuracy directly from GPS daemon (no longer need to calculate from HDOP)
+                        gps_accuracy = location_data.get('accuracy', 10.0)  # Default to 10m if not available
                         
-                        if success and location_data and location_data.get('fix_status') == 'valid':
-                            # Calculate accuracy from DOP values
-                            # HDOP (Horizontal DOP) is most relevant for position accuracy
-                            # Rule of thumb: accuracy ≈ HDOP * URA (User Range Accuracy, ~3-5m for GPS)
-                            hdop = location_data.get('hdop', 2.0)  # Default to 2.0 if not available
-                            base_accuracy = 3.5  # Base GPS accuracy in meters
-                            
-                            # Ensure hdop is numeric for calculation
-                            if isinstance(hdop, (int, float)):
-                                calculated_accuracy = hdop * base_accuracy
-                            else:
-                                calculated_accuracy = base_accuracy * 2.0
-                            
-                            # Convert speed from m/s to km/h if needed
-                            speed_ms = location_data.get('speed', 0) or 0
-                            
-                            # Ensure speed is numeric for calculation
-                            if isinstance(speed_ms, (int, float)):
-                                speed_kmh = speed_ms * 3.6
-                            else:
-                                speed_kmh = 0
-                            
-                            # Convert GNSS data format to GPS format for compatibility
-                            gps_data = {
-                                'latitude': location_data['latitude'],
-                                'longitude': location_data['longitude'],
-                                'altitude': location_data.get('altitude', 0),
-                                'speed': speed_kmh,  # Convert from m/s to km/h
-                                'heading': location_data.get('course', 0) or 0,
-                                'accuracy': calculated_accuracy  # Calculated from HDOP
-                            }
-                            # Add the location to tracking
-                            self.add_location(**gps_data)
-                            logger.debug(f"GPS coordinates: lat={gps_data['latitude']:.6f}, lon={gps_data['longitude']:.6f}")
-                            write_gps_status("active", f"GPS active - lat: {gps_data['latitude']:.6f}, lon: {gps_data['longitude']:.6f}", gps_data)
-                        elif success and location_data and location_data.get('fix_status') == 'no_fix':
-                            logger.debug("GPS data not available (no satellite fix)")
-                            write_gps_status("connected", "GPS hardware connected but no satellite fix")
+                        # Convert speed from m/s to km/h if needed
+                        speed_ms = location_data.get('speed', 0) or 0
+                        
+                        # Ensure speed is numeric for calculation
+                        if isinstance(speed_ms, (int, float)):
+                            speed_kmh = speed_ms * 3.6
                         else:
-                            # Error case
-                            error_msg = location_data.get('error', 'GPS function error') if location_data else 'GPS function failed'
-                            logger.warning(f"GPS error: {error_msg}")
-                            write_gps_status("error", f"GPS error: {error_msg}")
-                            
-                    except Exception as e:
-                        logger.warning(f"Error getting GPS coordinates: {e}")
-                        write_gps_status("error", f"GPS coordinate error: {e}")
-                    
-                    # Always sleep at the end of each cycle
-                    time.sleep(update_interval)
-                    
-            except KeyboardInterrupt:
-                logger.info("Real GPS tracking interrupted")
-            finally:
-                # GPS hardware continues running via daemon
-                logger.info("GPS tracking session ended (GPS continues running via daemon)")
+                            speed_kmh = 0
+                        
+                        # Convert GNSS data format to GPS format for compatibility
+                        gps_data = {
+                            'latitude': location_data['latitude'],
+                            'longitude': location_data['longitude'],
+                            'altitude': location_data.get('altitude'),  # meters above sea level
+                            'accuracy': gps_accuracy,  # meters (horizontal accuracy)
+                            'altitudeAccuracy': location_data.get('altitudeAccuracy'),  # meters (vertical accuracy)
+                            'heading': location_data.get('heading'),  # degrees relative to true north
+                            'speed': speed_ms  # meters per second (not converted to km/h)
+                        }
+                        # Add the location to tracking
+                        self.add_location(**gps_data)
+                        speed_display = f", speed={speed_ms:.1f}m/s" if speed_ms and speed_ms > 0 else ""
+                        alt_display = f", alt={gps_data['altitude']:.1f}m" if gps_data['altitude'] is not None else ""
+                        logger.debug(f"GPS coordinates: lat={gps_data['latitude']:.6f}, lon={gps_data['longitude']:.6f}{alt_display}{speed_display}")
+                        write_gps_status("active", f"GPS active - lat: {gps_data['latitude']:.6f}, lon: {gps_data['longitude']:.6f}", gps_data)
+                    elif success and location_data and location_data.get('fix_status') == 'no_fix':
+                        logger.debug("GPS data not available (no satellite fix)")
+                        write_gps_status("connected", "GPS hardware connected but no satellite fix")
+                    else:
+                        # Error case
+                        error_msg = location_data.get('error', 'GPS function error') if location_data else 'GPS function failed'
+                        logger.warning(f"GPS error: {error_msg}")
+                        write_gps_status("error", f"GPS error: {error_msg}")
+                        
+                except Exception as e:
+                    logger.warning(f"Error getting GPS coordinates: {e}")
+                    write_gps_status("error", f"GPS coordinate error: {e}")
+                
+                # Always sleep at the end of each cycle
+                time.sleep(update_interval)
+                
+        except KeyboardInterrupt:
+            logger.info("Real GPS tracking interrupted")
+        finally:
+            # GPS hardware continues running via daemon
+            logger.info("GPS tracking session ended (GPS continues running via daemon)")
         
         return True
-
-
-def simulate_gps_data():
-    """Simulate GPS coordinates for circular flight path from Oxford Airport UK"""
-    
-    # Oxford Airport (Kidlington) coordinates
-    oxford_lat = 51.8369
-    oxford_lon = -1.3200
-    
-    # Initialize simulation state if not exists
-    if not hasattr(simulate_gps_data, 'start_time'):
-        simulate_gps_data.start_time = time.time()
-        simulate_gps_data.altitude = 150  # Starting altitude in meters
-    
-    # Flight parameters
-    circle_radius_km = 2.5  # 5km diameter = 2.5km radius
-    flight_duration = 60.0  # 60 seconds for complete circle
-    flight_altitude = 150  # meters above ground
-    flight_speed_kmh = 94.2  # ~2.5km radius * 2 * pi / 60 seconds * 3.6 = 94.2 km/h
-    
-    # Calculate elapsed time
-    elapsed_time = time.time() - simulate_gps_data.start_time
-    
-    # Calculate angle (0 to 2π over 60 seconds)
-    angle_radians = (elapsed_time / flight_duration) * 2 * math.pi
-    
-    # Convert radius from km to degrees (approximate)
-    # 1 degree latitude ≈ 111 km
-    # 1 degree longitude ≈ 111 km * cos(latitude)
-    lat_deg_per_km = 1.0 / 111.0
-    lon_deg_per_km = 1.0 / (111.0 * math.cos(math.radians(oxford_lat)))
-    
-    # Calculate circular position relative to Oxford Airport
-    lat_offset = circle_radius_km * lat_deg_per_km * math.sin(angle_radians)
-    lon_offset = circle_radius_km * lon_deg_per_km * math.cos(angle_radians)
-    
-    # Calculate current position
-    current_lat = oxford_lat + lat_offset
-    current_lon = oxford_lon + lon_offset
-    
-    # Calculate heading (direction of travel)
-    # Heading is perpendicular to radius, so add 90 degrees to angle
-    heading = (math.degrees(angle_radians) + 90) % 360
-    
-    # Add some realistic variation
-    altitude_variation = random.uniform(-5, 5)  # ±5 meters
-    speed_variation = random.uniform(0.9, 1.1)  # ±10%
-    accuracy = random.uniform(2, 8)  # GPS accuracy in meters
-    
-    return {
-        'latitude': current_lat,
-        'longitude': current_lon,
-        'altitude': flight_altitude + altitude_variation,
-        'accuracy': accuracy,
-        'heading': heading,
-        'speed': flight_speed_kmh * speed_variation  # km/h
-    }
 
 
 def main():
@@ -539,8 +451,7 @@ def main():
     parser.add_argument('username', help='Username for tracking session')
     parser.add_argument('--domain', required=True, help='Server domain (gyropilots.org or gapilots.org)')
     parser.add_argument('--interval', type=float, default=2.0, help='GPS update interval in seconds')
-    parser.add_argument('--simulate', action='store_true', help='Run with simulated GPS data for testing')
-    parser.add_argument('--duration', type=int, help='Duration to run in seconds (for simulation)')
+    parser.add_argument('--duration', type=int, help='Duration to run in seconds')
     parser.add_argument('--track_id', type=str, help='Optional: Use a specific track ID for the session')
     
     args = parser.parse_args()
@@ -586,13 +497,8 @@ def main():
         except Exception as e:
             logger.warning(f"Could not write active PID file: {e}")
         
-        if args.simulate:
-            # Start GPS coordinate collection with simulation
-            tracker.start_gps_tracking(args.interval, simulate=True)
-        else:
-            # Start GPS coordinate collection with real hardware
-            # Always start the tracking process - it will handle hardware initialization internally
-            tracker.start_gps_tracking(args.interval, simulate=False)
+        # Start GPS coordinate collection with real hardware
+        tracker.start_gps_tracking(args.interval)
                     
     except KeyboardInterrupt:
         logger.info("Received interrupt signal")

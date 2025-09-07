@@ -63,9 +63,10 @@ class GPSClient:
                 'longitude': float, 
                 'altitude': float,
                 'speed': float,  # m/s
-                'course': float,  # degrees
+                'heading': float,  # degrees
                 'fix_type': '2D' | '3D',
-                'hdop': float,  # horizontal dilution of precision
+                'accuracy': float,  # horizontal accuracy in meters
+                'altitudeAccuracy': float,  # altitude accuracy in meters
                 'satellites': {
                     'used': int,
                     'total': int,

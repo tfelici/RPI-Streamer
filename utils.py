@@ -1,36 +1,19 @@
-def get_video_duration_ffprobe(filepath):
-    """
-    Return the duration of a video file in seconds using ffprobe. Returns None on error.
-    """
-    try:
-        # ffprobe must be installed and in PATH
-        result = subprocess.run([
-            'ffprobe',
-            '-v', 'error',
-            '-show_entries', 'format=duration',
-            '-of', 'default=noprint_wrappers=1:nokey=1',
-            filepath
-        ], capture_output=True, text=True, timeout=10)
-        if result.returncode == 0:
-            duration_str = result.stdout.strip()
-            try:
-                return float(duration_str)
-            except ValueError:
-                return None
-        else:
-            return None
-    except Exception:
-        return None
 import subprocess
 import re
 import os
 import json
-import atexit
 import psutil
 import time
 import math
 import socket
+import glob
 from datetime import datetime
+
+# Use pymediainfo for fast video duration extraction
+try:
+    from pymediainfo import MediaInfo
+except ImportError:
+    MediaInfo = None
 
 def generate_gps_track_id() -> str:
     """Generate a unique GPS track ID based on current timestamp"""
@@ -60,6 +43,7 @@ def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
 STREAMER_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'streamerData'))
 SETTINGS_FILE = os.path.join(STREAMER_DATA_DIR, 'settings.json')
 STREAM_PIDFILE = "/tmp/relay-ffmpeg-webcam.pid"
+HEARTBEAT_FILE = "/tmp/rpi_streamer_heartbeat.json"
 
 def get_default_hotspot_ssid():
     """Get the system hostname to use as default hotspot SSID"""
@@ -84,21 +68,16 @@ DEFAULT_SETTINGS = {
     "gop": 30,
     "dynamicBitrate": False,
     "use_gstreamer": False,
-    "audio_input": None,
-    "video_input": None,
+    "audio_input": "auto-detect",
+    "video_input": "auto-detect",
     "video_stabilization": False,
-    "domain": "gyropilots.org",
+    "domain": "",
     "username": "",
     "vehicle": "",
     "gps_stream_link": False,
     "gps_start_mode": "manual",
     "gps_stop_on_power_loss": False,
-    "gps_stop_power_loss_minutes": 1,
-    "wifi_mode": "client",  # "client" or "hotspot"
-    "hotspot_ssid": get_default_hotspot_ssid(),
-    "hotspot_password": "rpistreamer123",
-    "hotspot_channel": 6,
-    "hotspot_ip": "192.168.4.1"
+    "gps_stop_power_loss_minutes": 1
 }
 
 def list_audio_inputs():
@@ -682,6 +661,87 @@ def find_usb_storage():
     return None
 
 
+# Recording and file management functions
+
+def get_active_recording_info():
+    """Return (pid, file_path) if an active recording is in progress, else (None, None)"""
+    ACTIVE_PIDFILE = "/tmp/relay-ffmpeg-record-webcam.pid"
+    if os.path.exists(ACTIVE_PIDFILE):
+        try:
+            with open(ACTIVE_PIDFILE, 'r') as f:
+                line = f.read().strip()
+                if line:
+                    pid_str, file_path = line.split(':', 1)
+                    pid = int(pid_str)
+                    if is_pid_running(pid):
+                        return pid, file_path
+        except Exception:
+            pass
+    return None, None
+
+
+def get_video_duration_mediainfo(path):
+    """Fast duration extraction using pymediainfo"""
+    if MediaInfo is None:
+        return None
+    try:
+        media_info = MediaInfo.parse(path)
+        for track in media_info.tracks:
+            if track.track_type == 'Video' and track.duration:
+                return track.duration / 1000.0  # ms to seconds
+        # fallback: try general track
+        for track in media_info.tracks:
+            if track.track_type == 'General' and track.duration:
+                return track.duration / 1000.0
+    except Exception:
+        pass
+    return None
+
+
+def add_files_from_path(recording_files, path, source_label="", location="Local", active_only=False):
+    """
+    Helper function to add files from a given path. Appends to the passed-in recording_files list.
+    
+    Args:
+        recording_files: List to append files to
+        path: Directory path to scan for files
+        source_label: Label prefix for file display names
+        location: Location identifier (e.g., "Local", "USB")
+        active_only: If True, only include files that are currently being recorded
+    """
+    active_pid, active_file = get_active_recording_info()
+    if os.path.isdir(path):
+        files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
+        files.sort(key=lambda f: os.path.getmtime(os.path.join(path, f)), reverse=True)
+        for f in files:
+            file_path = os.path.join(path, f)
+            file_size = os.path.getsize(file_path)
+            display_name = f"{source_label}{f}" if source_label else f
+            is_active = (active_file is not None and os.path.abspath(file_path) == os.path.abspath(active_file) and is_pid_running(active_pid))
+            
+            # Skip non-active files if active_only is True
+            if active_only and not is_active:
+                continue
+                
+            # Add duration if file is not active
+            if is_active:
+                duration = None
+            else:
+                duration = get_video_duration_mediainfo(file_path)
+            # Extract timestamp from filename if possible
+            m = re.match(r'^(\d+)\.mp4$', f)
+            timestamp = int(m.group(1)) if m else None
+            recording_files.append({
+                'path': file_path,
+                'size': file_size,
+                'active': is_active,
+                'name': display_name,
+                'location': location,
+                'duration': duration,
+                'timestamp': timestamp
+            })
+
+
 def move_file_to_usb(file_path, usb_path):
     """
     Move a file to the USB storage device.
@@ -817,3 +877,56 @@ def copy_settings_and_executables_to_usb(usb_path):
         result['errors'].append(error_msg)
     
     return result
+
+def get_hardwareid():
+    """
+    Get the hardware ID using the same logic as the installation script.
+    First tries to get CPU serial from /proc/cpuinfo, then falls back to MAC address.
+    """
+    try:
+        # First try to get CPU serial from /proc/cpuinfo (Raspberry Pi)
+        with open('/proc/cpuinfo', 'r') as f:
+            for line in f:
+                if line.startswith('Serial'):
+                    serial = line.split(':')[1].strip()
+                    if serial and serial != '0000000000000000':
+                        return serial
+    except (FileNotFoundError, IOError, IndexError):
+        pass
+    
+    # Fallback to MAC address
+    try:
+        for interface_path in glob.glob('/sys/class/net/*/address'):
+            try:
+                with open(interface_path, 'r') as f:
+                    mac = f.read().strip()
+                    if mac and mac != '00:00:00:00:00:00':
+                        # Remove colons like in the installation script
+                        return mac.replace(':', '')
+            except (IOError, OSError):
+                continue
+    except Exception:
+        pass
+    
+    # Final fallback - generate based on timestamp like installation script
+    return f"fallback-{int(time.time())}"
+
+def get_app_version():
+    """Get the application version based on latest file modification time"""
+    # Find the latest mtime among all .py, .html, .png files in the project
+    exts = {'.py', '.html', '.png'}
+    latest_mtime = 0
+    latest_file = ''
+    for root, dirs, files in os.walk(os.path.dirname(__file__)):
+        for f in files:
+            ext = os.path.splitext(f)[1].lower()
+            if ext in exts:
+                path = os.path.join(root, f)
+                mtime = os.path.getmtime(path)
+                if mtime > latest_mtime:
+                    latest_mtime = mtime
+                    latest_file = path
+    if latest_mtime:
+        mtime_dt = datetime.fromtimestamp(latest_mtime)
+        return mtime_dt.strftime('%Y-%m-%d %H:%M')
+    return ''

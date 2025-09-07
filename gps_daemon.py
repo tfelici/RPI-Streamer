@@ -20,47 +20,154 @@ import logging
 import logging.handlers
 from datetime import datetime
 from pathlib import Path
+import math
+import random
+
+def simulate_gps_data(delay_seconds=0):
+    """
+    Simulate GPS coordinates for circular flight path from Oxford Airport UK
+    
+    Args:
+        delay_seconds: Delay before starting movement (aircraft remains stationary)
+    """
+    
+    # Oxford Airport (Kidlington) coordinates
+    oxford_lat = 51.8369
+    oxford_lon = -1.3200
+    
+    # Initialize simulation state if not exists
+    if not hasattr(simulate_gps_data, 'start_time'):
+        simulate_gps_data.start_time = time.time()
+    
+    # Calculate elapsed time since simulation started
+    total_elapsed_time = time.time() - simulate_gps_data.start_time
+    
+    # Check if we're still in delay period
+    if total_elapsed_time < delay_seconds:
+        # Aircraft is stationary at Oxford Airport during delay
+        ground_accuracy = random.uniform(2, 5)  # Good GPS accuracy on ground
+        return {
+            'latitude': oxford_lat,
+            'longitude': oxford_lon,
+            'altitude': 0,  # On ground
+            'accuracy': ground_accuracy,
+            'altitudeAccuracy': ground_accuracy * 1.2,  # Slightly worse altitude accuracy even on ground
+            'heading': 0,  # Stationary
+            'speed': 0  # No movement
+        }
+    
+    # Calculate elapsed flight time (after delay)
+    flight_elapsed_time = total_elapsed_time - delay_seconds
+    
+    # Flight parameters
+    circle_radius_km = 2.5  # 5km diameter = 2.5km radius
+    flight_duration = 60.0  # 60 seconds for complete circle
+    max_altitude_meters = 304.8  # 1000 feet = 304.8 meters
+    flight_speed_kmh = 94.2  # ~2.5km radius * 2 * pi / 60 seconds * 3.6 = 94.2 km/h
+    
+    # Calculate angle (0 to 2π over 60 seconds)
+    angle_radians = (flight_elapsed_time / flight_duration) * 2 * math.pi
+    
+    # Calculate altitude profile based on flight phase
+    # 0 to π/2 (0-90°): Takeoff - climb from 0 to 1000 feet
+    # π/2 to 3π/2 (90-270°): Cruise at 1000 feet
+    # 3π/2 to 2π (270-360°): Landing - descend from 1000 feet to 0
+    angle_normalized = angle_radians % (2 * math.pi)
+    
+    if angle_normalized <= math.pi / 2:
+        # Takeoff phase (0 to 90 degrees)
+        altitude_progress = angle_normalized / (math.pi / 2)
+        current_altitude = altitude_progress * max_altitude_meters
+    elif angle_normalized <= 3 * math.pi / 2:
+        # Cruise phase (90 to 270 degrees)
+        current_altitude = max_altitude_meters
+    else:
+        # Landing phase (270 to 360 degrees)
+        descent_progress = (angle_normalized - 3 * math.pi / 2) / (math.pi / 2)
+        current_altitude = max_altitude_meters * (1 - descent_progress)
+    
+    # Convert radius from km to degrees (approximate)
+    # 1 degree latitude ≈ 111 km
+    # 1 degree longitude ≈ 111 km * cos(latitude)
+    lat_deg_per_km = 1.0 / 111.0
+    lon_deg_per_km = 1.0 / (111.0 * math.cos(math.radians(oxford_lat)))
+    
+    # Calculate circular position relative to Oxford Airport
+    lat_offset = circle_radius_km * lat_deg_per_km * math.sin(angle_radians)
+    lon_offset = circle_radius_km * lon_deg_per_km * math.cos(angle_radians)
+    
+    # Calculate current position
+    current_lat = oxford_lat + lat_offset
+    current_lon = oxford_lon + lon_offset
+    
+    # Calculate heading (direction of travel)
+    # Heading is perpendicular to radius, so add 90 degrees to angle
+    heading = (math.degrees(angle_radians) + 90) % 360
+    
+    # Add some realistic variation
+    altitude_variation = random.uniform(-3, 3)  # ±3 meters variation
+    speed_variation = random.uniform(0.95, 1.05)  # ±5% speed variation
+    accuracy = random.uniform(3, 8)  # GPS accuracy in meters (slightly worse at altitude)
+    
+    return {
+        'latitude': current_lat,
+        'longitude': current_lon,
+        'altitude': max(0, current_altitude + altitude_variation),  # Ensure altitude doesn't go negative
+        'accuracy': accuracy,
+        'altitudeAccuracy': accuracy * 1.5,  # Altitude accuracy typically 1.5x horizontal accuracy
+        'heading': heading,
+        'speed': flight_speed_kmh * speed_variation  # km/h
+    }
 
 class GPSDaemon:
-    def __init__(self, socket_path='/tmp/gps_daemon.sock', device_paths=None, baudrate=115200, daemon_mode=False):
+    def __init__(self, socket_path='/tmp/gps_daemon.sock', baudrate=115200, daemon_mode=False, simulate=False, delay_seconds=30):
         """
         Initialize GPS daemon.
         
         Args:
             socket_path: Unix socket path for client communication
-            device_paths: List of GPS device paths to try
             baudrate: Serial communication baudrate
             daemon_mode: Whether running in daemon mode (affects logging)
+            simulate: Whether to run in GPS simulation mode
+            delay_seconds: Delay in seconds before starting movement in simulation mode
         """
         self.socket_path = socket_path
-        self.device_paths = device_paths or ['/dev/ttyUSB1', '/dev/ttyUSB0', '/dev/ttyACM0', '/dev/ttyACM1']
+        self.device_paths = ['/dev/ttyUSB0', '/dev/ttyUSB1', '/dev/ttyUSB2', '/dev/ttyUSB3', '/dev/ttyUSB4', '/dev/ttyUSB5', '/dev/ttyACM0', '/dev/ttyACM1']
         self.baudrate = baudrate
         self.daemon_mode = daemon_mode
+        self.simulate = simulate
+        self.delay_seconds = delay_seconds
         
         # Initialize logging
+        # Use a named logger and avoid adding duplicate handlers if multiple
+        # GPSDaemon instances are created. For daemon_mode attempt syslog,
+        # otherwise fall back to console. Also disable propagation to avoid
+        # duplicate messages to the root logger.
         self.logger = logging.getLogger('gps-daemon')
         self.logger.setLevel(logging.INFO)
-        
-        if self.daemon_mode:
-            # For daemon mode, log to syslog/journal
-            try:
-                # Try to use SysLogHandler for systemd journal integration
-                handler = logging.handlers.SysLogHandler(address='/dev/log')
-                formatter = logging.Formatter('gps-daemon[%(process)d]: %(message)s')
-                handler.setFormatter(formatter)
-                self.logger.addHandler(handler)
-            except:
-                # Fallback to console if syslog not available
+        self.logger.propagate = False
+
+        # Only configure handlers if none exist yet for this logger
+        if not self.logger.handlers:
+            if self.daemon_mode:
+                # For daemon mode, prefer syslog/journal
+                try:
+                    handler = logging.handlers.SysLogHandler(address='/dev/log')
+                    formatter = logging.Formatter('gps-daemon[%(process)d]: %(message)s')
+                    handler.setFormatter(formatter)
+                    self.logger.addHandler(handler)
+                except Exception:
+                    # Fallback to console if syslog not available
+                    handler = logging.StreamHandler(sys.stdout)
+                    formatter = logging.Formatter('[%(asctime)s] GPS Daemon: %(message)s')
+                    handler.setFormatter(formatter)
+                    self.logger.addHandler(handler)
+            else:
+                # For interactive mode, log to console
                 handler = logging.StreamHandler(sys.stdout)
                 formatter = logging.Formatter('[%(asctime)s] GPS Daemon: %(message)s')
                 handler.setFormatter(formatter)
                 self.logger.addHandler(handler)
-        else:
-            # For interactive mode, log to console
-            handler = logging.StreamHandler(sys.stdout)
-            formatter = logging.Formatter('[%(asctime)s] GPS Daemon: %(message)s')
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
         
         # Current location data
         self.location_data = {
@@ -69,9 +176,10 @@ class GPSDaemon:
             'longitude': None,
             'altitude': None,
             'speed': None,
-            'course': None,
+            'heading': None,
             'fix_type': None,
-            'hdop': None,
+            'accuracy': None,
+            'altitudeAccuracy': None,
             'satellites': {
                 'used': 0,
                 'total': 0,
@@ -334,27 +442,38 @@ class GPSDaemon:
             return None
             
         try:
+            # Remove any trailing/leading whitespace
+            coord_str = coord_str.strip()
+            
+            # Find the decimal point to determine the format
+            if '.' not in coord_str:
+                return None
+                
+            dot_index = coord_str.find('.')
+            
             # Determine if this is latitude (DDMM.MMMM) or longitude (DDDMM.MMMM)
-            if len(coord_str) >= 7:
-                if len(coord_str) >= 8 and coord_str[3] != '.':
-                    # Longitude format: DDDMM.MMMM
-                    degrees = int(coord_str[:3])
-                    minutes = float(coord_str[3:])
-                else:
-                    # Latitude format: DDMM.MMMM
-                    degrees = int(coord_str[:2])
-                    minutes = float(coord_str[2:])
+            # based on the position of the decimal point
+            if dot_index == 4:
+                # Latitude format: DDMM.MMMM (decimal point at position 4)
+                degrees = int(coord_str[:2])
+                minutes = float(coord_str[2:])
+            elif dot_index == 5:
+                # Longitude format: DDDMM.MMMM (decimal point at position 5)
+                degrees = int(coord_str[:3])
+                minutes = float(coord_str[3:])
+            else:
+                # Invalid format
+                return None
                 
-                coordinate = degrees + minutes / 60.0
+            coordinate = degrees + minutes / 60.0
+            
+            # Apply direction
+            if direction in ['S', 'W']:
+                coordinate = -coordinate
                 
-                # Apply direction
-                if direction in ['S', 'W']:
-                    coordinate = -coordinate
-                    
-                return coordinate
+            return coordinate
         except (ValueError, IndexError):
-            pass
-        return None
+            return None
     
     def parse_gga_sentence(self, parts):
         """Parse GGA sentence (position, altitude, fix quality)"""
@@ -386,7 +505,17 @@ class GPSDaemon:
                         self.location_data['altitude'] = float(altitude)
                     
                     if hdop:
-                        self.location_data['hdop'] = float(hdop)
+                        # Convert HDOP to horizontal accuracy in meters
+                        # Typical conversion: accuracy ≈ HDOP * 5 meters for consumer GPS
+                        hdop_value = float(hdop)
+                        self.location_data['accuracy'] = hdop_value * 5.0
+                        
+                        # Calculate altitude accuracy (typically worse than horizontal)
+                        # VDOP is usually 1.5x HDOP, so altitude accuracy ≈ HDOP * 7.5 meters
+                        if altitude:
+                            self.location_data['altitudeAccuracy'] = hdop_value * 7.5
+                        else:
+                            self.location_data['altitudeAccuracy'] = None
                     
                     if num_sats:
                         self.location_data['satellites']['used'] = int(num_sats)
@@ -400,7 +529,7 @@ class GPSDaemon:
         return False
     
     def parse_rmc_sentence(self, parts):
-        """Parse RMC sentence (speed, course, date/time)"""
+        """Parse RMC sentence (speed, heading, date/time)"""
         if len(parts) < 12:
             return False
             
@@ -411,7 +540,7 @@ class GPSDaemon:
             lon_str = parts[5]
             lon_dir = parts[6]
             speed_knots = parts[7]
-            course = parts[8]
+            heading = parts[8]
             
             # Check if we have valid data
             if status == 'A':  # A = Active/Valid
@@ -419,9 +548,9 @@ class GPSDaemon:
                 if speed_knots:
                     self.location_data['speed'] = float(speed_knots) * 0.514444
                 
-                # Parse course
-                if course:
-                    self.location_data['course'] = float(course)
+                # Parse heading
+                if heading:
+                    self.location_data['heading'] = float(heading)
                 
                 # If we don't have position from GGA, get it from RMC
                 if self.location_data['fix_status'] == 'no_fix' and lat_str and lon_str:
@@ -516,26 +645,37 @@ class GPSDaemon:
     
     def find_gps_device(self):
         """Find and open GPS device (simplified - just check if device exists and can be opened)"""
-        for device_path in self.device_paths:
+        self.log(f"Scanning for GPS NMEA data on {len(self.device_paths)} potential ports...")
+        
+        for i, device_path in enumerate(self.device_paths, 1):
+            self.log(f"[{i}/{len(self.device_paths)}] Inspecting port: {device_path}")
+            
             if not os.path.exists(device_path):
+                self.log(f"[{i}/{len(self.device_paths)}] Port {device_path} does not exist - skipping")
                 continue
                 
             try:
-                self.log(f"Trying GPS device: {device_path}")
+                self.log(f"[{i}/{len(self.device_paths)}] Attempting to open {device_path} for GPS data...")
                 # Just try to open the device - don't read NMEA data here to avoid race conditions
                 ser = serial.Serial(device_path, self.baudrate, timeout=5)  # Increased timeout for NMEA reading
                 
                 # Simple test - just verify we can open the port
-                self.log(f"GPS device opened successfully: {device_path}")
+                self.log(f"✓ [{i}/{len(self.device_paths)}] GPS device opened successfully: {device_path}")
                 self.current_device = device_path
                 return ser
                     
             except Exception as e:
-                self.log(f"Failed to open {device_path}: {e}")
+                self.log(f"✗ [{i}/{len(self.device_paths)}] Failed to open {device_path}: {e}")
                 continue
         
         # No GPS device found - check if any expected devices exist at all
         expected_devices_exist = any(os.path.exists(path) for path in self.device_paths)
+        existing_ports = [path for path in self.device_paths if os.path.exists(path)]
+        
+        self.log(f"GPS device scan complete - no working ports found")
+        self.log(f"Existing ports detected: {existing_ports if existing_ports else 'None'}")
+        self.log(f"Total ports scanned: {len(self.device_paths)}")
+        
         if not expected_devices_exist:
             self.log("No GPS hardware detected - no expected device paths exist")
             return None
@@ -544,9 +684,63 @@ class GPSDaemon:
             return None
     
     def gps_worker(self):
-        """Main GPS parsing worker thread - ONLY function that reads NMEA data"""
+        """Main GPS parsing worker thread - handles both real GPS and simulation"""
         self.log("Starting GPS worker thread")
         
+        if self.simulate:
+            self.log("GPS simulation mode enabled")
+            self.simulation_worker()
+        else:
+            self.log("Real GPS mode enabled")
+            self.real_gps_worker()
+    
+    def simulation_worker(self):
+        """Worker for GPS simulation mode"""
+        self.location_data['daemon_status'] = 'simulation'
+        
+        if self.delay_seconds > 0:
+            self.log(f"GPS simulation starting with {self.delay_seconds}s delay before movement")
+        else:
+            self.log("GPS simulation starting immediately")
+        
+        while self.running:
+            try:
+                # Generate simulated GPS data with delay parameter
+                sim_data = simulate_gps_data(self.delay_seconds)
+                
+                # Update location data with simulated values
+                self.location_data.update({
+                    'timestamp': time.time(),
+                    'latitude': sim_data['latitude'],
+                    'longitude': sim_data['longitude'],
+                    'altitude': sim_data['altitude'],
+                    'accuracy': sim_data['accuracy'],
+                    'altitudeAccuracy': sim_data['altitudeAccuracy'],
+                    'heading': sim_data['heading'],
+                    'speed': sim_data['speed'],
+                    'fix_status': 'valid',
+                    'daemon_status': 'fix_valid',
+                    'satellites': {
+                        'total': 12,  # Simulated satellite count
+                        'used': 8,
+                        'gps': 6,
+                        'glonass': 4,
+                        'galileo': 2,
+                        'beidou': 0
+                    }
+                })
+                
+                # Sleep for 2 seconds to simulate GPS update rate
+                time.sleep(2.0)
+                
+            except Exception as e:
+                self.log(f"GPS simulation error: {e}")
+                time.sleep(5)
+        
+        self.log("GPS simulation worker stopped")
+    
+    def real_gps_worker(self):
+        """Worker for real GPS hardware"""
         # GPS should already be initialized at this point
         self.location_data['daemon_status'] = 'connecting'
         
@@ -628,7 +822,7 @@ class GPSDaemon:
             except:
                 pass
         
-        self.log("GPS worker thread stopped")
+        self.log("Real GPS worker thread stopped")
     
     def handle_client(self, client_socket):
         """Handle client connection and requests"""
@@ -741,11 +935,14 @@ class GPSDaemon:
         """Start the GPS daemon"""
         self.log("Starting GPS Daemon")
         
-        # Initialize GPS hardware once at startup
-        self.log("Initializing GPS hardware...")
-        if not self.initialize_gps_dongle():
-            self.log("Warning: GPS initialization failed - daemon will continue and retry connection")
-            # Don't fail completely - daemon will attempt to connect anyway
+        if self.simulate:
+            self.log("Simulation mode - skipping GPS hardware initialization")
+        else:
+            # Initialize GPS hardware once at startup
+            self.log("Initializing GPS hardware...")
+            if not self.initialize_gps_dongle():
+                self.log("Warning: GPS initialization failed - daemon will continue and retry connection")
+                # Don't fail completely - daemon will attempt to connect anyway
         
         # Start GPS worker thread
         self.gps_thread = threading.Thread(target=self.gps_worker, daemon=True)
@@ -795,49 +992,56 @@ def main():
     parser = argparse.ArgumentParser(description='GPS Daemon for RPI Streamer')
     parser.add_argument('--socket', default='/tmp/gps_daemon.sock',
                         help='Unix socket path (default: /tmp/gps_daemon.sock)')
-    parser.add_argument('--devices', nargs='+', 
-                        default=['/dev/ttyUSB1', '/dev/ttyUSB0', '/dev/ttyACM0', '/dev/ttyACM1'],
-                        help='GPS device paths to try')
     parser.add_argument('--baudrate', type=int, default=115200,
                         help='Serial baudrate (default: 115200)')
-    parser.add_argument('--daemon', action='store_true',
-                        help='Run as daemon (fork to background)')
     parser.add_argument('--pidfile', default='/tmp/gps_daemon.pid',
                         help='PID file path (default: /tmp/gps_daemon.pid)')
+    parser.add_argument('--daemon', action='store_true', default=False,
+                        help='Run in daemon mode (use syslog/journal for logging)')
+    parser.add_argument('--simulate', action='store_true', default=False,
+                        help='Run in GPS simulation mode for testing')
+    parser.add_argument('--delay', type=int, default=0,
+                        help='Delay in seconds before starting movement in simulation mode (default: 0)')
     
     args = parser.parse_args()
     
+    # Basic root logger configuration.
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    # If running interactively (not daemon) and stdout is a TTY, ensure
+    # plain logging.info() calls print to the command line.
+    try:
+        if not args.daemon and sys.stdout.isatty():
+            root_logger = logging.getLogger()
+            # Add a StreamHandler to stdout if none exists
+            has_stream = any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers)
+            if not has_stream:
+                sh = logging.StreamHandler(sys.stdout)
+                sh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+                root_logger.addHandler(sh)
+    except Exception:
+        # If anything goes wrong checking the TTY, fall back to basicConfig only
+        pass
+
     # Set up signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    # Fork to background if daemon mode
-    if args.daemon:
-        try:
-            pid = os.fork()
-            if pid > 0:
-                # Parent process - write PID file and exit
-                with open(args.pidfile, 'w') as f:
-                    f.write(str(pid))
-                print(f"GPS Daemon started with PID {pid}")
-                sys.exit(0)
-        except OSError as e:
-            print(f"Fork failed: {e}")
-            sys.exit(1)
-        
-        # Child process - continue as daemon
-        os.setsid()  # Create new session
-        os.chdir('/')  # Change to root directory
-        
-        # Don't redirect stdout/stderr - let syslog handle logging
+    # Write PID file for systemd
+    try:
+        with open(args.pidfile, 'w') as f:
+            f.write(str(os.getpid()))
+        logging.info(f"GPS Daemon starting with PID {os.getpid()}")
+    except Exception as e:
+        logging.error(f"Failed to write PID file: {e}")
     
     # Create and start daemon
     global daemon
     daemon = GPSDaemon(
         socket_path=args.socket,
-        device_paths=args.devices,
         baudrate=args.baudrate,
-        daemon_mode=args.daemon
+        daemon_mode=args.daemon,
+        simulate=args.simulate,
+        delay_seconds=args.delay
     )
     
     try:
@@ -853,8 +1057,12 @@ def main():
         daemon.stop()
         
         # Remove PID file
-        if args.daemon and os.path.exists(args.pidfile):
-            os.unlink(args.pidfile)
+        if os.path.exists(args.pidfile):
+            try:
+                os.unlink(args.pidfile)
+                logging.info("GPS Daemon stopped, PID file removed")
+            except Exception as e:
+                logging.error(f"Failed to remove PID file: {e}")
 
 
 if __name__ == '__main__':

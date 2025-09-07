@@ -62,6 +62,131 @@ if [ "$INTERNET_FOUND" = "false" ]; then
 fi
 echo ""
 
+# Check for GitHub updates immediately after confirming internet connectivity
+echo "🔄 Checking for GitHub updates..."
+
+# Setup flask app directory
+echo "Setting up Flask app directory... $HOME/flask_app"
+mkdir -p "$HOME/flask_app"
+mkdir -p "$HOME/streamerData"
+cd "$HOME/flask_app"
+
+#     Update the codebase to match the remote GitHub repository if changes are available.
+#     This ensures the device has the latest version from the remote repository.
+#     If the repository is not already cloned, it will clone it fresh.
+#     
+#     The --skip-update option allows you to:
+#       - Use existing local files without checking for updates
+#       - Skip the git fetch and reset operations
+#       - Maintain any local modifications you may have made
+#       - Avoid network calls to GitHub during installation
+#
+#     Use --skip-update when:
+#       - You want to use a specific local version of the code
+#       - You have made local modifications you want to preserve
+#       - You're in an environment with limited internet connectivity
+#       - You're testing local changes and don't want them overwritten
+echo "Updating RPI Streamer codebase..."
+
+# Check if git is installed
+if ! command -v git &> /dev/null; then
+    echo "Git not found, installing..."
+    sudo apt-get install git -y
+fi
+
+# Variable to track if we need to continue with installation
+UPDATES_AVAILABLE=false
+IS_NEW_INSTALLATION=false
+
+# If repository exists, check for updates unless --skip-update is specified
+# If not, it's a new installation and we should proceed
+if [ -d .git ]; then
+    # Only skip update if --skip-update is passed
+    if [[ "$@" == *"--skip-update"* ]]; then
+        echo "Skipping repository update (--skip-update specified)"
+        echo "✅ Proceeding with existing local files"
+    else
+        # Get current commit hash before fetch
+        CURRENT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
+        
+        sudo git fetch --all
+        
+        # Determine which branch to use based on flags (support both old and new naming)
+        if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
+            TARGET_BRANCH="origin/develop"
+            BRANCH_NAME="develop"
+        else
+            # Default to main branch for stability
+            TARGET_BRANCH="origin/main"
+            BRANCH_NAME="main"
+        fi
+        
+        # Get the latest commit hash from remote
+        LATEST_COMMIT=$(git rev-parse $TARGET_BRANCH 2>/dev/null || echo "")
+        
+        # Check if there are updates available
+        if [ "$CURRENT_COMMIT" != "$LATEST_COMMIT" ] && [ -n "$LATEST_COMMIT" ]; then
+            echo "📦 Updates available on $BRANCH_NAME branch"
+            echo "   Current: ${CURRENT_COMMIT:0:8}"
+            echo "   Latest:  ${LATEST_COMMIT:0:8}"
+            UPDATES_AVAILABLE=true
+            
+            sudo git reset --hard $TARGET_BRANCH
+            sudo git clean -f -d
+            echo "Repository updated to latest $BRANCH_NAME branch"
+        else
+            echo "✅ Already up to date on $BRANCH_NAME branch"
+            echo "💡 No installation needed - system is current"
+            exit 0
+        fi
+    fi
+else
+    echo "Repository not found, this is a new installation..."
+    IS_NEW_INSTALLATION=true
+    rm -rf *
+    sudo git clone https://github.com/tfelici/RPI-Streamer.git .
+    
+    # Determine which branch to checkout after cloning (support both old and new naming)
+    if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
+        sudo git checkout develop
+        echo "Using develop branch"
+    else
+        # Default to main branch for stability
+        sudo git checkout main
+        echo "Using main branch"
+    fi
+fi
+
+# Change ownership of the flask_app directory to the current user
+sudo chown -R "$USER":"$USER" "$HOME/flask_app"
+# This command is needed to allow any users to run git in the flask_app directory
+sudo git config --global --add safe.directory "$HOME/flask_app"
+
+# Check if the app.py file exists
+if [ ! -f app.py ]; then
+    echo "Error: app.py file not found in the Flask app directory."
+    exit 1
+fi
+
+# Check if the flask_app directory is writable
+if [ ! -w "$HOME/flask_app" ]; then
+    echo "Error: Flask app directory is not writable."
+    exit 1
+fi
+
+# Continue with installation only if updates were found or it's a new installation
+# Also continue if we're in development mode (--develop flag)
+if [ "$UPDATES_AVAILABLE" = "true" ] || [ "$IS_NEW_INSTALLATION" = "true" ] || [[ "$@" == *"--develop"* ]]; then
+    if [[ "$@" == *"--develop"* ]] && [ "$UPDATES_AVAILABLE" = "false" ] && [ "$IS_NEW_INSTALLATION" = "false" ]; then
+        echo "🚀 Proceeding with installation in development mode..."
+    else
+        echo "🚀 Proceeding with installation..."
+    fi
+else
+    echo "✅ No updates needed, exiting."
+    exit 0
+fi
+
 # Install and configure ModemManager for cellular connectivity
 echo "📡 Setting up ModemManager for cellular modem support..."
 
@@ -247,91 +372,6 @@ else
     echo "Symbolic link for python3 to python already exists."
 fi
 
-
-# Setup flask app directory
-echo "Setting up Flask app directory... $HOME/flask_app"
-mkdir -p "$HOME/flask_app"
-mkdir -p "$HOME/streamerData"
-cd "$HOME/flask_app"
-
-
-#     Update the codebase to match the remote GitHub repository if changes are available.
-#     This ensures the device has the latest version from the remote repository.
-#     If the repository is not already cloned, it will clone it fresh.
-#     
-#     The --skip-update option allows you to:
-#       - Use existing local files without checking for updates
-#       - Skip the git fetch and reset operations
-#       - Maintain any local modifications you may have made
-#       - Avoid network calls to GitHub during installation
-#
-#     Use --skip-update when:
-#       - You want to use a specific local version of the code
-#       - You have made local modifications you want to preserve
-#       - You're in an environment with limited internet connectivity
-#       - You're testing local changes and don't want them overwritten
-echo "Updating RPI Streamer codebase..."
-
-# Check if git is installed
-if ! command -v git &> /dev/null; then
-    echo "Git not found, installing..."
-    sudo apt-get install git -y
-fi
-
-# If repository exists, update it unless --skip-update is specified
-# If not, clone it fresh
-if [ -d .git ]; then
-    #only skip update if --skip-update is passed
-    if [[ "$@" == *"--skip-update"* ]]; then
-        echo "Skipping repository update (--skip-update specified)"
-    else
-        sudo git fetch --all
-        
-        # Determine which branch to use based on flags (support both old and new naming)
-        if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
-            TARGET_BRANCH="origin/develop"
-            BRANCH_NAME="develop"
-        else
-            # Default to main branch for stability
-            TARGET_BRANCH="origin/main"
-            BRANCH_NAME="main"
-        fi
-        
-        sudo git reset --hard $TARGET_BRANCH
-        sudo git clean -f -d
-        echo "Repository updated to latest $BRANCH_NAME branch"
-    fi
-else
-    rm -rf *
-    echo "Repository not found, cloning fresh copy..."
-    sudo git clone https://github.com/tfelici/RPI-Streamer.git .
-    
-    # Determine which branch to checkout after cloning (support both old and new naming)
-    if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
-        sudo git checkout develop
-        echo "Using develop branch"
-    else
-        # Default to main branch for stability
-        sudo git checkout main
-        echo "Using main branch"
-    fi
-fi
-#change ownership of the flask_app directory to the current user
-sudo chown -R "$USER":"$USER" "$HOME/flask_app"
-#this command is needed to allow any users to run git in the flask_app directory
-sudo git config --global --add safe.directory "$HOME/flask_app"
-echo "Repository update complete"
-
-# Check if the app.py file exists
-if [ ! -f app.py ]; then
-    echo "Error: app.py file not found in the Flask app directory."
-    exit 1
-fi
-# Check if the flask_app directory is writable
-if [ ! -w "$HOME/flask_app" ]; then
-    echo "Error: Flask app directory is not writable."
-    exit 1
-fi
 
 #download the executables directory from the Streamer-Uploader repository
 #only download if the executables have changed or don't exist
@@ -525,29 +565,72 @@ printf "Creating systemd service for Flask app...\n"
 sudo tee /etc/systemd/system/flask_app.service >/dev/null << EOF
 [Unit]
 Description=RPI Streamer
-After=network.target
+After=network-online.target NetworkManager-wait-online.service
+Wants=network-online.target
+Requires=network.target
+
 [Service]
+Type=simple
 User=root
 WorkingDirectory=$HOME/flask_app
 Environment="OWNER=$USER:$USER"
 #ExecStart=/usr/bin/python3 app.py
 ExecStart=/usr/bin/gunicorn -w 4 -k gevent --graceful-timeout 1 -b 0.0.0.0:80 app:app
 Restart=always
+
 [Install]
 WantedBy=multi-user.target
 EOF
 
 # Create systemd service for mediamtx - this must run after the install_rpi_streamer.service
+# Note: Using network-online.target ensures MediaMTX starts after network is fully configured
+# This prevents SRT/RTSP port binding issues during boot when network isn't ready yet
 printf "Creating systemd service for MediaMTX...\n"
 sudo tee /etc/systemd/system/mediamtx.service >/dev/null << EOF
 [Unit]
 Description=MediaMTX Streaming Server
-After=network.target
+After=network-online.target NetworkManager-wait-online.service
+Wants=network-online.target
+Requires=network.target
+
 [Service]
+Type=simple
 User=root
 WorkingDirectory=$HOME/flask_app
 ExecStart=$HOME/mediamtx $HOME/flask_app/mediamtx.yml
 Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Create systemd service for heartbeat daemon
+printf "Creating systemd service for Heartbeat Daemon...\n"
+sudo tee /etc/systemd/system/heartbeat-daemon.service >/dev/null << EOF
+[Unit]
+Description=RPI Streamer Heartbeat Daemon
+After=network-online.target NetworkManager-wait-online.service
+Wants=network-online.target
+Requires=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=$HOME/flask_app
+ExecStart=/usr/bin/python3 $HOME/flask_app/heartbeat_daemon.py --daemon
+ExecStop=/bin/kill -TERM \$MAINPID
+Restart=always
+RestartSec=10
+
+# Environment
+Environment=PYTHONPATH=$HOME/flask_app
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Security settings
+NoNewPrivileges=true
+
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -650,15 +733,16 @@ printf "Creating systemd service for GPS Startup Manager...\n"
 sudo tee /etc/systemd/system/gps-startup.service >/dev/null << EOF
 [Unit]
 Description=GPS Startup Manager for RPI Streamer
-After=network.target
-Wants=network.target
+After=network-online.target NetworkManager-wait-online.service
+Wants=network-online.target
+Requires=network.target
 
 [Service]
 Type=simple
-User=$USER
-Group=$USER
+User=root
+Group=root
 WorkingDirectory=$HOME/flask_app
-ExecStart=/usr/bin/python3 $HOME/flask_app/gps_startup_manager.py
+ExecStart=/usr/bin/python3 $HOME/flask_app/gps_startup_manager.py --daemon
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -687,17 +771,17 @@ echo "Installing GPS daemon service..."
 sudo tee /etc/systemd/system/gps-daemon.service >/dev/null << EOF
 [Unit]
 Description=GPS Daemon for RPI Streamer
-After=network.target
-Wants=network.target
+After=network-online.target NetworkManager-wait-online.service
+Wants=network-online.target
+Requires=network.target
 
 [Service]
-Type=forking
+Type=simple
 User=root
 Group=root
 WorkingDirectory=/home/$USER/flask_app
 # GPS daemon handles initialization internally
-ExecStart=/usr/bin/python3 /home/$USER/flask_app/gps_daemon.py --daemon --pidfile=/tmp/gps_daemon.pid
-PIDFile=/tmp/gps_daemon.pid
+ExecStart=/usr/bin/python3 /home/$USER/flask_app/gps_daemon.py --daemon
 ExecStop=/bin/kill -TERM \$MAINPID
 Restart=no
 RestartSec=10
@@ -790,6 +874,8 @@ sudo systemctl enable flask_app
 sudo systemctl restart flask_app
 sudo systemctl enable mediamtx
 sudo systemctl restart mediamtx
+sudo systemctl enable heartbeat-daemon
+sudo systemctl restart heartbeat-daemon
 
 # Note: GPS startup service is installed but not enabled by default
 # It will be automatically enabled/disabled based on Flight Settings configuration
@@ -810,7 +896,7 @@ register_device_with_console() {
     if command -v curl >/dev/null 2>&1; then
         # Fetch new hostname from server and update device hostname
         echo "🏷️  Fetching new hostname from server..."
-        local new_hostname=$(curl -s "https://streamer.lambda-tek.com/?command=findorcreatehostname&hardwareid=$hardwareid" 2>/dev/null)
+        local new_hostname=$(curl -s "https://streamer.lambda-tek.com/public_api.php?command=findorcreatehostname&hardwareid=$hardwareid" 2>/dev/null)
         
         if [ -n "$new_hostname" ] && [ "$new_hostname" != "null" ] && [ "$new_hostname" != "false" ]; then
             # Clean the hostname (remove any quotes or extra characters)
@@ -877,7 +963,7 @@ register_device_with_console() {
         
         # Verify registration by checking the hardware device
         echo "🔍 Awaiting device registration..."
-        local check_url="https://streamer.lambda-tek.com?command=check_hardware_device&hardwareid=$hardwareid&public_key=$encoded_public_key&device_hostname=$(hostname)&tunnel_http_port=$http_port&tunnel_ssh_port=$ssh_port"
+        local check_url="https://streamer.lambda-tek.com/public_api.php?command=check_hardware_device&hardwareid=$hardwareid&public_key=$encoded_public_key&device_hostname=$(hostname)&tunnel_http_port=$http_port&tunnel_ssh_port=$ssh_port"
 
         local response=$(curl -s "$check_url" 2>/dev/null || echo "false")
         
@@ -1177,6 +1263,7 @@ echo ""
 echo "🚀 Services installed and running:"
 echo "   ✅ Flask App (HTTP server on port 80)"
 echo "   ✅ MediaMTX (Streaming server)" 
+echo "   💓 Heartbeat Daemon (independent device monitoring)"
 echo "   ⚙️ GPS Daemon (auto-starts and enables GPS with hardware)"
 echo "   ⚙️ GPS Startup Manager (configure via web interface)"
 if [ "$TAILSCALE_INSTALLED" = true ]; then

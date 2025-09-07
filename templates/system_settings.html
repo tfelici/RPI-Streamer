@@ -95,7 +95,7 @@
                 <form id="hotspot-form">
                     <h3>Hotspot Settings</h3>
                     <label for="hotspot-ssid">Hotspot Name (SSID)</label>
-                    <input type="text" id="hotspot-ssid" name="hotspot_ssid" value="RPI-Streamer" required>
+                    <input type="text" id="hotspot-ssid" name="hotspot_ssid" required>
                     
                     <label for="hotspot-pass">Password</label>
                     <div style="position: relative;">
@@ -183,8 +183,8 @@
                 document.getElementById('auth-password').value = data.auth.password || '';
             }
             if (data.wifi) {
-                document.getElementById('wifi-ssid').value = data.wifi.ssid || '';
-                document.getElementById('wifi-pass').value = data.wifi.password || '';
+                document.getElementById('wifi-ssid').value = data.wifi.manual_ssid || '';
+                document.getElementById('wifi-pass').value = data.wifi.manual_password || '';
             }
         });
         

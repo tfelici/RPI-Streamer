@@ -16,10 +16,42 @@ def start(stream_name):
     def find_usb_audio_device():
         """
         Return audio_input if set and available, else None.
+        If audio_input is 'auto-detect', automatically select the best available device.
         """
         configured_device = get_setting('audio_input')
         if not configured_device:
             return None
+            
+        # Handle auto-detect mode
+        if configured_device == 'auto-detect':
+            available_devices = list_audio_inputs()
+            if not available_devices:
+                return None
+                
+            # Priority 1: Look for dedicated USB audio adapter
+            # These typically have names containing "USB Audio" or similar
+            for device in available_devices:
+                device_label_lower = device['label'].lower()
+                if any(keyword in device_label_lower for keyword in [
+                    'usb audio', 'usb sound', 'audio adapter', 'external', 'audio interface',
+                    'usb dac', 'usb headset', 'usb microphone', 'usb mic', 'sound card',
+                    'audio card', 'audio dongle'
+                ]):
+                    return device['id']
+            
+            # Priority 2: Look for video device with audio capability
+            # Check if any video device supports audio (typically USB webcams)
+            video_devices = list_video_inputs()
+            for video_device in video_devices:
+                # Check if this video device has corresponding audio
+                for audio_device in available_devices:
+                    # Match based on similar naming or card numbers
+                    if 'usb' in audio_device['label'].lower() and 'cam' in audio_device['label'].lower():
+                        return audio_device['id']
+            
+            # Priority 3: Return first available audio device if none of the above
+            return available_devices[0]['id']
+        
         # Check if the configured device is in the list of available devices
         available_devices = list_audio_inputs()
         for device in available_devices:
@@ -32,10 +64,19 @@ def start(stream_name):
     def find_video_device():
         """
         Return video_input if set and available, else None.
+        If video_input is 'auto-detect', automatically select the first available video device.
         """
         configured_device = get_setting('video_input')
         if not configured_device:
             return None
+            
+        # Handle auto-detect mode
+        if configured_device == 'auto-detect':
+            available_devices = list_video_inputs()
+            if not available_devices:
+                return None
+            # Return the first available video device
+            return available_devices[0]['id']
         
         # Check if the configured device is in the list of available devices
         available_devices = list_video_inputs()
