@@ -633,9 +633,11 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 EOF
 
-#make streamer-config executable
-chmod +x "$HOME/flask_app/streamer-config.sh"
-echo "✅ Made streamer-config script executable"
+#make rpiconfig executable
+chmod +x "$HOME/flask_app/rpiconfig.sh"
+echo "✅ Made rpiconfig script executable"
+#create a symbolic link in /usr/local/bin so it's in PATH
+sudo ln -sf "$HOME/flask_app/rpiconfig.sh" "/usr/local/bin/rpiconfig"
 
 # Install udev rule for automatic GPS daemon startup when SIM7600G-H is inserted
 printf "🔌 Installing udev rule for SIM7600G-H auto-detection...\n"
@@ -1408,6 +1410,7 @@ else
         
         if echo "$response" | grep -q '"success": *true'; then
             echo "✅ WiFi hotspot configured successfully!"
+            echo "💾 Hotspot persistence is handled by the Flask app's NetworkManager integration"
             echo ""
             echo "📶 Hotspot Details:"
             echo "   SSID: $hotspot_ssid"
