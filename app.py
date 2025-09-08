@@ -601,7 +601,6 @@ def start_flight():
     username = settings['username'].strip()
     domain = settings.get('domain', '').strip()
     vehicle = settings.get('vehicle', '').strip()
-    rtmpkey = settings.get('rtmpkey', '').strip()
     
     if not username:
         return False, 'Flight server username is not configured. Please set a username for GPS tracking in the flight settings.', 400
@@ -637,17 +636,6 @@ def start_flight():
     except Exception as e:
         return False, f'Unexpected error initializing flight parameters: {e}', 400
 
-    # If gps_stream_link is enabled, validate rtmpkey and set up streaming URLs
-    if settings['gps_stream_link']:
-        if not rtmpkey:
-            return False, 'RTMP key is not configured. Please ensure your vehicle registration is set and valid on the flight server.', 400
-        
-        # Set stream_url and upload_url based on rtmpkey
-        domain_prefix = domain.split('.')[0] #set to gyropilots or gapilots
-        settings['stream_url'] = f"srt://{domain}:8890?streamid=publish:{domain_prefix}/{rtmpkey}&pkt_size=1316"
-        settings['upload_url'] = f"https://{domain}/ajaxservices.php?command=replacerecordings&rtmpkey={rtmpkey}"
-        save_settings(settings)
-        
     # Generate track_id upfront using centralized function
     track_id = generate_gps_track_id()
     print(f"Generated track ID: {track_id}")
