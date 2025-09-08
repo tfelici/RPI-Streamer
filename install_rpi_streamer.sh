@@ -227,8 +227,10 @@ method=auto
 route-metric=100
 EOFETHERNET
 
-# Create NetworkManager configuration for automatic cellular connection with lower priority
-echo "📝 Configuring automatic cellular connection with lower priority..."
+# Create NetworkManager configuration for automatic cellular connection with DNS servers
+# Note: Cellular providers often don't provide DNS servers or provide unreliable ones
+# Using public DNS servers (8.8.8.8, 8.8.4.4, 1.1.1.1) ensures reliable domain resolution
+echo "📝 Configuring automatic cellular connection with DNS servers..."
 sudo tee /etc/NetworkManager/system-connections/cellular-auto.nmconnection >/dev/null << 'EOFCELLULAR'
 [connection]
 id=cellular-auto
@@ -244,6 +246,8 @@ autoconnect-priority=10
 [ipv4]
 method=auto
 route-metric=200
+dns=8.8.8.8;8.8.4.4;1.1.1.1;
+ignore-auto-dns=true
 
 [ipv6]
 method=auto
@@ -1078,14 +1082,15 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=$USER
-Environment="AUTOSSH_GATETIME=30"
-Environment="AUTOSSH_POLL=30"
-Environment="AUTOSSH_FIRST_POLL=30"
+Environment="AUTOSSH_GATETIME=0"
+Environment="AUTOSSH_POLL=10"
+Environment="AUTOSSH_FIRST_POLL=10"
 Restart=always
-RestartSec=10
+RestartSec=5
 ExecStart=/usr/bin/autossh -M 0 -N -T \\
-    -o ServerAliveInterval=60 \\
-    -o ServerAliveCountMax=3 \\
+    -o ServerAliveInterval=15 \\
+    -o ServerAliveCountMax=2 \\
+    -o ConnectTimeout=10 \\
     -o ExitOnForwardFailure=yes \\
     -o StrictHostKeyChecking=no \\
     -o UserKnownHostsFile=/dev/null \\
