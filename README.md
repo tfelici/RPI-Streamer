@@ -528,6 +528,26 @@ For managing multiple devices:
 - Internet connection (WiFi, Ethernet, or 4G dongle)
 - Python 3.7+ and FFmpeg (automatically installed)
 
+## Version Management & Releases
+
+### Creating Git Tags
+For developers and maintainers who need to create version tags, see the comprehensive [Git Tagging Guide](GIT_TAGGING_GUIDE.md) which covers:
+- Creating lightweight and annotated tags
+- Pushing tags to remote repositories
+- Best practices for semantic versioning
+- Example workflows for RPI-Streamer releases
+
+### Installing Specific Versions
+Users can install specific tagged versions:
+```bash
+# Clone a specific version
+git clone --branch v3.00 https://github.com/tfelici/RPI-Streamer.git
+
+# Or checkout a specific version after cloning
+git checkout v3.00
+bash install_rpi_streamer.sh
+```
+
 ---
 
-**RPI Streamer** - Professional streaming and GPS tracking solution for Raspberry Pi
+**RPI Streamer v3.00** - Professional streaming and GPS tracking solution for Raspberry Pi
