@@ -1701,7 +1701,7 @@ def system_check_update():
         if fetch_result.returncode != 0:
             return jsonify({'success': False, 'error': fetch_result.stderr.strip()})
         # Compare local and remote tracked files (ignoring timestamps and permission)
-        diff_result = subprocess.run(['git', 'diff', '--name-status', remote_branch], capture_output=True, text=True)
+        diff_result = subprocess.run(['git', '-c', 'core.filemode=false', 'diff', '--name-status', remote_branch], capture_output=True, text=True)
         if diff_result.returncode != 0:
             return jsonify({'success': False, 'error': diff_result.stderr.strip()})
         diff_output = diff_result.stdout.strip()
@@ -1768,17 +1768,6 @@ def system_do_update():
             raise RuntimeError("No user:group parameter provided. Please set OWNER environment variable (e.g., OWNER=pi:pi)")
         chown = subprocess.run(['sudo', 'chown', '-R', owner, '.'], capture_output=True, text=True)
         results.append('chown: ' + chown.stdout.strip() + chown.stderr.strip())
-        #make .sh scripts executable
-        for root, dirs, files in os.walk('.'):
-            for file in files:
-                if file.endswith('.sh'):
-                    filepath = os.path.join(root, file)
-                    try:
-                        os.chmod(filepath, 0o755)
-                        results.append(f'Set executable: {filepath}')
-                    except Exception as e:
-                        results.append(f'Failed to set executable {filepath}: {e}')
-                        
         return jsonify({'success': True, 'results': results})
     except Exception as e:
         import traceback
