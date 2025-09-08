@@ -1768,6 +1768,17 @@ def system_do_update():
             raise RuntimeError("No user:group parameter provided. Please set OWNER environment variable (e.g., OWNER=pi:pi)")
         chown = subprocess.run(['sudo', 'chown', '-R', owner, '.'], capture_output=True, text=True)
         results.append('chown: ' + chown.stdout.strip() + chown.stderr.strip())
+        #make .sh scripts executable
+        for root, dirs, files in os.walk('.'):
+            for file in files:
+                if file.endswith('.sh'):
+                    filepath = os.path.join(root, file)
+                    try:
+                        os.chmod(filepath, 0o755)
+                        results.append(f'Set executable: {filepath}')
+                    except Exception as e:
+                        results.append(f'Failed to set executable {filepath}: {e}')
+                        
         return jsonify({'success': True, 'results': results})
     except Exception as e:
         import traceback
