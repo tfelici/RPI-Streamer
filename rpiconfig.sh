@@ -65,6 +65,47 @@ restart_flask_service() {
     fi
 }
 
+# Function to check Flask app service journals
+check_flask_journals() {
+    print_header "Flask App Service Journals"
+    
+    # Check if flask_app service exists
+    if ! $SUDO systemctl list-unit-files | grep -q "^flask_app.service"; then
+        print_error "flask_app.service not found"
+        return 1
+    fi
+    
+    echo ""
+    print_info "Current Flask App Service Status:"
+    $SUDO systemctl status flask_app --no-pager --lines=5
+    echo ""
+    
+    print_info "Recent Flask App Logs (last 50 lines):"
+    echo "----------------------------------------"
+    $SUDO journalctl -u flask_app --no-pager -n 50 --reverse
+    echo ""
+    
+    print_info "Live log monitoring options:"
+    echo "  • Follow live logs: sudo journalctl -u flask_app -f"
+    echo "  • Last 100 lines: sudo journalctl -u flask_app -n 100"
+    echo "  • Today's logs: sudo journalctl -u flask_app --since today"
+    echo "  • Logs since boot: sudo journalctl -u flask_app --since boot"
+    echo ""
+    
+    # Ask if user wants to follow live logs
+    read -p "Would you like to follow live Flask app logs? (y/N): " follow_logs
+    case $follow_logs in
+        [Yy]|[Yy][Ee][Ss])
+            print_info "Following live Flask app logs (Ctrl+C to exit)..."
+            echo ""
+            $SUDO journalctl -u flask_app -f
+            ;;
+        *)
+            print_info "Returning to main menu"
+            ;;
+    esac
+}
+
 # Function to run installer in develop mode
 run_develop_install() {
     print_header "Running RPI Streamer Installer (Develop Branch)"
@@ -225,13 +266,14 @@ show_menu() {
     echo ""
     echo "Available Options:"
     echo "  1) Restart Flask App Service"
-    echo "  2) Install/Update (Develop Branch)"
-    echo "  3) Install Local Code (Develop, No Update)"
-    echo "  4) Restart GPS Daemon (Simulation Mode)"
-    echo "  5) Restart GPS Daemon (Real Mode)"
-    echo "  6) Show System Status"
-    echo "  7) Reboot Now"
-    echo "  8) Exit"
+    echo "  2) Check Flask App Service Logs"
+    echo "  3) Install/Update (Develop Branch)"
+    echo "  4) Install Local Code (Develop, No Update)"
+    echo "  5) Restart GPS Daemon (Simulation Mode)"
+    echo "  6) Restart GPS Daemon (Real Mode)"
+    echo "  7) Show System Status"
+    echo "  8) Reboot Now"
+    echo "  9) Exit"
     echo ""
 }
 
@@ -241,7 +283,7 @@ main() {
     
     while true; do
         show_menu
-        read -p "Enter your choice (1-8): " choice
+        read -p "Enter your choice (1-9): " choice
         echo ""
         
         case $choice in
@@ -249,29 +291,32 @@ main() {
                 restart_flask_service
                 ;;
             2)
-                run_develop_install
+                check_flask_journals
                 ;;
             3)
-                run_develop_install_no_update
+                run_develop_install
                 ;;
             4)
-                restart_gps_simulation
+                run_develop_install_no_update
                 ;;
             5)
-                restart_gps_real
+                restart_gps_simulation
                 ;;
             6)
-                show_system_status
+                restart_gps_real
                 ;;
             7)
-                reboot_system
+                show_system_status
                 ;;
             8)
+                reboot_system
+                ;;
+            9)
                 print_info "Exiting RPI Streamer Configuration Menu"
                 exit 0
                 ;;
             *)
-                print_error "Invalid choice. Please enter 1-8."
+                print_error "Invalid choice. Please enter 1-9."
                 ;;
         esac
         

@@ -97,7 +97,7 @@
                     
                     <!-- QR Code Display -->
                     <div id="hotspot-qr-section" style="text-align: center; margin-bottom: 1.5rem; padding: 1rem; background: #f8f9fa; border-radius: 0.5rem; border: 1px solid #dee2e6;">
-                        <div style="margin-bottom: 0.5rem; font-weight: bold; color: #495057;">Scan to Connect</div>
+                        <div style="margin-bottom: 0.5rem; font-weight: bold; color: #495057;">Current Hotspot - Scan to Connect</div>
                         <div id="hotspot-qr-code" style="margin-bottom: 0.5rem;"></div>
                         <div id="hotspot-qr-info" style="font-size: 0.9rem; color: #6c757d;"></div>
                     </div>
@@ -222,23 +222,17 @@
         // WiFi SSID input handler to update connect button text
         document.getElementById('wifi-ssid').addEventListener('input', updateWifiConnectButton);
         
-        // Hotspot settings input handlers to update QR code
-        document.getElementById('hotspot-ssid').addEventListener('input', updateHotspotQR);
-        document.getElementById('hotspot-pass').addEventListener('input', updateHotspotQR);
+        // QR code will be updated only when hotspot status is loaded, not on input changes
+        // Removed dynamic input listeners to prevent QR code from changing with form inputs
         
-        // Initial QR code generation on page load
-        setTimeout(() => {
-            updateHotspotQR();
-        }, 100);
-        
-        function updateHotspotQR() {
-            const ssid = document.getElementById('hotspot-ssid').value.trim();
-            const password = document.getElementById('hotspot-pass').value;
+        function updateHotspotQR(ssid, password) {
+            // This function now only updates QR code with provided parameters
+            // It no longer reads from input fields to prevent dynamic changes
             const qrCodeDiv = document.getElementById('hotspot-qr-code');
             const qrInfoDiv = document.getElementById('hotspot-qr-info');
             
             if (!ssid) {
-                qrCodeDiv.innerHTML = '<div style="color: #6c757d; font-style: italic;">Enter SSID to generate QR code</div>';
+                qrCodeDiv.innerHTML = '<div style="color: #6c757d; font-style: italic;">No active hotspot to display</div>';
                 qrInfoDiv.textContent = '';
                 return;
             }
@@ -252,6 +246,24 @@
             
             qrCodeDiv.innerHTML = `<img src="${qrUrl}" alt="WiFi QR Code" style="max-width: 200px; height: auto; border: 1px solid #dee2e6; border-radius: 0.25rem;">`;
             qrInfoDiv.innerHTML = `Network: <strong>${ssid}</strong><br>Scan with your device to connect automatically`;
+        }
+        
+        function displayActiveHotspotQR(data) {
+            // Show QR code for the currently active hotspot
+            const qrCodeDiv = document.getElementById('hotspot-qr-code');
+            const qrInfoDiv = document.getElementById('hotspot-qr-info');
+            
+            if (data.mode === 'hotspot' && data.hotspot_active && data.hotspot_ssid) {
+                // Display QR code for the active hotspot
+                updateHotspotQR(data.hotspot_ssid, data.hotspot_password || 'rpistreamer123');
+            } else if (data.mode === 'hotspot' && data.hotspot_ssid) {
+                // Hotspot mode but not active - show configured hotspot
+                updateHotspotQR(data.hotspot_ssid, data.hotspot_password || 'rpistreamer123');
+            } else {
+                // No hotspot configured or not in hotspot mode
+                qrCodeDiv.innerHTML = '<div style="color: #6c757d; font-style: italic;">Configure hotspot settings to generate QR code</div>';
+                qrInfoDiv.textContent = '';
+            }
         }
         
         function updateWifiConnectButton() {
@@ -471,6 +483,9 @@
                     document.getElementById('hotspot-ssid').value = data.hotspot_ssid || 'RPI-Streamer';
                     document.getElementById('hotspot-ip').value = data.hotspot_ip || '192.168.4.1';
                     
+                    // Update QR code to show the currently active/configured hotspot
+                    displayActiveHotspotQR(data);
+                    
                     // Show appropriate settings panel
                     handleModeChange();
                     
@@ -515,8 +530,7 @@
                 clientSettings.style.display = 'none';
                 hotspotSettings.style.display = 'block';
                 
-                // Generate QR code when switching to hotspot mode
-                updateHotspotQR();
+                // QR code will be shown based on loaded WiFi status, not generated here
                 
                 // Update hotspot button text based on current mode
                 if (currentWifiMode === 'hotspot') {
