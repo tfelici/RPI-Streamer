@@ -1117,7 +1117,8 @@ def system_settings_wifi():
                 'ssid', ssid,
                 'wifi-sec.key-mgmt', 'wpa-psk',
                 'wifi-sec.psk', password,
-                'connection.autoconnect', 'yes'
+                'connection.autoconnect', 'yes',
+                'connection.autoconnect-priority', '5'  # Lower than cellular (10) and ethernet (100)
             ]
             subprocess.run(create_cmd, check=True)
               # Activate the connection
@@ -1126,29 +1127,8 @@ def system_settings_wifi():
         # Ensure NetworkManager is enabled for auto-start on boot
         subprocess.run(['sudo', 'systemctl', 'enable', 'NetworkManager'], check=False)
         
-        # Configure WiFi with lower priority - fallback when Ethernet unavailable
-        subprocess.run([
-            'sudo', 'nmcli', 'connection', 'modify', ssid,
-            'connection.autoconnect', 'yes',
-            'connection.autoconnect-priority', '5'
-        ], check=False)
-        
-        # Ensure Ethernet connection exists and has higher priority (preferred)
-        subprocess.run([
-            'sudo', 'nmcli', 'connection', 'modify', 'Wired connection 1',
-            'connection.autoconnect', 'yes',
-            'connection.autoconnect-priority', '10'
-        ], check=False)
-        
-        # Alternative: Create ethernet connection if it doesn't exist
-        subprocess.run([
-            'sudo', 'nmcli', 'connection', 'add',
-            'type', 'ethernet',
-            'con-name', 'Ethernet-Primary',
-            'ifname', 'eth0',
-            'connection.autoconnect', 'yes',
-            'connection.autoconnect-priority', '10'
-        ], check=False)
+        # Note: Ethernet priority configuration is handled by install_rpi_streamer.sh
+        # which sets ethernet priority to 100 (highest), so we don't modify it here
         
     except Exception as e:
         return jsonify({'success': False, 'error': f'Failed to configure WiFi with NetworkManager: {e}'})
@@ -1253,7 +1233,8 @@ def configure_wifi_hotspot(ssid, password, channel=6, ip_address="192.168.4.1"):
                 'type', 'wifi',
                 'ifname', 'wlan0',
                 'con-name', ssid,
-                'autoconnect', 'no',
+                'connection.autoconnect', 'yes',
+                'connection.autoconnect-priority', '10',#need to set this in order to autoconnect on reboot
                 'wifi.mode', 'ap',
                 'wifi.ssid', ssid,
                 'wifi.band', wifi_band,
