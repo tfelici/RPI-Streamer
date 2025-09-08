@@ -189,6 +189,31 @@ show_system_status() {
     echo ""
 }
 
+# Function to reboot the system
+reboot_system() {
+    print_header "System Reboot"
+    print_warning "This will immediately reboot the Raspberry Pi"
+    echo ""
+    read -p "Are you sure you want to reboot now? (y/N): " confirm
+    
+    case $confirm in
+        [Yy]|[Yy][Ee][Ss])
+            print_info "Rebooting system in 3 seconds..."
+            echo "3..."
+            sleep 1
+            echo "2..."
+            sleep 1
+            echo "1..."
+            sleep 1
+            print_status "Rebooting now!"
+            $SUDO reboot
+            ;;
+        *)
+            print_info "Reboot cancelled"
+            ;;
+    esac
+}
+
 # Main menu function
 show_menu() {
     clear
@@ -205,7 +230,8 @@ show_menu() {
     echo "  4) Restart GPS Daemon (Simulation Mode)"
     echo "  5) Restart GPS Daemon (Real Mode)"
     echo "  6) Show System Status"
-    echo "  7) Exit"
+    echo "  7) Reboot Now"
+    echo "  8) Exit"
     echo ""
 }
 
@@ -215,7 +241,7 @@ main() {
     
     while true; do
         show_menu
-        read -p "Enter your choice (1-7): " choice
+        read -p "Enter your choice (1-8): " choice
         echo ""
         
         case $choice in
@@ -238,11 +264,14 @@ main() {
                 show_system_status
                 ;;
             7)
+                reboot_system
+                ;;
+            8)
                 print_info "Exiting RPI Streamer Configuration Menu"
                 exit 0
                 ;;
             *)
-                print_error "Invalid choice. Please enter 1-7."
+                print_error "Invalid choice. Please enter 1-8."
                 ;;
         esac
         
