@@ -150,21 +150,22 @@ restart_gps_simulation() {
     print_warning "GPS will generate simulated location data for testing"
     
     # Run GPS daemon in simulation mode (background process)
-    if [ -f "gps_daemon.py" ]; then
-        $SUDO python3 gps_daemon.py --daemon --simulate &
+    SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+    if [ -f "$SCRIPT_DIR/gps_daemon.py" ]; then
+        $SUDO python3 "$SCRIPT_DIR/gps_daemon.py" --daemon --simulate &
         GPS_PID=$!
         
         # Wait a moment and check if process is running
         sleep 3
         if kill -0 $GPS_PID 2>/dev/null; then
             print_status "GPS daemon started in simulation mode (PID: $GPS_PID)"
-            print_info "Check status with: python3 gps_client.py --status"
-            print_info "Get simulated location: python3 gps_client.py --location"
+            print_info "Check status with: python3 $SCRIPT_DIR/gps_client.py --status"
+            print_info "Get simulated location: python3 $SCRIPT_DIR/gps_client.py --location"
         else
             print_error "Failed to start GPS daemon in simulation mode"
         fi
     else
-        print_error "gps_daemon.py not found in current directory"
+        print_error "$SCRIPT_DIR/gps_daemon.py not found"
         return 1
     fi
 }
@@ -172,6 +173,8 @@ restart_gps_simulation() {
 # Function to restart GPS daemon in real mode
 restart_gps_real() {
     print_header "Restarting GPS Daemon in Real Mode"
+    
+    SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
     
     # Stop any running GPS daemon first
     if $SUDO systemctl is-active --quiet gps-daemon; then
@@ -195,12 +198,49 @@ restart_gps_real() {
     if $SUDO systemctl is-active --quiet gps-daemon; then
         print_status "GPS daemon service started in real mode"
         print_info "Status: $($SUDO systemctl is-active gps-daemon)"
-        print_info "Check detailed status: python3 gps_client.py --status"
+        print_info "Check detailed status: python3 $SCRIPT_DIR/gps_client.py --status"
         print_info "View logs: sudo journalctl -u gps-daemon -f"
     else
         print_error "GPS daemon service failed to start"
         echo "Checking service status..."
         $SUDO systemctl status gps-daemon --no-pager
+    fi
+}
+
+# Function to restart GPS startup manager service
+restart_gps_startup_manager() {
+    print_header "Restarting GPS Startup Manager Service"
+    
+    # Check if gps-startup service exists
+    if ! $SUDO systemctl list-unit-files | grep -q "^gps-startup.service"; then
+        print_error "gps-startup.service not found"
+        print_info "The GPS startup manager service may not be installed"
+        return 1
+    fi
+    
+    # Stop GPS startup manager if running
+    if $SUDO systemctl is-active --quiet gps-startup; then
+        print_info "Stopping GPS startup manager..."
+        $SUDO systemctl stop gps-startup
+        sleep 2
+    fi
+    
+    # Start GPS startup manager service
+    print_info "Starting GPS startup manager service..."
+    print_info "This manages automatic GPS tracking startup based on flight settings"
+    
+    $SUDO systemctl start gps-startup
+    
+    # Wait a moment and check status
+    sleep 3
+    if $SUDO systemctl is-active --quiet gps-startup; then
+        print_status "GPS startup manager service started successfully"
+        print_info "Status: $($SUDO systemctl is-active gps-startup)"
+        print_info "View logs: sudo journalctl -u gps-startup -f"
+    else
+        print_error "GPS startup manager service failed to start"
+        echo "Checking service status..."
+        $SUDO systemctl status gps-startup --no-pager
     fi
 }
 
@@ -217,9 +257,11 @@ show_system_status() {
     
     echo "🛰️ GPS Status:"
     echo "   GPS Daemon: $($SUDO systemctl is-active gps-daemon 2>/dev/null || echo 'inactive')"
-    if command -v python3 >/dev/null && [ -f "gps_client.py" ]; then
+    echo "   GPS Startup Manager: $($SUDO systemctl is-active gps-startup 2>/dev/null || echo 'inactive')"
+    SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+    if command -v python3 >/dev/null && [ -f "$SCRIPT_DIR/gps_client.py" ]; then
         echo "   GPS Client Status:"
-        python3 gps_client.py --status 2>/dev/null | sed 's/^/      /' || echo "      Unable to get GPS status"
+        python3 "$SCRIPT_DIR/gps_client.py" --status 2>/dev/null | sed 's/^/      /' || echo "      Unable to get GPS status"
     fi
     echo ""
     
@@ -271,9 +313,10 @@ show_menu() {
     echo "  4) Install Local Code (Develop, No Update)"
     echo "  5) Restart GPS Daemon (Simulation Mode)"
     echo "  6) Restart GPS Daemon (Real Mode)"
-    echo "  7) Show System Status"
-    echo "  8) Reboot Now"
-    echo "  9) Exit"
+    echo "  7) Restart GPS Startup Manager"
+    echo "  8) Show System Status"
+    echo "  9) Reboot Now"
+    echo "  0) Exit"
     echo ""
 }
 
@@ -283,7 +326,7 @@ main() {
     
     while true; do
         show_menu
-        read -p "Enter your choice (1-9): " choice
+        read -p "Enter your choice (0-9): " choice
         echo ""
         
         case $choice in
@@ -306,17 +349,20 @@ main() {
                 restart_gps_real
                 ;;
             7)
-                show_system_status
+                restart_gps_startup_manager
                 ;;
             8)
-                reboot_system
+                show_system_status
                 ;;
             9)
+                reboot_system
+                ;;
+            0)
                 print_info "Exiting RPI Streamer Configuration Menu"
                 exit 0
                 ;;
             *)
-                print_error "Invalid choice. Please enter 1-9."
+                print_error "Invalid choice. Please enter 0-9."
                 ;;
         esac
         
