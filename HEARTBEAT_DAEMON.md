@@ -23,39 +23,13 @@ The heartbeat daemon (`heartbeat_daemon.py`) is a standalone Python service that
 
 ## Installation
 
-### Automatic Installation
-
-Run the installation script to set up the daemon service:
-
-```bash
-cd /path/to/rpi-streamer
-chmod +x install_heartbeat_daemon.sh
-./install_heartbeat_daemon.sh
-```
-
-The installation script will:
-1. Make the daemon script executable
-2. Install the systemd service file
-3. Enable the service for automatic startup
-4. Start the service immediately
-5. Display status and log information
-
-### Manual Installation
-
-If you prefer to install manually:
-
-1. **Make the daemon executable:**
-   ```bash
-   chmod +x heartbeat_daemon.py
-   ```
-
-2. **Install the systemd service:**
+1. **Install the systemd service:**
    ```bash
    sudo cp heartbeat-daemon.service /etc/systemd/system/
    sudo systemctl daemon-reload
    ```
 
-3. **Enable and start the service:**
+2. **Enable and start the service:**
    ```bash
    sudo systemctl enable heartbeat-daemon
    sudo systemctl start heartbeat-daemon
@@ -203,7 +177,6 @@ If you previously had heartbeat functionality in the Flask app:
 
 - `heartbeat_daemon.py`: Main daemon script
 - `heartbeat-daemon.service`: Systemd service configuration
-- `install_heartbeat_daemon.sh`: Automatic installation script
 - `/tmp/heartbeat_daemon.pid`: Runtime process ID file
 - `/var/log/journal/`: Service logs (view with journalctl)
 

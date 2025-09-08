@@ -633,14 +633,6 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 EOF
 
-# Install GPS Daemon System
-printf "🛰️ Installing GPS Daemon System...\n"
-
-# Make GPS scripts executable
-chmod +x "$HOME/flask_app/gps_startup_manager.py"
-chmod +x "$HOME/flask_app/gps_daemon.py"
-echo "✅ Made GPS daemon scripts executable"
-
 #make streamer-config executable
 chmod +x "$HOME/flask_app/streamer-config.sh"
 echo "✅ Made streamer-config script executable"
@@ -762,11 +754,6 @@ printf "🛰️ Installing GPS Daemon...\n"
 # Install Python dependencies for GPS daemon
 echo "Installing GPS daemon dependencies..."
 pip3 install --user pyserial 2>/dev/null || echo "pyserial already installed"
-
-# Make GPS daemon scripts executable
-chmod +x "$HOME/flask_app/gps_daemon.py"
-chmod +x "$HOME/flask_app/gps_client.py"
-echo "✅ Made GPS daemon scripts executable"
 
 # Install GPS daemon as systemd service (but don't enable or start it - will be controlled by udev rules)
 echo "Installing GPS daemon service..."
