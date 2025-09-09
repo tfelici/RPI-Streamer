@@ -8,6 +8,7 @@ import time
 import json
 import signal
 import logging
+import requests
 from datetime import datetime
 
 # Add the RPI Streamer directory to the path so we can import utils
@@ -16,8 +17,43 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils import DEFAULT_SETTINGS, SETTINGS_FILE, is_gps_tracking, load_settings, save_settings, calculate_distance, get_hardwareid
 from gps_client import get_gnss_location
 
-# Import GPS tracking function from app.py
-from app import start_flight
+def start_flight_via_api():
+    """
+    Start GPS tracking by calling the web service API instead of importing app.py
+    This avoids importing the entire Flask application and its dependencies
+    """
+    try:
+        # Make POST request to the gps-control endpoint
+        response = requests.post(
+            'http://localhost:80/gps-control',
+            json={'action': 'start'},
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            if 'status' in result:
+                logger.info(f"Successfully started GPS tracking via API: {result['status']}")
+                return True, result['status'], 200
+            else:
+                logger.error(f"API returned success but unexpected format: {result}")
+                return False, "Unexpected API response format", 500
+        else:
+            try:
+                error_result = response.json()
+                error_msg = error_result.get('error', f'HTTP {response.status_code}')
+                logger.error(f"Failed to start GPS tracking via API: {error_msg}")
+                return False, error_msg, response.status_code
+            except:
+                logger.error(f"Failed to start GPS tracking via API: HTTP {response.status_code}")
+                return False, f'HTTP {response.status_code}', response.status_code
+                
+    except requests.RequestException as e:
+        logger.error(f"Network error calling GPS tracking API: {e}")
+        return False, f'Network error: {e}', 500
+    except Exception as e:
+        logger.error(f"Unexpected error calling GPS tracking API: {e}")
+        return False, f'Unexpected error: {e}', 500
 
 # Module logger (configured in main)
 logger = logging.getLogger('gps-startup')
@@ -35,11 +71,6 @@ def get_streamer_settings(poll_until_success=False, poll_interval=30):
     """
     hardwareid = get_hardwareid()
     url = f"https://streamer.lambda-tek.com/public_api.php?command=getstreamersettings&hardwareid={hardwareid}"
-    
-    # Import requests locally to avoid importing it before app.py performs
-    # gevent monkey-patching (which may modify ssl). Importing requests
-    # at module import time can cause monkey-patch ordering issues.
-    import requests
     
     attempt = 1
     
@@ -179,7 +210,7 @@ def monitor_motion(updated_settings):
                         save_settings(updated_settings)
                         logger.info("Settings saved before starting GPS tracking")
                         
-                        success, message, status_code = start_flight()
+                        success, message, status_code = start_flight_via_api()
                         if success:
                             logger.info("GPS tracking started due to motion detection")
                             break
@@ -252,7 +283,7 @@ def main():
             save_settings(settings)
             logger.info("Settings saved before starting GPS tracking")
             
-            success, message, status_code = start_flight()
+            success, message, status_code = start_flight_via_api()
             if success:
                 logger.info("GPS tracking started successfully on boot")
             else:
