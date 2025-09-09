@@ -244,6 +244,44 @@ restart_gps_startup_manager() {
     fi
 }
 
+# Function to restart heartbeat daemon service
+restart_heartbeat_daemon() {
+    print_header "Restarting Heartbeat Daemon Service"
+    
+    # Check if heartbeat-daemon service exists
+    if ! $SUDO systemctl list-unit-files | grep -q "^heartbeat-daemon.service"; then
+        print_error "heartbeat-daemon.service not found"
+        print_info "The heartbeat daemon service may not be installed"
+        return 1
+    fi
+    
+    # Stop heartbeat daemon if running
+    if $SUDO systemctl is-active --quiet heartbeat-daemon; then
+        print_info "Stopping heartbeat daemon..."
+        $SUDO systemctl stop heartbeat-daemon
+        sleep 2
+    fi
+    
+    # Start heartbeat daemon service
+    print_info "Starting heartbeat daemon service..."
+    print_info "This monitors system stats and sends heartbeats to the server"
+    
+    $SUDO systemctl start heartbeat-daemon
+    
+    # Wait a moment and check status
+    sleep 3
+    if $SUDO systemctl is-active --quiet heartbeat-daemon; then
+        print_status "Heartbeat daemon service started successfully"
+        print_info "Status: $($SUDO systemctl is-active heartbeat-daemon)"
+        print_info "View logs: sudo journalctl -u heartbeat-daemon -f"
+        print_info "Heartbeat data is saved to: /tmp/rpi_streamer_heartbeat.json"
+    else
+        print_error "Heartbeat daemon service failed to start"
+        echo "Checking service status..."
+        $SUDO systemctl status heartbeat-daemon --no-pager
+    fi
+}
+
 # Function to show current system status
 show_system_status() {
     print_header "System Status Overview"
@@ -314,8 +352,9 @@ show_menu() {
     echo "  5) Restart GPS Daemon (Simulation Mode)"
     echo "  6) Restart GPS Daemon (Real Mode)"
     echo "  7) Restart GPS Startup Manager"
-    echo "  8) Show System Status"
-    echo "  9) Reboot Now"
+    echo "  8) Restart Heartbeat Daemon"
+    echo "  9) Show System Status"
+    echo "  r) Reboot Now"
     echo "  0) Exit"
     echo ""
 }
@@ -326,7 +365,7 @@ main() {
     
     while true; do
         show_menu
-        read -p "Enter your choice (0-9): " choice
+        read -p "Enter your choice (1-9, r, or 0): " choice
         echo ""
         
         case $choice in
@@ -352,9 +391,12 @@ main() {
                 restart_gps_startup_manager
                 ;;
             8)
-                show_system_status
+                restart_heartbeat_daemon
                 ;;
             9)
+                show_system_status
+                ;;
+            r|R)
                 reboot_system
                 ;;
             0)
@@ -362,7 +404,7 @@ main() {
                 exit 0
                 ;;
             *)
-                print_error "Invalid choice. Please enter 0-9."
+                print_error "Invalid choice. Please enter 1-9, r, or 0."
                 ;;
         esac
         

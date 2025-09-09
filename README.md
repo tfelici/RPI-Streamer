@@ -100,9 +100,9 @@ Every installation automatically includes:
 - **Cellular Modem Support**: Universal support for USB cellular modems via ModemManager
 - **MediaMTX Streaming Server**: Professional RTMP/WebRTC streaming capabilities
 - **Device Registration**: Automatic hardware console integration with centralized management
-- **System Diagnostics**: Real-time hardware monitoring and status reporting
+- **System Diagnostics**: Centralized hardware monitoring via heartbeat daemon with UPS status, power metrics, and vcgencmd integration
 - **USB Storage Detection**: Automatic recording storage to USB devices
-- **Heartbeat Monitoring**: Independent daemon for continuous system health monitoring
+- **Heartbeat Monitoring**: Centralized hardware diagnostics daemon collecting vcgencmd, UPS, and power data every 5 seconds
 - **Mobile Responsive Interface**: Modern mobile-friendly web interface for device management
 
 ## Development Configuration Tool
@@ -124,7 +124,8 @@ The `rpiconfig` script provides a user-friendly menu with the following options:
 4. **Restart GPS Daemon (Simulation Mode)** - Start GPS daemon with simulated location data for testing
 5. **Restart GPS Daemon (Real Mode)** - Start GPS daemon for real GPS hardware
 6. **Show System Status** - Display current service states and system information
-7. **Exit** - Close the configuration menu
+7. **Restart Heartbeat Daemon** - Restart the centralized hardware monitoring daemon
+8. **Exit** - Close the configuration menu
 
 ### Features
 

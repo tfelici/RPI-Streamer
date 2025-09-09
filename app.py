@@ -101,71 +101,53 @@ def home():
 
 @app.route('/stats')
 def stats():
-    def event_stream():
-        """
-        Server-Sent Events stream for real-time system statistics.
-
-        This function reads stats data from HEARTBEAT_FILE
-        which is written by the heartbeat daemon every 5 seconds.
-        
-        This centralized approach ensures:
-        - Consistency between web interface and heartbeat data
-        - No code duplication for stats collection
-        - Web server independence from system metrics collection
-        """
-        update_interval = 5  # poll update every 5 seconds
-
-        while True:  # Remove timeout - run continuously
+    """
+    Simple JSON endpoint for system statistics.
+    
+    This function reads stats data from HEARTBEAT_FILE
+    which is written by the heartbeat daemon every 5 seconds.
+    
+    This centralized approach ensures:
+    - Consistency between web interface and heartbeat data
+    - No code duplication for stats collection
+    - Web server independence from system metrics collection
+    """
+    try:
+        # Read stats from file written by heartbeat daemon with read lock
+        if os.path.exists(HEARTBEAT_FILE):
             try:
-                # Read stats from file written by heartbeat daemon with read lock
-                if os.path.exists(HEARTBEAT_FILE):
-                    try:
-                        stats_data = read_stats_file_with_lock(HEARTBEAT_FILE)
+                stats_data = read_stats_file_with_lock(HEARTBEAT_FILE)
 
-                        # Ensure we have a valid timestamp (not too old)
-                        current_time = time.time()
-                        file_age = current_time - stats_data.get('timestamp', 0)
-                        
-                        if file_age < 30:  # Use data if it's less than 30 seconds old
-                            # Format data for SSE clients
-                            data = f"data: {json.dumps(stats_data)}\n\n"
-                            yield data
-                        else:
-                            # File is too old, send error message
-                            error_data = {
-                                'error': 'Stats data too old',
-                                'file_age': file_age,
-                                'timestamp': current_time
-                            }
-                            data = f"data: {json.dumps(error_data)}\n\n"
-                            yield data
-                    except (json.JSONDecodeError, IOError) as e:
-                        # File exists but can't be read/parsed
-                        error_data = {
-                            'error': f'Stats file error: {e}',
-                            'timestamp': time.time()
-                        }
-                        data = f"data: {json.dumps(error_data)}\n\n"
-                        yield data
-                else:
-                    # Stats file doesn't exist (heartbeat daemon not running?)
-                    error_data = {
-                        'error': 'Stats file not found - heartbeat daemon may not be running',
-                        'timestamp': time.time()
-                    }
-                    data = f"data: {json.dumps(error_data)}\n\n"
-                    yield data
+                # Ensure we have a valid timestamp (not too old)
+                current_time = time.time()
+                file_age = current_time - stats_data.get('timestamp', 0)
                 
-                time.sleep(update_interval)
-            except GeneratorExit:
-                # Client disconnected
-                print("Stats SSE client disconnected")
-                break
-            except Exception as e:
-                print(f"Stats SSE error: {e}")
-                time.sleep(update_interval)
-        print("Stats SSE stream ended")
-    return Response(event_stream(), mimetype='text/event-stream')
+                if file_age < 30:  # Use data if it's less than 30 seconds old
+                    return jsonify(stats_data)
+                else:
+                    # File is too old, send error message
+                    return jsonify({
+                        'error': 'Stats data too old',
+                        'file_age': file_age,
+                        'timestamp': current_time
+                    }), 503  # Service Unavailable
+            except (json.JSONDecodeError, IOError) as e:
+                # File exists but can't be read/parsed
+                return jsonify({
+                    'error': f'Stats file error: {e}',
+                    'timestamp': time.time()
+                }), 500  # Internal Server Error
+        else:
+            # Stats file doesn't exist (heartbeat daemon not running?)
+            return jsonify({
+                'error': 'Stats file not found - heartbeat daemon may not be running',
+                'timestamp': time.time()
+            }), 503  # Service Unavailable
+    except Exception as e:
+        return jsonify({
+            'error': f'Unexpected error: {e}',
+            'timestamp': time.time()
+        }), 500
 
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():
@@ -1816,26 +1798,22 @@ def relay_status_sse():
         print("Closing SSE stream for relay status")
     return Response(event_stream(), mimetype='text/event-stream')
 
-@app.route('/active-recordings-sse')
-def active_recordings_sse():
-    def event_stream():
-        last_active_files = None
-        usb_mount_point = find_usb_storage()
-        while is_streaming() or last_active_files is None:
-            # Use utility function to get only active recordings
-            active_files = []
-            local_recording_path = os.path.join(STREAMER_DATA_DIR, 'recordings', 'webcam')
-            add_files_from_path(active_files, local_recording_path, "", "Local", active_only=True)
-            if usb_mount_point:
-                usb_recording_path = os.path.join(usb_mount_point, 'streamerData', 'recordings', 'webcam')
-                add_files_from_path(active_files, usb_recording_path, "[USB] ", "USB", active_only=True)
-            # Only send if changed
-            if active_files != last_active_files:
-                yield f"data: {json.dumps({'files': active_files})}\n\n"
-                last_active_files = active_files
-            time.sleep(1)
-        print("No active recordings, closing SSE stream")
-    return Response(event_stream(), mimetype='text/event-stream')
+@app.route('/active-recordings')
+def active_recordings():
+    """Get current active recordings as JSON"""
+    active_files = []
+    usb_mount_point = find_usb_storage()
+    
+    # Get local active recordings
+    local_recording_path = os.path.join(STREAMER_DATA_DIR, 'recordings', 'webcam')
+    add_files_from_path(active_files, local_recording_path, "", "Local", active_only=True)
+    
+    # Get USB active recordings if available
+    if usb_mount_point:
+        usb_recording_path = os.path.join(usb_mount_point, 'streamerData', 'recordings', 'webcam')
+        add_files_from_path(active_files, usb_recording_path, "[USB] ", "USB", active_only=True)
+    
+    return jsonify({'files': active_files})
 
 @app.route('/ups-monitor-log')
 def ups_monitor_log():
@@ -1865,20 +1843,8 @@ def ups_monitor_log():
     except Exception as e:
         return f"Error reading UPS monitor log: {str(e)}", 500
 
-@app.route('/service-status-test')
-def service_status_test():
-    """Test endpoint to check service status without SSE."""
-    return jsonify(get_service_status())
-
-@app.route('/service-logs-test/<service>')
-def service_logs_test(service):
-    """Test endpoint to check service logs without SSE."""
-    valid_services = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon']
-    if service not in valid_services:
-        return jsonify({'error': 'Invalid service name'}), 400
-    
-    logs = get_service_logs(service, lines=20)
-    return jsonify({'service': service, 'logs': logs})
+# Global list of monitored services
+MONITORED_SERVICES = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon', 'ups-monitor']
 
 @app.route('/service-logs-sse/<service>')
 def service_logs_sse(service):
@@ -1886,8 +1852,7 @@ def service_logs_sse(service):
     import json
     
     # Validate service name
-    valid_services = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon']
-    if service not in valid_services:
+    if service not in MONITORED_SERVICES:
         return jsonify({'error': 'Invalid service name'}), 400
     
     def event_stream():
@@ -2041,10 +2006,9 @@ def get_service_status():
     Get status of system services.
     Returns a dictionary with service statuses.
     """
-    services = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon']
     status = {}
     
-    for service in services:
+    for service in MONITORED_SERVICES:
         try:
             # Use systemctl to get service status
             result = subprocess.run(
@@ -2105,204 +2069,43 @@ def get_service_status():
     
     return status
 
-@app.route('/diagnostics-sse')
-def diagnostics_sse():
-    """SSE endpoint for system diagnostics updates."""
-    import json
-    def event_stream():
-        last_diagnostics = None
-        client_timeout = 0
-        max_timeout = 30  # Stop after 30 seconds of no activity
-        
-        while client_timeout < max_timeout:
+@app.route('/diagnostics')
+def diagnostics():
+    """Simple JSON endpoint for system diagnostics - reads from heartbeat data."""
+    try:
+        # Try to read diagnostics from heartbeat file
+        if os.path.exists(HEARTBEAT_FILE):
             try:
-                diagnostics = get_system_diagnostics()
+                with open(HEARTBEAT_FILE, 'r') as f:
+                    heartbeat_data = json.load(f)
                 
-                # Only send if changed (to reduce bandwidth)
-                if diagnostics != last_diagnostics:
-                    yield f"data: {json.dumps(diagnostics)}\n\n"
-                    last_diagnostics = diagnostics
-                    client_timeout = 0  # Reset timeout on successful yield
-                    
-                time.sleep(2)  # Update every 2 seconds
-            except GeneratorExit:
-                # Client disconnected
-                print("Diagnostics SSE client disconnected")
-                break
-            except Exception as e:
-                print(f"Diagnostics SSE error: {e}")
-                error_data = {'error': str(e)}
-                yield f"data: {json.dumps(error_data)}\n\n"
-                client_timeout += 1
-                time.sleep(5)  # Wait longer on error
-        print("Diagnostics SSE stream ended")
-    return Response(event_stream(), mimetype='text/event-stream')
-
-def get_system_diagnostics():
-    """
-    Get comprehensive system diagnostics using vcgencmd.
-    Returns a dictionary with all available diagnostic information.
-    """
-    diagnostics = {}
-    
-    # Check if vcgencmd is available first
-    try:
-        subprocess.run(['vcgencmd', 'version'], capture_output=True, text=True, timeout=2)
-        vcgencmd_available = True
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        vcgencmd_available = False
-    
-    # List of vcgencmd commands to run
-    commands = {
-        'temperature': ['measure_temp'],
-        'pmic_vdd_core_v': ['pmic_read_adc', 'VDD_CORE_V'],
-        'pmic_vdd_core_a': ['pmic_read_adc', 'VDD_CORE_A'],
-        'pmic_ext5v_v': ['pmic_read_adc', 'EXT5V_V'],
-        'throttled': ['get_throttled'],
-        'mem_arm': ['get_mem', 'arm'],
-        'mem_gpu': ['get_mem', 'gpu'],
-        'codec_h264': ['codec_enabled', 'H264'],
-        'codec_mpg2': ['codec_enabled', 'MPG2'],
-        'codec_wvc1': ['codec_enabled', 'WVC1'],
-        'codec_mpg4': ['codec_enabled', 'MPG4'],
-        'codec_mjpg': ['codec_enabled', 'MJPG'],
-        'config_int': ['get_config', 'int'],
-        'config_str': ['get_config', 'str'],
-    }
-    
-    # If vcgencmd is not available, set all values to "--"
-    if not vcgencmd_available:
-        for key in commands.keys():
-            diagnostics[key] = "--"
-    else:
-        for key, cmd_args in commands.items():
-            try:
-                result = subprocess.run(['vcgencmd'] + cmd_args, capture_output=True, text=True, timeout=5)
-                if result.returncode == 0:
-                    output = result.stdout.strip()
-                    
-                    # Parse and clean up specific outputs
-                    if key == 'temperature':
-                        # Extract temperature from "temp=48.8'C"
-                        temp_match = re.search(r'temp=([\d.]+)', output)
-                        if temp_match:
-                            diagnostics[key] = f"{temp_match.group(1)}°C"
-                        else:
-                            diagnostics[key] = output
-                    elif key.startswith('pmic_'):
-                        # Parse PMIC values
-                        if 'VDD_CORE_V' in output:
-                            # Extract voltage from "VDD_CORE_V volt(15)=0.84104930V"
-                            volt_match = re.search(r'=([\d.]+)V', output)
-                            if volt_match:
-                                diagnostics[key] = f"{float(volt_match.group(1)):.3f}V"
-                            else:
-                                diagnostics[key] = output
-                        elif 'VDD_CORE_A' in output:
-                            # Extract current from "VDD_CORE_A current(7)=2.35752000A"
-                            current_match = re.search(r'=([\d.]+)A', output)
-                            if current_match:
-                                diagnostics[key] = f"{float(current_match.group(1)):.3f}A"
-                            else:
-                                diagnostics[key] = output
-                        elif 'EXT5V_V' in output:
-                            # Extract voltage from "EXT5V_V volt(24)=5.15096000V"
-                            volt_match = re.search(r'=([\d.]+)V', output)
-                            if volt_match:
-                                diagnostics[key] = f"{float(volt_match.group(1)):.3f}V"
-                            else:
-                                diagnostics[key] = output
-                        else:
-                            diagnostics[key] = output
-                    else:
-                        diagnostics[key] = output
-                else:
-                    diagnostics[key] = f"Error: {result.stderr.strip()}" if result.stderr.strip() else "N/A"
-            except subprocess.TimeoutExpired:
-                diagnostics[key] = "Timeout"
-            except FileNotFoundError:
-                diagnostics[key] = "--"
-            except Exception as e:
-                diagnostics[key] = f"Error: {str(e)}"
-    
-    # Add UPS status information
-    try:
-        from x120x import X120X
-        with X120X() as ups:
-            ups_status = ups.get_status()
-            diagnostics['ups_voltage'] = ups_status['voltage']
-            diagnostics['ups_capacity'] = ups_status['capacity'] 
-            diagnostics['ups_battery_status'] = ups_status['battery_status']
-            diagnostics['ups_ac_power'] = ups_status['ac_power_connected']
-    except RuntimeError as e:
-        # UPS device not found or libraries not available
-        diagnostics['ups_voltage'] = None
-        diagnostics['ups_capacity'] = None
-        diagnostics['ups_battery_status'] = "UPS Not Available"
-        diagnostics['ups_ac_power'] = None
-    except Exception as e:
-        diagnostics['ups_voltage'] = None
-        diagnostics['ups_capacity'] = None
-        diagnostics['ups_battery_status'] = f"Error: {str(e)}"
-        diagnostics['ups_ac_power'] = None
-    
-    # Add INA219 power monitoring information
-    try:
-        from INA219 import INA219
-        with INA219(addr=0x41) as ina219:
-            diagnostics['ina219_bus_voltage'] = f"{ina219.getBusVoltage_V():.3f} V"
-            diagnostics['ina219_shunt_voltage'] = f"{ina219.getShuntVoltage_mV():.3f} mV"
-            diagnostics['ina219_current'] = f"{ina219.getCurrent_mA():.1f} mA"
-            diagnostics['ina219_power'] = f"{ina219.getPower_W():.3f} W"
-            
-            # Get power status
-            power_status = ina219.getPowerStatus()
-            if power_status is True:
-                diagnostics['ina219_power_source'] = "Plugged In"
-            elif power_status is False:
-                diagnostics['ina219_power_source'] = "Unplugged"
-            else:
-                diagnostics['ina219_power_source'] = "Unknown"
+                # Check if diagnostics data is available
+                if 'diagnostics' in heartbeat_data:
+                    return jsonify(heartbeat_data['diagnostics'])
                 
-            # Calculate PSU voltage (bus + shunt)
-            psu_voltage = ina219.getBusVoltage_V() + (ina219.getShuntVoltage_mV() / 1000)
-            diagnostics['ina219_psu_voltage'] = f"{psu_voltage:.3f} V"
-            
-            # Calculate battery percentage (based on 3S: 9V empty, 12.6V full)
-            bus_voltage = ina219.getBusVoltage_V()
-            battery_percent = (bus_voltage - 9) / 3.6 * 100
-            battery_percent = max(0, min(100, battery_percent))
-            diagnostics['ina219_battery_percent'] = f"{battery_percent:.1f}%"
+            except (json.JSONDecodeError, KeyError, IOError) as e:
+                return jsonify({
+                    'error': f'Error reading heartbeat data: {e}',
+                    'timestamp': time.time()
+                }), 500
         
-    except RuntimeError as e:
-        # INA219 device not found
-        diagnostics['ina219_bus_voltage'] = "INA219 Not Available"
-        diagnostics['ina219_shunt_voltage'] = "--"
-        diagnostics['ina219_current'] = "--"
-        diagnostics['ina219_power'] = "--"
-        diagnostics['ina219_power_source'] = "--"
-        diagnostics['ina219_psu_voltage'] = "--"
-        diagnostics['ina219_battery_percent'] = "--"
+        # If heartbeat file doesn't exist or has no diagnostics
+        return jsonify({
+            'error': 'Diagnostics data not available - heartbeat daemon may not be running',
+            'timestamp': time.time()
+        }), 503
+        
     except Exception as e:
-        diagnostics['ina219_bus_voltage'] = f"Error: {str(e)}"
-        diagnostics['ina219_shunt_voltage'] = "N/A"
-        diagnostics['ina219_current'] = "N/A"
-        diagnostics['ina219_power'] = "N/A"
-        diagnostics['ina219_power_source'] = "N/A"
-        diagnostics['ina219_psu_voltage'] = "N/A"
-        diagnostics['ina219_battery_percent'] = "N/A"
-    
-    # Parse throttled status for special highlighting
-    throttled_raw = diagnostics.get('throttled', '')
-    throttled_info = parse_throttled_status(throttled_raw)
-    diagnostics['throttled_parsed'] = throttled_info
-    
-    return diagnostics
+        return jsonify({
+            'error': f'Diagnostics error: {e}',
+            'timestamp': time.time()
+        }), 500
 
 def parse_throttled_status(throttled_output):
     """
     Parse the throttled status from vcgencmd get_throttled output.
     Returns a dict with parsed information about undervoltage and throttling.
+    This is a minimal version for fallback use only.
     """
     info = {
         'raw': throttled_output,

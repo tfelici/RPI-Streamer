@@ -173,7 +173,6 @@ def main():
                 max_bitrate = vbitrate
                 if x264enc:
                     x264enc.set_property('bitrate', current_bitrate)
-                    print(f"[Debug] Encoder bitrate updated to: {x264enc.get_property('bitrate')} kbps")
 
             # Check for dynamicBitrate setting changes
             new_dynamic_setting = get_setting('dynamicBitrate')
@@ -266,8 +265,7 @@ def main():
                 print(f"[Bitrate] Probing higher encoder bitrate: {test_bitrate} kbps (step: +{probe_step} kbps, stability: {calculate_bitrate_variance(recent_bitrates):.3f})")
                 
                 if x264enc:
-                    x264enc.set_property('bitrate', test_bitrate)
-                    print(f"[Debug] Encoder bitrate set to: {x264enc.get_property('bitrate')} kbps")                
+                    x264enc.set_property('bitrate', test_bitrate)                
                 
                 # Measure for probe period
                 time.sleep(interval)

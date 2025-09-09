@@ -586,6 +586,11 @@
                         <div class="stat-label">Heartbeat Daemon</div>
                         <button class="btn btn-sm btn-secondary service-log-btn" data-service="heartbeat-daemon">📋 View Logs</button>
                     </div>
+                    <div class="stat-item service-item" data-service="ups-monitor">
+                        <span class="stat-value connection-status" id="service-ups-monitor">--</span>
+                        <div class="stat-label">UPS Monitor</div>
+                        <button class="btn btn-sm btn-secondary service-log-btn" data-service="ups-monitor">📋 View Logs</button>
+                    </div>
                 </div>
                 
                 <!-- Service Log Viewer -->
@@ -1336,10 +1341,10 @@
             });
         }
           // Initialize collapsible panels when DOM is ready
-        document.addEventListener('DOMContentLoaded', initializeCollapsiblePanels);
+        // Collapsible panels is now initialized via combined DOMContentLoaded handler
         
-        // System Diagnostics functionality
-        let diagnosticsEventSource = null;
+        // System Diagnostics functionality  
+        let diagnosticsPollingInterval = null;
         
         function initializeDiagnostics() {
             // Handle detailed diagnostics toggle
@@ -1360,45 +1365,53 @@
                 });
             }
             
-            // Start SSE connection for diagnostics
-            startDiagnosticsRefresh();
+            // Start polling for diagnostics
+            startDiagnosticsPolling();
         }
         
-        function startDiagnosticsRefresh() {
-            if (diagnosticsEventSource) {
-                diagnosticsEventSource.close();
+        function startDiagnosticsPolling() {
+            if (diagnosticsPollingInterval) {
+                clearInterval(diagnosticsPollingInterval);
             }
             
-            diagnosticsEventSource = new EventSource('/diagnostics-sse');
-            
-            diagnosticsEventSource.onmessage = function(event) {
-                try {
-                    const data = JSON.parse(event.data);
-                    updateDiagnosticsDisplay(data);
-                } catch (e) {
-                    console.error('Error parsing diagnostics data:', e);
-                }
-            };
-            
-            diagnosticsEventSource.onerror = function() {
-                console.error('Diagnostics SSE connection error');
-                // Try to reconnect after 5 seconds
-                setTimeout(() => {
-                    if (diagnosticsEventSource.readyState === EventSource.CLOSED) {
-                        startDiagnosticsRefresh();
-                    }
-                }, 5000);
-            };
+            // Start polling every 5 seconds
+            diagnosticsPollingInterval = setInterval(fetchDiagnostics, 5000);
+            // Fetch immediately on start
+            fetchDiagnostics();
         }
         
-        function stopDiagnosticsRefresh() {
-            if (diagnosticsEventSource) {
-                diagnosticsEventSource.close();
-                diagnosticsEventSource = null;
+        function fetchDiagnostics() {
+            // Only fetch if diagnostics panel is visible
+            const diagnosticsContent = document.getElementById('diagnostics-content');
+            if (diagnosticsContent && diagnosticsContent.classList.contains('collapsed')) {
+                return; // Skip polling if panel is collapsed
+            }
+            
+            fetch('/diagnostics')
+                .then(response => response.json())
+                .then(data => {
+                    updateDiagnosticsDisplay(data);
+                })
+                .catch(error => {
+                    console.error('Error fetching diagnostics:', error);
+                    // Don't update UI on error, keep last known values
+                });
+        }
+        
+        function stopDiagnosticsPolling() {
+            if (diagnosticsPollingInterval) {
+                clearInterval(diagnosticsPollingInterval);
+                diagnosticsPollingInterval = null;
             }
         }
         
         function updateDiagnosticsDisplay(data) {
+            // Only update if diagnostics panel is visible
+            const diagnosticsContent = document.getElementById('diagnostics-content');
+            if (diagnosticsContent && diagnosticsContent.classList.contains('collapsed')) {
+                return; // Skip update if panel is collapsed
+            }
+            
             // Update health status
             const healthText = document.getElementById('health-text');
             const statusDot = document.querySelector('.status-dot');
@@ -1544,8 +1557,7 @@
             }
         }
         
-        // Initialize diagnostics when DOM is ready
-        document.addEventListener('DOMContentLoaded', initializeDiagnostics);
+        // Diagnostics is now initialized via combined DOMContentLoaded handler
         
         const cpu = document.getElementById('cpu');
         const mem = document.getElementById('mem');
@@ -1613,9 +1625,33 @@
             gpsConstellationSummary.style.color = '';
         }
 
-        const evtSource = new EventSource('/stats');
-        evtSource.onmessage = function (event) {
-            const data = JSON.parse(event.data);
+        // Global polling management
+        let statsPollingInterval = null;
+        
+        function initializeStatsPolling() {
+            if (statsPollingInterval) {
+                clearInterval(statsPollingInterval);
+            }
+            
+            // Start polling every 5 seconds
+            statsPollingInterval = setInterval(fetchStats, 5000);
+            // Fetch immediately on start
+            fetchStats();
+        }
+        
+        function fetchStats() {
+            // Only fetch if system stats panel is visible
+            const systemStatsContent = document.getElementById('system-stats-content');
+            const networkContent = document.getElementById('network-content');
+            
+            if (systemStatsContent && systemStatsContent.classList.contains('collapsed') &&
+                networkContent && networkContent.classList.contains('collapsed')) {
+                return; // Skip polling if both panels are collapsed
+            }
+            
+            fetch('/stats')
+                .then(response => response.json())
+                .then(data => {
             cpu.textContent = data.cpu;
             mem.textContent = data.mem;
             temp.textContent = data.temp;
@@ -1897,7 +1933,46 @@
                     gpsDetailsDiv.style.display = 'none';
                 }
             }
-        };
+                })
+                .catch(error => {
+                    console.error('Error fetching stats:', error);
+                    // Don't update UI on error, keep last known values
+                });
+        }
+    
+    // Initialize stats polling when DOM is ready
+    // Combine all DOMContentLoaded handlers to prevent duplicate connections
+    document.addEventListener('DOMContentLoaded', function() {
+        initializeStatsPolling();
+        initializeDiagnostics();
+        startServiceMonitoring();
+        initializeLogViewer();
+        
+        // Other existing DOMContentLoaded functionality
+        initializeCollapsiblePanels();
+    });
+    
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', function() {
+        if (statsPollingInterval) {
+            clearInterval(statsPollingInterval);
+        }
+        if (diagnosticsPollingInterval) {
+            clearInterval(diagnosticsPollingInterval);
+        }
+        if (activeRecordingsPollingInterval) {
+            clearInterval(activeRecordingsPollingInterval);
+        }
+        if (streamingStatusEventSource) {
+            streamingStatusEventSource.close();
+        }
+        if (serviceMonitoringEventSource) {
+            serviceMonitoringEventSource.close();
+        }
+        if (serviceLogEventSource) {
+            serviceLogEventSource.close();
+        }
+    });
 
         // --- Active Recordings Panel Auto-Refresh ---
         function renderActiveRecordingsPanel(files) {
@@ -1948,34 +2023,43 @@
                 listDiv.appendChild(div);
             }
         }
-        let activeRecordingsEventSource = null;
+        let activeRecordingsPollingInterval = null;
         let streamingStatusEventSource = null;
 
         function startActiveRecordingsRefresh() {
-            // Use SSE for real-time updates
-            if (activeRecordingsEventSource) {
-                activeRecordingsEventSource.close();
+            // Use polling for active recordings
+            if (activeRecordingsPollingInterval) {
+                clearInterval(activeRecordingsPollingInterval);
             }
-            activeRecordingsEventSource = new EventSource('/active-recordings-sse');
-            activeRecordingsEventSource.onmessage = function(event) {
-                try {
-                    const data = JSON.parse(event.data);
+            
+            // Start polling every 2 seconds (more frequent since recordings change during active use)
+            activeRecordingsPollingInterval = setInterval(fetchActiveRecordings, 2000);
+            // Fetch immediately on start
+            fetchActiveRecordings();
+        }
+        
+        function fetchActiveRecordings() {
+            // Only fetch if streaming (since active recordings only matter when streaming)
+            if (!streaming) {
+                return; // Skip polling if not streaming
+            }
+            
+            fetch('/active-recordings')
+                .then(response => response.json())
+                .then(data => {
                     const files = data.files || [];
                     renderActiveRecordingsPanel(files);
-                } catch (e) { }
-            };
-            activeRecordingsEventSource.onerror = function() {
-                //SEE has terminated, stop the refresh
-                stopActiveRecordingsRefresh();
-                const frame = document.getElementById('active-recordings-frame');
-                if (frame) frame.style.display = 'none'; // Hide instead of remove
-            };
+                })
+                .catch(error => {
+                    console.error('Error fetching active recordings:', error);
+                    // Don't update UI on error, keep last known values
+                });
         }
 
         function stopActiveRecordingsRefresh() {
-            if (activeRecordingsEventSource) {
-                activeRecordingsEventSource.close();
-                activeRecordingsEventSource = null;
+            if (activeRecordingsPollingInterval) {
+                clearInterval(activeRecordingsPollingInterval);
+                activeRecordingsPollingInterval = null;
             }
         }
         
@@ -2208,7 +2292,13 @@
         }
         
         function updateServiceStatus(data) {
-            const services = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon'];
+            // Only update if service monitoring panel is visible
+            const serviceContent = document.getElementById('service-monitoring-content');
+            if (serviceContent && serviceContent.classList.contains('collapsed')) {
+                return; // Skip update if panel is collapsed
+            }
+            
+            const services = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon', 'ups-monitor'];
             
             services.forEach(service => {
                 const element = document.getElementById(`service-${service}`);
@@ -2264,8 +2354,7 @@
             });
         }
         
-        // Start service monitoring when DOM is ready
-        document.addEventListener('DOMContentLoaded', startServiceMonitoring);
+        // Service monitoring is now initialized via combined DOMContentLoaded handler
 
         // Service Log Viewer functionality
         let serviceLogEventSource = null;
@@ -2449,8 +2538,7 @@
             return div.innerHTML;
         }
         
-        // Initialize log viewer when DOM is ready
-        document.addEventListener('DOMContentLoaded', initializeLogViewer);
+        // Log viewer is now initialized via combined DOMContentLoaded handler
 
         // GPS Tracking control
         const gpsBtn = document.getElementById('gps-btn');

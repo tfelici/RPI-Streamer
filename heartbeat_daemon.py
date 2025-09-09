@@ -5,13 +5,17 @@ RPI Streamer Heartbeat Daemon
 This daemon runs independently of the web server and provides centralized
 system statistics collection. It:
 
-1. Collects comprehensive system metrics every 5 seconds
-2. Saves stats to local file (/tmp/rpi_streamer_stats.json) for web interface consumption
+1. Collects comprehensive system metrics every 5 seconds including:
+   - CPU, memory, temperature, power consumption
+   - Disk usage, network connection info
+   - Complete system diagnostics (vcgencmd, UPS, INA219)
+2. Saves stats to local file (/tmp/rpi_streamer_heartbeat.json) for web interface consumption
 3. Sends heartbeat data to remote server for monitoring
 4. Runs as a systemd service and starts automatically on boot
 
-The web application's event_stream function simply reads from the stats file,
-ensuring consistency and eliminating code duplication.
+The web application's /stats and /diagnostics endpoints read from the stats file,
+ensuring consistency and eliminating code duplication. All hardware monitoring
+is centralized here to reduce vcgencmd overhead and provide consistent data.
 """
 
 import os
@@ -459,6 +463,212 @@ def get_connection_info():
     
     return connection_info
 
+def get_system_diagnostics():
+    """
+    Get comprehensive system diagnostics using vcgencmd.
+    Returns a dictionary with all available diagnostic information.
+    """
+    diagnostics = {}
+    
+    # Check if vcgencmd is available first
+    try:
+        subprocess.run(['vcgencmd', 'version'], capture_output=True, text=True, timeout=2)
+        vcgencmd_available = True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        vcgencmd_available = False
+    
+    # List of vcgencmd commands to run
+    commands = {
+        'temperature': ['measure_temp'],
+        'pmic_vdd_core_v': ['pmic_read_adc', 'VDD_CORE_V'],
+        'pmic_vdd_core_a': ['pmic_read_adc', 'VDD_CORE_A'],
+        'pmic_ext5v_v': ['pmic_read_adc', 'EXT5V_V'],
+        'throttled': ['get_throttled'],
+        'mem_arm': ['get_mem', 'arm'],
+        'mem_gpu': ['get_mem', 'gpu'],
+        'codec_h264': ['codec_enabled', 'H264'],
+        'codec_mpg2': ['codec_enabled', 'MPG2'],
+        'codec_wvc1': ['codec_enabled', 'WVC1'],
+        'codec_mpg4': ['codec_enabled', 'MPG4'],
+        'codec_mjpg': ['codec_enabled', 'MJPG'],
+        'config_int': ['get_config', 'int'],
+        'config_str': ['get_config', 'str'],
+    }
+    
+    # If vcgencmd is not available, set all values to "--"
+    if not vcgencmd_available:
+        for key in commands.keys():
+            diagnostics[key] = "--"
+    else:
+        for key, cmd_args in commands.items():
+            try:
+                result = subprocess.run(['vcgencmd'] + cmd_args, capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    output = result.stdout.strip()
+                    
+                    # Parse and clean up specific outputs
+                    if key == 'temperature':
+                        # Extract temperature from "temp=48.8'C"
+                        temp_match = re.search(r'temp=([\d.]+)', output)
+                        if temp_match:
+                            diagnostics[key] = f"{temp_match.group(1)}°C"
+                        else:
+                            diagnostics[key] = output
+                    elif key.startswith('pmic_'):
+                        # Parse PMIC values
+                        if 'VDD_CORE_V' in output:
+                            # Extract voltage from "VDD_CORE_V volt(15)=0.84104930V"
+                            volt_match = re.search(r'=([\d.]+)V', output)
+                            if volt_match:
+                                diagnostics[key] = f"{float(volt_match.group(1)):.3f}V"
+                            else:
+                                diagnostics[key] = output
+                        elif 'VDD_CORE_A' in output:
+                            # Extract current from "VDD_CORE_A current(7)=2.35752000A"
+                            current_match = re.search(r'=([\d.]+)A', output)
+                            if current_match:
+                                diagnostics[key] = f"{float(current_match.group(1)):.3f}A"
+                            else:
+                                diagnostics[key] = output
+                        elif 'EXT5V_V' in output:
+                            # Extract voltage from "EXT5V_V volt(24)=5.15096000V"
+                            volt_match = re.search(r'=([\d.]+)V', output)
+                            if volt_match:
+                                diagnostics[key] = f"{float(volt_match.group(1)):.3f}V"
+                            else:
+                                diagnostics[key] = output
+                        else:
+                            diagnostics[key] = output
+                    else:
+                        diagnostics[key] = output
+                else:
+                    diagnostics[key] = f"Error: {result.stderr.strip()}" if result.stderr.strip() else "N/A"
+            except subprocess.TimeoutExpired:
+                diagnostics[key] = "Timeout"
+            except FileNotFoundError:
+                diagnostics[key] = "--"
+            except Exception as e:
+                diagnostics[key] = f"Error: {str(e)}"
+    
+    # Add UPS status information
+    try:
+        from x120x import X120X
+        with X120X() as ups:
+            ups_status = ups.get_status()
+            diagnostics['ups_voltage'] = ups_status['voltage']
+            diagnostics['ups_capacity'] = ups_status['capacity'] 
+            diagnostics['ups_battery_status'] = ups_status['battery_status']
+            diagnostics['ups_ac_power'] = ups_status['ac_power_connected']
+    except RuntimeError as e:
+        # UPS device not found or libraries not available
+        diagnostics['ups_voltage'] = None
+        diagnostics['ups_capacity'] = None
+        diagnostics['ups_battery_status'] = "UPS Not Available"
+        diagnostics['ups_ac_power'] = None
+    except Exception as e:
+        diagnostics['ups_voltage'] = None
+        diagnostics['ups_capacity'] = None
+        diagnostics['ups_battery_status'] = f"Error: {str(e)}"
+        diagnostics['ups_ac_power'] = None
+    
+    # Add INA219 power monitoring information
+    try:
+        from INA219 import INA219
+        with INA219(addr=0x41) as ina219:
+            diagnostics['ina219_bus_voltage'] = f"{ina219.getBusVoltage_V():.3f} V"
+            diagnostics['ina219_shunt_voltage'] = f"{ina219.getShuntVoltage_mV():.3f} mV"
+            diagnostics['ina219_current'] = f"{ina219.getCurrent_mA():.1f} mA"
+            diagnostics['ina219_power'] = f"{ina219.getPower_W():.3f} W"
+            
+            # Get power status
+            power_status = ina219.getPowerStatus()
+            if power_status is True:
+                diagnostics['ina219_power_source'] = "Plugged In"
+            elif power_status is False:
+                diagnostics['ina219_power_source'] = "Unplugged"
+            else:
+                diagnostics['ina219_power_source'] = "Unknown"
+                
+            # Calculate PSU voltage (bus + shunt)
+            psu_voltage = ina219.getBusVoltage_V() + (ina219.getShuntVoltage_mV() / 1000)
+            diagnostics['ina219_psu_voltage'] = f"{psu_voltage:.3f} V"
+            
+            # Calculate battery percentage (based on 3S: 9V empty, 12.6V full)
+            bus_voltage = ina219.getBusVoltage_V()
+            battery_percent = (bus_voltage - 9) / 3.6 * 100
+            battery_percent = max(0, min(100, battery_percent))
+            diagnostics['ina219_battery_percent'] = f"{battery_percent:.1f}%"
+        
+    except RuntimeError as e:
+        # INA219 device not found
+        diagnostics['ina219_bus_voltage'] = "INA219 Not Available"
+        diagnostics['ina219_shunt_voltage'] = "--"
+        diagnostics['ina219_current'] = "--"
+        diagnostics['ina219_power'] = "--"
+        diagnostics['ina219_power_source'] = "--"
+        diagnostics['ina219_psu_voltage'] = "--"
+        diagnostics['ina219_battery_percent'] = "--"
+    except Exception as e:
+        diagnostics['ina219_bus_voltage'] = f"Error: {str(e)}"
+        diagnostics['ina219_shunt_voltage'] = "N/A"
+        diagnostics['ina219_current'] = "N/A"
+        diagnostics['ina219_power'] = "N/A"
+        diagnostics['ina219_power_source'] = "N/A"
+        diagnostics['ina219_psu_voltage'] = "N/A"
+        diagnostics['ina219_battery_percent'] = "N/A"
+    
+    # Parse throttled status for special highlighting
+    throttled_raw = diagnostics.get('throttled', '')
+    throttled_info = parse_throttled_status(throttled_raw)
+    diagnostics['throttled_parsed'] = throttled_info
+    
+    return diagnostics
+
+def parse_throttled_status(throttled_output):
+    """
+    Parse the throttled status from vcgencmd get_throttled output.
+    Returns a dict with parsed information about undervoltage and throttling.
+    """
+    info = {
+        'raw': throttled_output,
+        'has_issues': False,
+        'current_issues': [],
+        'past_issues': [],
+        'hex_value': None
+    }
+    
+    try:
+        # Extract hex value from output like "throttled=0x50000"
+        match = re.search(r'throttled=0x([0-9a-fA-F]+)', throttled_output)
+        if match:
+            hex_value = int(match.group(1), 16)
+            info['hex_value'] = hex_value
+            
+            # Bit meanings for throttled status
+            bit_meanings = {
+                0: 'Under-voltage detected',
+                1: 'Arm frequency capped',
+                2: 'Currently throttled',
+                3: 'Soft temperature limit active',
+                16: 'Under-voltage has occurred',
+                17: 'Arm frequency capping has occurred', 
+                18: 'Throttling has occurred',
+                19: 'Soft temperature limit has occurred'
+            }
+            
+            for bit, meaning in bit_meanings.items():
+                if hex_value & (1 << bit):
+                    info['has_issues'] = True
+                    if bit < 16:
+                        info['current_issues'].append(meaning)
+                    else:
+                        info['past_issues'].append(meaning)
+                        
+    except Exception as e:
+        info['parse_error'] = str(e)
+    
+    return info
+
 def collect_system_stats():
     """Collect comprehensive system statistics for both heartbeat and web interface"""
     try:
@@ -474,6 +684,9 @@ def collect_system_stats():
         connection = get_connection_info()
         app_version = get_app_version()
         
+        # Get comprehensive diagnostics including UPS and INA219 data
+        diagnostics = get_system_diagnostics()
+        
         # Prepare comprehensive stats data
         stats_data = {
             'hardwareid': hardwareid,
@@ -485,7 +698,8 @@ def collect_system_stats():
             'disk': disk,
             'connection': connection,
             'timestamp': time.time(),
-            'app_version': app_version
+            'app_version': app_version,
+            'diagnostics': diagnostics
         }
         
         return stats_data

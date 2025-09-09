@@ -61,14 +61,6 @@ The Service Monitoring section provides real-time status updates and log monitor
 - JSON output with timestamps and log levels
 - Auto-cleanup after 5 minutes of inactivity
 
-**`/service-status-test`** 
-- Test endpoint for service status debugging
-- Immediate JSON response with current states
-
-**`/service-logs-test/<service>`**
-- Test endpoint for log retrieval debugging
-- Returns last 20 log entries for specified service
-
 #### Core Functions
 
 **`get_service_status()`**
@@ -161,25 +153,6 @@ The Service Monitoring section provides real-time status updates and log monitor
 - **subprocess**: Python module for system commands
 - **Server-Sent Events**: Browser support for real-time updates
 - **JSON**: Data serialization for structured responses
-
-## Testing
-
-### Test Service Status and Logs
-```bash
-python test_service_status.py
-```
-
-### Test API Endpoints
-```bash
-# Test service status
-curl http://localhost:5000/service-status-test
-
-# Test log retrieval
-curl http://localhost:5000/service-logs-test/gps-daemon
-```
-
-### Test Real-time Streaming
-Open browser and navigate to the home page, then click "View Logs" for any service.
 
 ## Configuration
 
