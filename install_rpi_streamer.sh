@@ -649,19 +649,17 @@ printf "🔌 Installing udev rule for SIM7600G-H auto-detection...\n"
 sudo tee /etc/udev/rules.d/99-sim7600-gps.rules >/dev/null << 'EOFUDEV'
 # udev rule for SIM7600G-H GPS Daemon Management
 # This rule triggers when a SIM7600G-H modem is inserted or removed
-# GPS daemon handles initialization internally
+# Environment variables captured from actual device monitoring: ID_VENDOR_ID=1e0e, ID_MODEL_ID=9011, SUBSYSTEM=usb, DEVTYPE=usb_device
 
-# When SIM7600G-H is added, start GPS daemon (daemon handles initialization internally)
-ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="1e0e", ATTR{idProduct}=="9001", RUN+="/bin/systemctl start gps-daemon.service"
-ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="1e0e", ATTR{idProduct}=="9011", RUN+="/bin/systemctl start gps-daemon.service"
-ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="2c7c", ATTR{idProduct}=="0125", RUN+="/bin/systemctl start gps-daemon.service"
-ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="2c7c", ATTR{idProduct}=="0306", RUN+="/bin/systemctl start gps-daemon.service"
+# When SIM7600G-H is added, restart GPS daemon (ensures clean state)
+# Using PRODUCT environment variable for consistency with removal rule
+# PRODUCT format is "vendor/product/version" = "1e0e/9011/318"
+ACTION=="add", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9011/318", RUN+="/bin/systemctl restart gps-daemon.service"
 
 # When SIM7600G-H is removed, stop GPS daemon immediately
-ACTION=="remove", SUBSYSTEM=="usb", ATTR{idVendor}=="1e0e", ATTR{idProduct}=="9001", RUN+="/bin/systemctl stop gps-daemon.service"
-ACTION=="remove", SUBSYSTEM=="usb", ATTR{idVendor}=="1e0e", ATTR{idProduct}=="9011", RUN+="/bin/systemctl stop gps-daemon.service"
-ACTION=="remove", SUBSYSTEM=="usb", ATTR{idVendor}=="2c7c", ATTR{idProduct}=="0125", RUN+="/bin/systemctl stop gps-daemon.service"
-ACTION=="remove", SUBSYSTEM=="usb", ATTR{idVendor}=="2c7c", ATTR{idProduct}=="0306", RUN+="/bin/systemctl stop gps-daemon.service"
+# Using PRODUCT environment variable for removal events since ATTR{} attributes are not available
+# PRODUCT format is "vendor/product/version" = "1e0e/9011/318"
+ACTION=="remove", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9011/318", RUN+="/bin/systemctl stop gps-daemon.service"
 EOFUDEV
 
 # Set proper permissions for udev rule
