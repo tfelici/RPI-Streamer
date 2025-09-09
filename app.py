@@ -1871,6 +1871,246 @@ def ups_monitor_log():
     except Exception as e:
         return f"Error reading UPS monitor log: {str(e)}", 500
 
+@app.route('/service-status-test')
+def service_status_test():
+    """Test endpoint to check service status without SSE."""
+    return jsonify(get_service_status())
+
+@app.route('/service-logs-test/<service>')
+def service_logs_test(service):
+    """Test endpoint to check service logs without SSE."""
+    valid_services = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon']
+    if service not in valid_services:
+        return jsonify({'error': 'Invalid service name'}), 400
+    
+    logs = get_service_logs(service, lines=20)
+    return jsonify({'service': service, 'logs': logs})
+
+@app.route('/service-logs-sse/<service>')
+def service_logs_sse(service):
+    """SSE endpoint for real-time service log monitoring."""
+    import json
+    
+    # Validate service name
+    valid_services = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon']
+    if service not in valid_services:
+        return jsonify({'error': 'Invalid service name'}), 400
+    
+    def event_stream():
+        client_timeout = 0
+        max_timeout = 300  # 5 minutes for log streams
+        
+        try:
+            # Send initial logs first
+            initial_logs = get_service_logs(service, lines=50)
+            if initial_logs:
+                yield f"data: {json.dumps({'type': 'initial', 'lines': initial_logs})}\n\n"
+            
+            # Start following logs in real-time
+            log_process = None
+            try:
+                log_process = subprocess.Popen(
+                    ['journalctl', '-u', service, '-f', '--no-pager', '-o', 'json'],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1
+                )
+                
+                while client_timeout < max_timeout:
+                    try:
+                        # Read line with timeout
+                        line = log_process.stdout.readline()
+                        if line:
+                            try:
+                                # Parse journalctl JSON output
+                                log_entry = json.loads(line.strip())
+                                message = log_entry.get('MESSAGE', '')
+                                timestamp = log_entry.get('__REALTIME_TIMESTAMP')
+                                
+                                # Convert timestamp from microseconds to milliseconds
+                                if timestamp:
+                                    timestamp = int(timestamp) // 1000
+                                
+                                yield f"data: {json.dumps({'type': 'log', 'line': message, 'timestamp': timestamp})}\n\n"
+                                client_timeout = 0  # Reset timeout on activity
+                            except json.JSONDecodeError:
+                                # Handle non-JSON lines
+                                yield f"data: {json.dumps({'type': 'log', 'line': line.strip(), 'timestamp': None})}\n\n"
+                        else:
+                            time.sleep(0.1)
+                            client_timeout += 0.1
+                            
+                    except Exception as e:
+                        yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                        break
+                        
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Failed to start log monitoring: {str(e)}'})}\n\n"
+                
+            finally:
+                if log_process:
+                    log_process.terminate()
+                    try:
+                        log_process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        log_process.kill()
+                        
+        except GeneratorExit:
+            print(f"Service logs SSE client disconnected for {service}")
+        except Exception as e:
+            print(f"Service logs SSE error for {service}: {e}")
+            
+        print(f"Service logs SSE stream ended for {service}")
+    
+    return Response(event_stream(), mimetype='text/event-stream')
+
+def get_service_logs(service, lines=50):
+    """
+    Get recent logs for a service.
+    Returns a list of log entries with timestamp and message.
+    """
+    try:
+        # Get recent logs using journalctl
+        result = subprocess.run(
+            ['journalctl', '-u', service, '-n', str(lines), '--no-pager', '-o', 'json'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode != 0:
+            return [{'line': f'Error getting logs: {result.stderr}', 'timestamp': None}]
+        
+        logs = []
+        for line in result.stdout.strip().split('\n'):
+            if line.strip():
+                try:
+                    log_entry = json.loads(line)
+                    message = log_entry.get('MESSAGE', '')
+                    timestamp = log_entry.get('__REALTIME_TIMESTAMP')
+                    
+                    # Convert timestamp from microseconds to milliseconds
+                    if timestamp:
+                        timestamp = int(timestamp) // 1000
+                    
+                    logs.append({'line': message, 'timestamp': timestamp})
+                except json.JSONDecodeError:
+                    logs.append({'line': line.strip(), 'timestamp': None})
+        
+        return logs
+        
+    except subprocess.TimeoutExpired:
+        return [{'line': 'Timeout getting service logs', 'timestamp': None}]
+    except FileNotFoundError:
+        return [{'line': 'journalctl not available', 'timestamp': None}]
+    except Exception as e:
+        return [{'line': f'Error: {str(e)}', 'timestamp': None}]
+
+@app.route('/service-status-sse')
+def service_status_sse():
+    """SSE endpoint for service status monitoring."""
+    import json
+    
+    def event_stream():
+        last_status = None
+        client_timeout = 0
+        max_timeout = 30  # Stop after 30 seconds of no activity
+        
+        while client_timeout < max_timeout:
+            try:
+                status = get_service_status()
+                
+                # Only send if changed (to reduce bandwidth)
+                if status != last_status:
+                    yield f"data: {json.dumps(status)}\n\n"
+                    last_status = status
+                    client_timeout = 0  # Reset timeout on successful yield
+                    
+                time.sleep(3)  # Update every 3 seconds
+            except GeneratorExit:
+                # Client disconnected
+                print("Service status SSE client disconnected")
+                break
+            except Exception as e:
+                print(f"Service status SSE error: {e}")
+                error_data = {'error': str(e)}
+                yield f"data: {json.dumps(error_data)}\n\n"
+                client_timeout += 1
+                time.sleep(5)  # Wait longer on error
+        print("Service status SSE stream ended")
+    
+    return Response(event_stream(), mimetype='text/event-stream')
+
+def get_service_status():
+    """
+    Get status of system services.
+    Returns a dictionary with service statuses.
+    """
+    services = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon']
+    status = {}
+    
+    for service in services:
+        try:
+            # Use systemctl to get service status
+            result = subprocess.run(
+                ['systemctl', 'is-active', service],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            service_status = result.stdout.strip()
+            
+            # Get additional info if service is not active
+            if service_status != 'active':
+                # Get more detailed status
+                detail_result = subprocess.run(
+                    ['systemctl', 'show', service, '--property=ActiveState,SubState,LoadState'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                
+                details = {}
+                for line in detail_result.stdout.strip().split('\n'):
+                    if '=' in line:
+                        key, value = line.split('=', 1)
+                        details[key] = value
+                
+                status[service] = {
+                    'status': service_status if service_status else 'inactive',
+                    'active_state': details.get('ActiveState', 'unknown'),
+                    'sub_state': details.get('SubState', 'unknown'),
+                    'load_state': details.get('LoadState', 'unknown')
+                }
+            else:
+                status[service] = {
+                    'status': service_status,
+                    'active_state': 'active',
+                    'sub_state': 'running',
+                    'load_state': 'loaded'
+                }
+                
+        except subprocess.TimeoutExpired:
+            status[service] = {
+                'status': 'timeout',
+                'error': 'systemctl command timed out'
+            }
+        except FileNotFoundError:
+            # systemctl not found (not on Linux)
+            status[service] = {
+                'status': 'unavailable',
+                'error': 'systemctl not available'
+            }
+        except Exception as e:
+            status[service] = {
+                'status': 'error',
+                'error': str(e)
+            }
+    
+    return status
+
 @app.route('/diagnostics-sse')
 def diagnostics_sse():
     """SSE endpoint for system diagnostics updates."""

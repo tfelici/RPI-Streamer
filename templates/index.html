@@ -82,6 +82,165 @@
             100% { opacity: 1; }
         }
         
+        /* Service status styling */
+        .service-status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+        
+        .service-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #6c757d;
+        }
+        
+        .service-status-dot.active {
+            background-color: #28a745;
+            animation: pulse 2s infinite;
+        }
+        
+        .service-status-dot.inactive {
+            background-color: #dc3545;
+        }
+        
+        .service-status-dot.warning {
+            background-color: #ffc107;
+        }
+        
+        /* Service log viewer styling */
+        .service-item {
+            position: relative;
+        }
+        
+        .service-log-btn {
+            margin-top: 0.5rem;
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+        }
+        
+        .service-log-viewer {
+            margin-top: 1.5rem;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            background-color: #f8f9fa;
+        }
+        
+        .log-viewer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            border-bottom: 1px solid #dee2e6;
+            background-color: #e9ecef;
+            border-radius: 8px 8px 0 0;
+        }
+        
+        .log-viewer-header h3 {
+            margin: 0;
+            font-size: 1.1rem;
+            color: #495057;
+        }
+        
+        .log-viewer-controls {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .log-viewer-controls .btn {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+        }
+        
+        .log-content {
+            height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', 'Monaco', 'Menlo', monospace;
+            font-size: 0.8rem;
+            line-height: 1.4;
+            padding: 1rem;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        .log-content::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .log-content::-webkit-scrollbar-track {
+            background: #2d2d30;
+        }
+        
+        .log-content::-webkit-scrollbar-thumb {
+            background: #464647;
+            border-radius: 4px;
+        }
+        
+        .log-content::-webkit-scrollbar-thumb:hover {
+            background: #5a5a5c;
+        }
+        
+        .log-viewer-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            border-top: 1px solid #dee2e6;
+            background-color: #e9ecef;
+            border-radius: 0 0 8px 8px;
+        }
+        
+        .log-status {
+            color: #6c757d;
+            font-weight: 500;
+        }
+        
+        .log-status.connected {
+            color: #28a745;
+        }
+        
+        .log-status.error {
+            color: #dc3545;
+        }
+        
+        .log-status.paused {
+            color: #ffc107;
+        }
+        
+        .log-info {
+            color: #6c757d;
+        }
+        
+        /* Log entry styling */
+        .log-entry {
+            margin-bottom: 0.1rem;
+        }
+        
+        .log-entry.error {
+            color: #ff6b6b;
+        }
+        
+        .log-entry.warning {
+            color: #ffd93d;
+        }
+        
+        .log-entry.info {
+            color: #74c0fc;
+        }
+        
+        .log-entry.success {
+            color: #51cf66;
+        }
+        
+        .log-timestamp {
+            color: #868e96;
+            margin-right: 0.5rem;
+        }
+        
         .diagnostics-alerts {
             background-color: #fff3cd;
             border: 1px solid #ffeaa7;
@@ -398,6 +557,55 @@
                     </div>
                 </div>
             </div>        </div>
+
+        <!-- Service Monitoring -->
+        <div class="frame">
+            <h2 class="collapsible-header" data-target="service-monitoring-content">
+                <span class="collapse-icon">▼</span>
+                Service Monitoring
+            </h2>
+            <div id="service-monitoring-content" class="collapsible-content">
+                <div class="stats-grid">
+                    <div class="stat-item service-item" data-service="gps-daemon">
+                        <span class="stat-value connection-status" id="service-gps-daemon">--</span>
+                        <div class="stat-label">GPS Daemon</div>
+                        <button class="btn btn-sm btn-secondary service-log-btn" data-service="gps-daemon">📋 View Logs</button>
+                    </div>
+                    <div class="stat-item service-item" data-service="gps-startup">
+                        <span class="stat-value connection-status" id="service-gps-startup">--</span>
+                        <div class="stat-label">GPS Startup</div>
+                        <button class="btn btn-sm btn-secondary service-log-btn" data-service="gps-startup">📋 View Logs</button>
+                    </div>
+                    <div class="stat-item service-item" data-service="mediamtx">
+                        <span class="stat-value connection-status" id="service-mediamtx">--</span>
+                        <div class="stat-label">MediaMTX</div>
+                        <button class="btn btn-sm btn-secondary service-log-btn" data-service="mediamtx">📋 View Logs</button>
+                    </div>
+                    <div class="stat-item service-item" data-service="heartbeat-daemon">
+                        <span class="stat-value connection-status" id="service-heartbeat-daemon">--</span>
+                        <div class="stat-label">Heartbeat Daemon</div>
+                        <button class="btn btn-sm btn-secondary service-log-btn" data-service="heartbeat-daemon">📋 View Logs</button>
+                    </div>
+                </div>
+                
+                <!-- Service Log Viewer -->
+                <div id="service-log-viewer" class="service-log-viewer" style="display: none;">
+                    <div class="log-viewer-header">
+                        <h3 id="log-viewer-title">Service Logs</h3>
+                        <div class="log-viewer-controls">
+                            <button id="log-clear-btn" class="btn btn-sm btn-warning">🗑️ Clear</button>
+                            <button id="log-pause-btn" class="btn btn-sm btn-info">⏸️ Pause</button>
+                            <button id="log-close-btn" class="btn btn-sm btn-danger">✖️ Close</button>
+                        </div>
+                    </div>
+                    <div id="log-content" class="log-content"></div>
+                    <div class="log-viewer-footer">
+                        <small id="log-status" class="log-status">Connecting...</small>
+                        <small class="log-info">Last 50 lines shown | Auto-scroll enabled</small>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- System Diagnostics -->
         <div class="frame">
@@ -1968,6 +2176,281 @@
 
         // Update GPS status every 3 seconds when tracking is active
         setInterval(updateGPSStatus, 3000);
+
+        // Service Monitoring functionality
+        let serviceMonitoringEventSource = null;
+        
+        function startServiceMonitoring() {
+            if (serviceMonitoringEventSource) {
+                serviceMonitoringEventSource.close();
+            }
+            
+            serviceMonitoringEventSource = new EventSource('/service-status-sse');
+            
+            serviceMonitoringEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    updateServiceStatus(data);
+                } catch (e) {
+                    console.error('Error parsing service status data:', e);
+                }
+            };
+            
+            serviceMonitoringEventSource.onerror = function() {
+                console.error('Service monitoring SSE connection error');
+                // Try to reconnect after 5 seconds
+                setTimeout(() => {
+                    if (serviceMonitoringEventSource.readyState === EventSource.CLOSED) {
+                        startServiceMonitoring();
+                    }
+                }, 5000);
+            };
+        }
+        
+        function updateServiceStatus(data) {
+            const services = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon'];
+            
+            services.forEach(service => {
+                const element = document.getElementById(`service-${service}`);
+                if (element) {
+                    const status = data[service];
+                    if (status) {
+                        let displayText = status.status;
+                        
+                        // Handle error cases
+                        if (status.error) {
+                            if (status.status === 'unavailable') {
+                                displayText = 'N/A';
+                            } else if (status.status === 'timeout') {
+                                displayText = 'Timeout';
+                            } else {
+                                displayText = 'Error';
+                            }
+                        } else {
+                            // Capitalize first letter for better display
+                            displayText = status.status.charAt(0).toUpperCase() + status.status.slice(1);
+                        }
+                        
+                        element.textContent = displayText;
+                        
+                        // Color code based on status
+                        element.className = 'stat-value connection-status';
+                        if (status.status === 'active') {
+                            element.style.color = '#28a745'; // green
+                        } else if (status.status === 'inactive' || status.status === 'failed' || status.status === 'error') {
+                            element.style.color = '#dc3545'; // red
+                        } else if (status.status === 'activating' || status.status === 'deactivating') {
+                            element.style.color = '#ffc107'; // yellow
+                        } else if (status.status === 'unavailable' || status.status === 'timeout') {
+                            element.style.color = '#6c757d'; // gray
+                        } else {
+                            element.style.color = '#17a2b8'; // blue for other states
+                        }
+                        
+                        // Add tooltip with additional info if available
+                        if (status.sub_state && status.sub_state !== 'running' && status.sub_state !== 'unknown') {
+                            element.title = `Sub-state: ${status.sub_state}`;
+                        } else if (status.error) {
+                            element.title = `Error: ${status.error}`;
+                        } else {
+                            element.title = '';
+                        }
+                    } else {
+                        element.textContent = 'Unknown';
+                        element.style.color = '#6c757d'; // gray
+                        element.title = '';
+                    }
+                }
+            });
+        }
+        
+        // Start service monitoring when DOM is ready
+        document.addEventListener('DOMContentLoaded', startServiceMonitoring);
+
+        // Service Log Viewer functionality
+        let serviceLogEventSource = null;
+        let logPaused = false;
+        let currentService = null;
+        
+        function initializeLogViewer() {
+            const logViewer = document.getElementById('service-log-viewer');
+            const logContent = document.getElementById('log-content');
+            const logTitle = document.getElementById('log-viewer-title');
+            const logStatus = document.getElementById('log-status');
+            const logClearBtn = document.getElementById('log-clear-btn');
+            const logPauseBtn = document.getElementById('log-pause-btn');
+            const logCloseBtn = document.getElementById('log-close-btn');
+            
+            // Add click handlers for log buttons
+            document.querySelectorAll('.service-log-btn').forEach(button => {
+                button.addEventListener('click', function() {
+                    const service = this.getAttribute('data-service');
+                    openServiceLogs(service);
+                });
+            });
+            
+            // Clear logs
+            logClearBtn.addEventListener('click', function() {
+                logContent.innerHTML = '';
+            });
+            
+            // Pause/Resume logs
+            logPauseBtn.addEventListener('click', function() {
+                logPaused = !logPaused;
+                if (logPaused) {
+                    logPauseBtn.innerHTML = '▶️ Resume';
+                    logStatus.textContent = 'Paused';
+                    logStatus.className = 'log-status paused';
+                } else {
+                    logPauseBtn.innerHTML = '⏸️ Pause';
+                    if (serviceLogEventSource && serviceLogEventSource.readyState === EventSource.OPEN) {
+                        logStatus.textContent = 'Connected';
+                        logStatus.className = 'log-status connected';
+                    }
+                }
+            });
+            
+            // Close log viewer
+            logCloseBtn.addEventListener('click', function() {
+                closeServiceLogs();
+            });
+        }
+        
+        function openServiceLogs(service) {
+            currentService = service;
+            const logViewer = document.getElementById('service-log-viewer');
+            const logContent = document.getElementById('log-content');
+            const logTitle = document.getElementById('log-viewer-title');
+            const logStatus = document.getElementById('log-status');
+            const logPauseBtn = document.getElementById('log-pause-btn');
+            
+            // Reset state
+            logPaused = false;
+            logPauseBtn.innerHTML = '⏸️ Pause';
+            logContent.innerHTML = '';
+            
+            // Update title
+            logTitle.textContent = `${service} Logs`;
+            
+            // Show log viewer
+            logViewer.style.display = 'block';
+            
+            // Close existing connection
+            if (serviceLogEventSource) {
+                serviceLogEventSource.close();
+            }
+            
+            // Start SSE connection for logs
+            logStatus.textContent = 'Connecting...';
+            logStatus.className = 'log-status';
+            
+            serviceLogEventSource = new EventSource(`/service-logs-sse/${service}`);
+            
+            serviceLogEventSource.onopen = function() {
+                if (!logPaused) {
+                    logStatus.textContent = 'Connected';
+                    logStatus.className = 'log-status connected';
+                }
+            };
+            
+            serviceLogEventSource.onmessage = function(event) {
+                if (logPaused) return;
+                
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.type === 'log') {
+                        appendLogEntry(data.line, data.timestamp);
+                    } else if (data.type === 'initial') {
+                        // Clear and show initial logs
+                        logContent.innerHTML = '';
+                        data.lines.forEach(line => {
+                            appendLogEntry(line.line, line.timestamp);
+                        });
+                    } else if (data.type === 'error') {
+                        logStatus.textContent = `Error: ${data.message}`;
+                        logStatus.className = 'log-status error';
+                    }
+                } catch (e) {
+                    console.error('Error parsing log data:', e);
+                }
+            };
+            
+            serviceLogEventSource.onerror = function() {
+                if (!logPaused) {
+                    logStatus.textContent = 'Connection error';
+                    logStatus.className = 'log-status error';
+                }
+                
+                // Try to reconnect after 5 seconds
+                setTimeout(() => {
+                    if (currentService && serviceLogEventSource.readyState === EventSource.CLOSED) {
+                        openServiceLogs(currentService);
+                    }
+                }, 5000);
+            };
+        }
+        
+        function closeServiceLogs() {
+            const logViewer = document.getElementById('service-log-viewer');
+            
+            if (serviceLogEventSource) {
+                serviceLogEventSource.close();
+                serviceLogEventSource = null;
+            }
+            
+            logViewer.style.display = 'none';
+            currentService = null;
+            logPaused = false;
+        }
+        
+        function appendLogEntry(line, timestamp) {
+            const logContent = document.getElementById('log-content');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            
+            // Detect log level and apply styling
+            const lowerLine = line.toLowerCase();
+            if (lowerLine.includes('error') || lowerLine.includes('failed') || lowerLine.includes('fatal')) {
+                entry.classList.add('error');
+            } else if (lowerLine.includes('warning') || lowerLine.includes('warn')) {
+                entry.classList.add('warning');
+            } else if (lowerLine.includes('info') || lowerLine.includes('starting') || lowerLine.includes('started')) {
+                entry.classList.add('info');
+            } else if (lowerLine.includes('success') || lowerLine.includes('completed') || lowerLine.includes('ok')) {
+                entry.classList.add('success');
+            }
+            
+            // Format timestamp if provided
+            let formattedTime = '';
+            if (timestamp) {
+                const date = new Date(timestamp);
+                formattedTime = date.toLocaleTimeString() + ' ';
+            }
+            
+            entry.innerHTML = `<span class="log-timestamp">${formattedTime}</span>${escapeHtml(line)}`;
+            logContent.appendChild(entry);
+            
+            // Auto-scroll to bottom
+            logContent.scrollTop = logContent.scrollHeight;
+            
+            // Limit number of log entries (keep last 1000)
+            const entries = logContent.children;
+            if (entries.length > 1000) {
+                for (let i = 0; i < 100; i++) {
+                    logContent.removeChild(entries[0]);
+                }
+            }
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Initialize log viewer when DOM is ready
+        document.addEventListener('DOMContentLoaded', initializeLogViewer);
 
         // GPS Tracking control
         const gpsBtn = document.getElementById('gps-btn');
