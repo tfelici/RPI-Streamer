@@ -111,12 +111,12 @@ For development and maintenance tasks, the RPI Streamer includes an interactive 
 
 ```sh
 # Run the configuration menu
-bash streamer-config.sh
+rpiconfig
 ```
 
 ### Available Options
 
-The `streamer-config.sh` script provides a user-friendly menu with the following options:
+The `rpiconfig` script provides a user-friendly menu with the following options:
 
 1. **Restart Flask App Service** - Quick restart of the main web application
 2. **Install/Update (Develop Branch)** - Full installation with latest develop branch features
@@ -139,13 +139,13 @@ The `streamer-config.sh` script provides a user-friendly menu with the following
 
 ```sh
 # Interactive development menu
-bash streamer-config.sh
+rpiconfig
 
 # Check if script exists first
-[ -f "streamer-config.sh" ] && bash streamer-config.sh || echo "Run from RPI Streamer directory"
+[ -f "rpiconfig.sh" ] && bash rpiconfig.sh || echo "Run from RPI Streamer directory"
 
 # Make executable and run directly (on Raspberry Pi)
-chmod +x streamer-config.sh && ./streamer-config.sh
+chmod +x rpiconfig.sh && ./rpiconfig.sh
 ```
 
 This tool streamlines common development workflows and eliminates the need to remember complex systemd commands during development and testing.
@@ -330,7 +330,7 @@ The RPI Streamer includes branch-aware automatic update capabilities via the web
 ### Manual Updates
 ```bash
 # Using the development configuration tool (recommended)
-bash streamer-config.sh
+rpiconfig
 # Then select option 2 or 3 for installation/updates
 
 # Or manually update via installation script:
@@ -407,7 +407,7 @@ bash install_rpi_streamer.sh --main                  # Update to stable main bra
 
 4. **Configure Flight Settings** via web interface (if using GPS tracking)
 5. **Connect hardware** (cellular modem, cameras, etc.) as needed
-6. **Use development tools** - Run `bash streamer-config.sh` for quick maintenance tasks
+6. **Use development tools** - Run `rpiconfig` for quick maintenance tasks
 
 ## Web Interface Access
 
@@ -430,7 +430,7 @@ After installation, access the control panel at:
 ### Common Issues
 ```bash
 # Quick system status check
-bash streamer-config.sh  # Select option 6 for system status
+rpiconfig  # Select option 6 for system status
 
 # Individual service checks
 sudo systemctl status flask_app.service
@@ -441,7 +441,7 @@ sudo journalctl -u flask_app.service -f
 sudo journalctl -u NetworkManager.service -f
 
 # Development tools
-bash streamer-config.sh  # Interactive menu for maintenance tasks
+rpiconfig  # Interactive menu for maintenance tasks
 
 # Test cellular connectivity
 ping -c 3 8.8.8.8
