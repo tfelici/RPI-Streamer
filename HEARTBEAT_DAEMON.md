@@ -10,7 +10,7 @@ The heartbeat daemon (`heartbeat_daemon.py`) is a standalone Python service that
 - Sends periodic heartbeat data to the remote server every 5 seconds
 - Starts automatically on boot as a systemd service
 - Provides robust error handling and graceful shutdown
-- Monitors CPU usage, memory usage, temperature, power consumption, and fan RPM
+- Monitors CPU usage, memory usage, temperature, power consumption, UPS status, and comprehensive hardware diagnostics via vcgencmd
 
 ## Features
 
@@ -19,43 +19,17 @@ The heartbeat daemon (`heartbeat_daemon.py`) is a standalone Python service that
 - **Graceful Shutdown**: Handles SIGTERM and SIGINT signals properly
 - **Error Resilience**: Continues running even if heartbeat requests fail
 - **Resource Efficient**: Minimal CPU and memory usage
-- **Comprehensive Monitoring**: Collects all available system metrics
+- **Comprehensive Monitoring**: Collects all available system metrics including UPS power status and vcgencmd hardware diagnostics
 
 ## Installation
 
-### Automatic Installation
-
-Run the installation script to set up the daemon service:
-
-```bash
-cd /path/to/rpi-streamer
-chmod +x install_heartbeat_daemon.sh
-./install_heartbeat_daemon.sh
-```
-
-The installation script will:
-1. Make the daemon script executable
-2. Install the systemd service file
-3. Enable the service for automatic startup
-4. Start the service immediately
-5. Display status and log information
-
-### Manual Installation
-
-If you prefer to install manually:
-
-1. **Make the daemon executable:**
-   ```bash
-   chmod +x heartbeat_daemon.py
-   ```
-
-2. **Install the systemd service:**
+1. **Install the systemd service:**
    ```bash
    sudo cp heartbeat-daemon.service /etc/systemd/system/
    sudo systemctl daemon-reload
    ```
 
-3. **Enable and start the service:**
+2. **Enable and start the service:**
    ```bash
    sudo systemctl enable heartbeat-daemon
    sudo systemctl start heartbeat-daemon
@@ -98,6 +72,32 @@ sudo systemctl disable heartbeat-daemon
 sudo systemctl enable heartbeat-daemon
 ```
 
+## Centralized Diagnostics Architecture
+
+Starting with v3.00, the heartbeat daemon serves as the **single source of truth** for all hardware diagnostics and monitoring data. This centralized approach eliminates code duplication and ensures consistent data across all system components.
+
+### Key Components
+
+- **Heartbeat Daemon**: Collects all hardware data and saves to `/tmp/rpi_streamer_heartbeat.json`
+- **Flask Application**: Reads from heartbeat JSON file via `/diagnostics` endpoint
+- **Admin Console**: Displays real-time hardware status including UPS power monitoring
+- **WordPress Integration**: Matches admin console functionality for WordPress environments
+
+### Hardware Data Sources
+
+1. **vcgencmd Integration**: 13 different vcgencmd commands for comprehensive Raspberry Pi diagnostics
+2. **UPS Monitoring**: X120X UPS status including battery level, power state, and voltage/current readings
+3. **INA219 Power Monitoring**: Precision power consumption measurements
+4. **System Metrics**: CPU, memory, temperature, disk usage via standard Linux interfaces
+
+### Data Structure
+
+The heartbeat daemon organizes all diagnostics data in a structured JSON format:
+- `diagnostics.vcgencmd.*`: All vcgencmd command outputs
+- `diagnostics.ups_*`: UPS status, battery, power metrics
+- `diagnostics.power_*`: INA219 power monitoring data
+- `system.*`: Standard system metrics (CPU, memory, disk, etc.)
+
 ## Configuration
 
 The daemon uses these configuration constants (modify in `heartbeat_daemon.py` if needed):
@@ -122,6 +122,15 @@ The daemon collects and sends these metrics:
 - **connection**: Network connection details (WiFi, Ethernet, 4G, GPS)
 - **timestamp**: Unix timestamp of measurement
 - **app_version**: RPI Streamer application version
+
+### Hardware Diagnostics (NEW)
+- **diagnostics.vcgencmd_***: Complete vcgencmd output including GPU memory, temperature, voltage, throttling status
+- **diagnostics.ups_connected**: Boolean - UPS connection status
+- **diagnostics.ups_battery_level**: Number - Battery percentage (0-100)
+- **diagnostics.ups_power_status**: String - Power state (battery/charging/charged)
+- **diagnostics.ups_voltage**: Number - Current voltage reading
+- **diagnostics.ups_current**: Number - Current amperage reading
+- **diagnostics.power_***: INA219 power monitoring data (voltage, current, power consumption)
 
 ### Activity Status (NEW)
 - **streaming_active**: Boolean - Is live streaming currently active?
@@ -203,7 +212,6 @@ If you previously had heartbeat functionality in the Flask app:
 
 - `heartbeat_daemon.py`: Main daemon script
 - `heartbeat-daemon.service`: Systemd service configuration
-- `install_heartbeat_daemon.sh`: Automatic installation script
 - `/tmp/heartbeat_daemon.pid`: Runtime process ID file
 - `/var/log/journal/`: Service logs (view with journalctl)
 
