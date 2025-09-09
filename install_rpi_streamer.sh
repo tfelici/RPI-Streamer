@@ -869,10 +869,12 @@ sudo systemctl enable mediamtx
 sudo systemctl restart mediamtx
 sudo systemctl enable heartbeat-daemon
 sudo systemctl restart heartbeat-daemon
+sudo systemctl enable gps-startup
+sudo systemctl restart gps-startup
 
-# Note: GPS startup service is installed but not enabled by default
-# It will be automatically enabled/disabled based on Flight Settings configuration
-echo "🛰️ GPS Startup Service: Available but not enabled (configure via Flight Settings)"
+# Note: GPS startup service is now enabled by default and will start at boot
+# It will check Flight Settings configuration and act accordingly
+echo "🛰️ GPS Startup Service: Enabled and will start at boot (configure behavior via Flight Settings)"
 
 # Function to register device with hardware console and setup SSH key
 register_device_with_console() {

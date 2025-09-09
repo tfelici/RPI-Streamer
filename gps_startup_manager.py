@@ -160,7 +160,7 @@ def detect_motion():
         return False
 
 
-def monitor_motion():
+def monitor_motion(updated_settings):
     """Monitor for aircraft motion and start GPS tracking when detected"""
     logger.info("Motion detection monitoring started...")
     motion_threshold_count = 3  # Require motion detected 3 times to start
@@ -175,6 +175,10 @@ def monitor_motion():
                 if motion_count >= motion_threshold_count:
                     if not is_gps_tracking():
                         logger.info("Aircraft motion detected! Starting GPS tracking...")
+                        # Save updated settings just before starting GPS tracking
+                        save_settings(updated_settings)
+                        logger.info("Settings saved before starting GPS tracking")
+                        
                         success, message, status_code = start_flight()
                         if success:
                             logger.info("GPS tracking started due to motion detection")
@@ -212,6 +216,7 @@ def main():
         remote_settings = get_streamer_settings(poll_until_success=True, poll_interval=30)
         
         # Update settings with flight parameters if they exist in the response
+        # But don't save them yet - only save when start_flight is actually called
         if isinstance(remote_settings, dict) and 'text_response' not in remote_settings:
             # Handle JSON response - loop through all remote settings and override local ones
             settings_updated = False
@@ -229,10 +234,9 @@ def main():
                     logger.info(f"Added new setting {key}: {value}")
                     settings_updated = True
 
-            # Save updated settings if any changes were made
+            # Log changes but don't save yet
             if settings_updated:
-                save_settings(settings)
-                logger.info("Updated settings with all flight parameters from server")
+                logger.info("Flight parameters updated from server (will save only when GPS tracking starts)")
             else:
                 logger.info("No setting changes needed - all values already match")
         else:
@@ -244,6 +248,10 @@ def main():
 
         if gps_start_mode == 'boot':
             logger.info("Auto-starting GPS tracking on boot...")
+            # Save updated settings just before starting GPS tracking
+            save_settings(settings)
+            logger.info("Settings saved before starting GPS tracking")
+            
             success, message, status_code = start_flight()
             if success:
                 logger.info("GPS tracking started successfully on boot")
@@ -252,7 +260,7 @@ def main():
 
         elif gps_start_mode == 'motion':
             logger.info("Starting motion detection monitoring...")
-            monitor_motion()
+            monitor_motion(settings)
 
         elif gps_start_mode == 'manual':
             logger.info("Manual mode - GPS tracking will be started via web interface")

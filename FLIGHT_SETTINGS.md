@@ -37,13 +37,13 @@ Flight Settings provides comprehensive configuration and control for GPS trackin
 
 #### Manual Mode (Default)
 - **Description**: GPS tracking controlled exclusively through web interface
-- **Service State**: `gps-startup.service` disabled
+- **Service State**: `gps-startup.service` enabled but inactive (monitoring settings)
 - **Control Method**: "Start/Stop GPS Tracking" buttons in dashboard
 - **Use Cases**: Testing, selective flight tracking, manual operation preference
 
 #### Auto Start on Boot
 - **Description**: GPS tracking begins automatically when system starts
-- **Service State**: `gps-startup.service` enabled and started
+- **Service State**: `gps-startup.service` enabled and actively managing GPS
 - **Behavior**: Immediate tracking initiation after power-on
 - **Use Cases**: Always-on tracking, fleet aircraft, continuous monitoring
 
@@ -62,12 +62,12 @@ Flight Settings provides comprehensive configuration and control for GPS trackin
 ## Service Management
 
 ### GPS Startup Service
-The `gps-startup.service` is automatically managed based on Flight Settings configuration:
+The `gps-startup.service` is always enabled and starts at boot, but behavior depends on Flight Settings configuration:
 
 ```bash
-# Service status varies by configuration:
-# Manual Mode: Service disabled
-# Auto Boot/Motion: Service enabled
+# Service is always enabled and running
+# Manual Mode: Service monitors settings but takes no action
+# Auto Boot/Motion: Service actively manages GPS tracking
 
 # Check current service status
 sudo systemctl status gps-startup.service

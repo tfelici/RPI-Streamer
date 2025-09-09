@@ -277,22 +277,16 @@ def flight_settings_save():
     # Save settings
     save_settings(settings)
     
-    # Manage GPS startup service based on the start mode
+    # Restart GPS startup service if the start mode changed
+    # Service is always enabled but will check settings to determine behavior
     new_gps_start_mode = settings['gps_start_mode']
     if old_gps_start_mode != new_gps_start_mode:
         try:
-            if new_gps_start_mode in ['boot', 'motion']:
-                # Enable and start the GPS startup service
-                subprocess.run(['sudo', 'systemctl', 'enable', 'gps-startup.service'], check=False)
-                subprocess.run(['sudo', 'systemctl', 'restart', 'gps-startup.service'], check=False)
-                print(f"GPS startup service enabled for mode: {new_gps_start_mode}")
-            else:
-                # Disable and stop the GPS startup service for manual mode
-                subprocess.run(['sudo', 'systemctl', 'stop', 'gps-startup.service'], check=False)
-                subprocess.run(['sudo', 'systemctl', 'disable', 'gps-startup.service'], check=False)
-                print("GPS startup service disabled for manual mode")
+            # Always restart the service to pick up new settings
+            subprocess.run(['sudo', 'systemctl', 'restart', 'gps-startup.service'], check=False)
+            print(f"GPS startup service restarted for mode: {new_gps_start_mode}")
         except Exception as e:
-            print(f"Warning: Could not manage GPS startup service: {e}")
+            print(f"Warning: Could not restart GPS startup service: {e}")
     
     return render_template(
         'flight_settings.html',
