@@ -134,77 +134,163 @@ run_develop_install_no_update() {
     fi
 }
 
-# Function to restart GPS daemon in simulation mode
-restart_gps_simulation() {
-    print_header "Restarting GPS Daemon in Simulation Mode"
+# Function to toggle GPS daemon between simulation and real mode
+toggle_gps_mode() {
+    print_header "GPS Daemon Mode Toggle"
     
-    # Stop GPS daemon if running
-    if $SUDO systemctl is-active --quiet gps-daemon; then
-        print_info "Stopping GPS daemon..."
-        $SUDO systemctl stop gps-daemon
-        sleep 2
-    fi
-    
-    # Start GPS daemon in simulation mode
-    print_info "Starting GPS daemon in simulation mode..."
-    print_warning "GPS will generate simulated location data for testing"
-    
-    # Run GPS daemon in simulation mode (background process)
     SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-    if [ -f "$SCRIPT_DIR/gps_daemon.py" ]; then
-        $SUDO python3 "$SCRIPT_DIR/gps_daemon.py" --daemon --simulate &
-        GPS_PID=$!
+    
+    # Check current GPS daemon status
+    GPS_ACTIVE=false
+    GPS_SIMULATION=false
+    
+    if $SUDO systemctl is-active --quiet gps-daemon; then
+        GPS_ACTIVE=true
+        print_info "GPS daemon service is currently ACTIVE"
         
-        # Wait a moment and check if process is running
-        sleep 3
-        if kill -0 $GPS_PID 2>/dev/null; then
-            print_status "GPS daemon started in simulation mode (PID: $GPS_PID)"
-            print_info "Check status with: python3 $SCRIPT_DIR/gps_client.py --status"
-            print_info "Get simulated location: python3 $SCRIPT_DIR/gps_client.py --location"
+        # Check if running in simulation mode by looking at the process
+        if $SUDO pgrep -f "gps_daemon.py.*--simulate" >/dev/null 2>&1; then
+            GPS_SIMULATION=true
+            print_info "Current mode: SIMULATION MODE"
         else
-            print_error "Failed to start GPS daemon in simulation mode"
+            print_info "Current mode: REAL MODE"
         fi
     else
-        print_error "$SCRIPT_DIR/gps_daemon.py not found"
-        return 1
-    fi
-}
-
-# Function to restart GPS daemon in real mode
-restart_gps_real() {
-    print_header "Restarting GPS Daemon in Real Mode"
-    
-    SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-    
-    # Stop any running GPS daemon first
-    if $SUDO systemctl is-active --quiet gps-daemon; then
-        print_info "Stopping GPS daemon service..."
-        $SUDO systemctl stop gps-daemon
-        sleep 2
+        # Check for background simulation process
+        if $SUDO pgrep -f "gps_daemon.py.*--simulate" >/dev/null 2>&1; then
+            GPS_ACTIVE=true
+            GPS_SIMULATION=true
+            print_info "GPS daemon is running in SIMULATION MODE (background process)"
+        else
+            print_info "GPS daemon is currently INACTIVE"
+        fi
     fi
     
-    # Kill any background GPS processes
-    $SUDO pkill -f "gps_daemon.py" 2>/dev/null || true
-    sleep 1
+    echo ""
     
-    # Start GPS daemon service in real mode
-    print_info "Starting GPS daemon service in real mode..."
-    print_info "GPS will attempt to connect to real GPS hardware"
-    
-    $SUDO systemctl start gps-daemon
-    
-    # Wait a moment and check status
-    sleep 3
-    if $SUDO systemctl is-active --quiet gps-daemon; then
-        print_status "GPS daemon service started in real mode"
-        print_info "Status: $($SUDO systemctl is-active gps-daemon)"
-        print_info "Check detailed status: python3 $SCRIPT_DIR/gps_client.py --status"
-        print_info "View logs: sudo journalctl -u gps-daemon -f"
+    if [ "$GPS_ACTIVE" = true ]; then
+        if [ "$GPS_SIMULATION" = true ]; then
+            # Currently in simulation, offer to switch to real mode
+            print_info "🔄 Switch to REAL MODE?"
+            echo ""
+            read -p "Do you want to switch from simulation to real GPS mode? (y/n): " confirm
+            case $confirm in
+                [Yy]|[Yy][Ee][Ss])
+                    print_info "Switching to real GPS mode..."
+                    
+                    # Stop any running GPS processes
+                    $SUDO systemctl stop gps-daemon 2>/dev/null || true
+                    $SUDO pkill -f "gps_daemon.py" 2>/dev/null || true
+                    sleep 2
+                    
+                    # Start GPS daemon service in real mode
+                    print_info "Starting GPS daemon service in real mode..."
+                    $SUDO systemctl start gps-daemon
+                    
+                    sleep 3
+                    if $SUDO systemctl is-active --quiet gps-daemon; then
+                        print_status "GPS switched to REAL MODE successfully!"
+                        print_info "Status: $($SUDO systemctl is-active gps-daemon)"
+                    else
+                        print_error "Failed to start GPS daemon in real mode"
+                        $SUDO systemctl status gps-daemon --no-pager
+                    fi
+                    ;;
+                *)
+                    print_info "Mode switch cancelled"
+                    ;;
+            esac
+        else
+            # Currently in real mode, offer to switch to simulation
+            print_info "🔄 Switch to SIMULATION MODE?"
+            echo ""
+            read -p "Do you want to switch from real to simulation GPS mode? (y/n): " confirm
+            case $confirm in
+                [Yy]|[Yy][Ee][Ss])
+                    print_info "Switching to simulation GPS mode..."
+                    
+                    # Stop GPS daemon service
+                    $SUDO systemctl stop gps-daemon 2>/dev/null || true
+                    sleep 2
+                    
+                    # Start GPS daemon in simulation mode
+                    print_info "Starting GPS daemon in simulation mode..."
+                    if [ -f "$SCRIPT_DIR/gps_daemon.py" ]; then
+                        $SUDO python3 "$SCRIPT_DIR/gps_daemon.py" --daemon --simulate &
+                        GPS_PID=$!
+                        
+                        sleep 3
+                        if kill -0 $GPS_PID 2>/dev/null; then
+                            print_status "GPS switched to SIMULATION MODE successfully!"
+                            print_info "Process ID: $GPS_PID"
+                        else
+                            print_error "Failed to start GPS daemon in simulation mode"
+                        fi
+                    else
+                        print_error "$SCRIPT_DIR/gps_daemon.py not found"
+                    fi
+                    ;;
+                *)
+                    print_info "Mode switch cancelled"
+                    ;;
+            esac
+        fi
     else
-        print_error "GPS daemon service failed to start"
-        echo "Checking service status..."
-        $SUDO systemctl status gps-daemon --no-pager
+        # GPS is inactive, ask which mode to start
+        print_info "🚀 GPS daemon is not running. Choose startup mode:"
+        echo ""
+        echo "  1) Start in SIMULATION mode (generates test data)"
+        echo "  2) Start in REAL mode (connects to GPS hardware)"
+        echo "  0) Cancel"
+        echo ""
+        read -p "Enter your choice (1-2, or 0): " mode_choice
+        
+        case $mode_choice in
+            1)
+                print_info "Starting GPS daemon in simulation mode..."
+                if [ -f "$SCRIPT_DIR/gps_daemon.py" ]; then
+                    $SUDO python3 "$SCRIPT_DIR/gps_daemon.py" --daemon --simulate &
+                    GPS_PID=$!
+                    
+                    sleep 3
+                    if kill -0 $GPS_PID 2>/dev/null; then
+                        print_status "GPS started in SIMULATION MODE successfully!"
+                        print_info "Process ID: $GPS_PID"
+                    else
+                        print_error "Failed to start GPS daemon in simulation mode"
+                    fi
+                else
+                    print_error "$SCRIPT_DIR/gps_daemon.py not found"
+                fi
+                ;;
+            2)
+                print_info "Starting GPS daemon in real mode..."
+                $SUDO systemctl start gps-daemon
+                
+                sleep 3
+                if $SUDO systemctl is-active --quiet gps-daemon; then
+                    print_status "GPS started in REAL MODE successfully!"
+                    print_info "Status: $($SUDO systemctl is-active gps-daemon)"
+                else
+                    print_error "Failed to start GPS daemon in real mode"
+                    $SUDO systemctl status gps-daemon --no-pager
+                fi
+                ;;
+            0)
+                print_info "GPS startup cancelled"
+                ;;
+            *)
+                print_error "Invalid choice. Operation cancelled."
+                ;;
+        esac
     fi
+    
+    # Show current status and helpful commands
+    echo ""
+    print_info "Helpful commands:"
+    echo "  • Check GPS status: python3 $SCRIPT_DIR/gps_client.py --status"
+    echo "  • Get location: python3 $SCRIPT_DIR/gps_client.py --location"
+    echo "  • View GPS logs: sudo journalctl -u gps-daemon -f"
 }
 
 # Function to restart GPS startup manager service
@@ -293,6 +379,15 @@ show_system_status() {
     echo "   Heartbeat: $($SUDO systemctl is-active heartbeat-daemon 2>/dev/null || echo 'inactive')"
     echo ""
     
+    echo "🔋 Power Management:"
+    if systemctl list-unit-files | grep -q ups-monitor.service; then
+        echo "   UPS Monitor: $($SUDO systemctl is-active ups-monitor 2>/dev/null || echo 'inactive')"
+        echo "   UPS Monitor Enabled: $($SUDO systemctl is-enabled ups-monitor 2>/dev/null || echo 'disabled')"
+    else
+        echo "   UPS Monitor: not installed"
+    fi
+    echo ""
+    
     echo "🛰️ GPS Status:"
     echo "   GPS Daemon: $($SUDO systemctl is-active gps-daemon 2>/dev/null || echo 'inactive')"
     echo "   GPS Startup Manager: $($SUDO systemctl is-active gps-startup 2>/dev/null || echo 'inactive')"
@@ -335,6 +430,53 @@ reboot_system() {
     esac
 }
 
+# Function to toggle power monitor service
+toggle_power_monitor() {
+    print_header "Power Monitor Service Management"
+    
+    # Check if service exists
+    if ! systemctl list-unit-files | grep -q ups-monitor.service; then
+        print_error "UPS Monitor service not found!"
+        print_info "Install UPS management first using install_ups_management.sh"
+        return 1
+    fi
+    
+    # Check current status
+    if systemctl is-enabled ups-monitor.service >/dev/null 2>&1; then
+        # Service is enabled, offer to disable
+        print_info "Power Monitor service is currently ENABLED"
+        echo ""
+        read -p "Do you want to DISABLE the Power Monitor service? (y/n): " confirm
+        case $confirm in
+            [Yy]|[Yy][Ee][Ss])
+                print_info "Stopping and disabling Power Monitor service..."
+                $SUDO systemctl stop ups-monitor.service 2>/dev/null || true
+                $SUDO systemctl disable ups-monitor.service
+                print_status "Power Monitor service disabled successfully!"
+                ;;
+            *)
+                print_info "Operation cancelled"
+                ;;
+        esac
+    else
+        # Service is disabled, offer to enable
+        print_info "Power Monitor service is currently DISABLED"
+        echo ""
+        read -p "Do you want to ENABLE the Power Monitor service? (y/n): " confirm
+        case $confirm in
+            [Yy]|[Yy][Ee][Ss])
+                print_info "Enabling and starting Power Monitor service..."
+                $SUDO systemctl enable ups-monitor.service
+                $SUDO systemctl start ups-monitor.service 2>/dev/null || print_warning "Service enabled but may need reboot to start"
+                print_status "Power Monitor service enabled successfully!"
+                ;;
+            *)
+                print_info "Operation cancelled"
+                ;;
+        esac
+    fi
+}
+
 # Main menu function
 show_menu() {
     clear
@@ -349,11 +491,11 @@ show_menu() {
     echo "  2) Check Flask App Service Logs"
     echo "  3) Install/Update (Develop Branch)"
     echo "  4) Install Local Code (Develop, No Update)"
-    echo "  5) Restart GPS Daemon (Simulation Mode)"
-    echo "  6) Restart GPS Daemon (Real Mode)"
-    echo "  7) Restart GPS Startup Manager"
-    echo "  8) Restart Heartbeat Daemon"
-    echo "  9) Show System Status"
+    echo "  5) Toggle GPS Mode (Simulation/Real)"
+    echo "  6) Restart GPS Startup Manager"
+    echo "  7) Restart Heartbeat Daemon"
+    echo "  8) Show System Status"
+    echo "  9) Enable/Disable Power Monitor Service"
     echo "  r) Reboot Now"
     echo "  0) Exit"
     echo ""
@@ -382,19 +524,19 @@ main() {
                 run_develop_install_no_update
                 ;;
             5)
-                restart_gps_simulation
+                toggle_gps_mode
                 ;;
             6)
-                restart_gps_real
-                ;;
-            7)
                 restart_gps_startup_manager
                 ;;
-            8)
+            7)
                 restart_heartbeat_daemon
                 ;;
-            9)
+            8)
                 show_system_status
+                ;;
+            9)
+                toggle_power_monitor
                 ;;
             r|R)
                 reboot_system

@@ -119,20 +119,24 @@ rpiconfig
 The `rpiconfig` script provides a user-friendly menu with the following options:
 
 1. **Restart Flask App Service** - Quick restart of the main web application
-2. **Install/Update (Develop Branch)** - Full installation with latest develop branch features
-3. **Install Local Code (Develop, No Update)** - Install using existing local files without GitHub updates
-4. **Restart GPS Daemon (Simulation Mode)** - Start GPS daemon with simulated location data for testing
-5. **Restart GPS Daemon (Real Mode)** - Start GPS daemon for real GPS hardware
-6. **Show System Status** - Display current service states and system information
+2. **Check Flask App Service Logs** - View and monitor Flask application logs
+3. **Install/Update (Develop Branch)** - Full installation with latest develop branch features
+4. **Install Local Code (Develop, No Update)** - Install using existing local files without GitHub updates
+5. **Toggle GPS Mode (Simulation/Real)** - Switch between GPS simulation mode and real hardware mode
+6. **Restart GPS Startup Manager** - Restart the GPS automatic startup management service
 7. **Restart Heartbeat Daemon** - Restart the centralized hardware monitoring daemon
-8. **Exit** - Close the configuration menu
+8. **Show System Status** - Display current service states and system information
+9. **Enable/Disable Power Monitor Service** - Toggle UPS power monitoring service on/off
+**r. Reboot Now** - Safely restart the Raspberry Pi system
+**0. Exit** - Close the configuration menu
 
 ### Features
 
 - **🎨 Color-coded interface** with clear status indicators
-- **🔧 System status overview** showing all service states
+- **🔧 System status overview** showing all service states including UPS monitor
 - **⚡ Quick service management** without memorizing systemd commands
-- **🛰️ GPS mode switching** between simulation and real hardware
+- **🛰️ GPS mode switching** with intelligent toggle between simulation and real hardware
+- **🔋 Power monitor control** for enabling/disabling UPS monitoring service
 - **📊 Real-time status** updates and error reporting
 - **🔒 Privilege detection** automatically handles sudo requirements
 
