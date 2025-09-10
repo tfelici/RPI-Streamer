@@ -2141,28 +2141,85 @@ def service_control():
         return jsonify({'success': False, 'error': 'Invalid action. Use enable or disable'}), 400
     
     try:
-        # Use systemctl to enable/disable the service
-        result = subprocess.run(
-            ['sudo', 'systemctl', action, service],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        
-        if result.returncode == 0:
+        if action == 'enable':
+            # Enable service for auto-start
+            enable_result = subprocess.run(
+                ['sudo', 'systemctl', 'enable', service],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if enable_result.returncode != 0:
+                return jsonify({
+                    'success': False, 
+                    'error': f'Failed to enable service: {enable_result.stderr.strip()}',
+                    'service': service,
+                    'action': action
+                }), 500
+            
+            # Start service immediately
+            start_result = subprocess.run(
+                ['sudo', 'systemctl', 'start', service],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if start_result.returncode != 0:
+                return jsonify({
+                    'success': False, 
+                    'error': f'Service enabled but failed to start: {start_result.stderr.strip()}',
+                    'service': service,
+                    'action': action
+                }), 500
+                
             return jsonify({
                 'success': True, 
-                'message': f'Service {service} {action}d successfully',
+                'message': f'Service {service} enabled and started successfully',
                 'service': service,
                 'action': action
             })
-        else:
+            
+        elif action == 'disable':
+            # Stop service immediately
+            stop_result = subprocess.run(
+                ['sudo', 'systemctl', 'stop', service],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if stop_result.returncode != 0:
+                return jsonify({
+                    'success': False, 
+                    'error': f'Failed to stop service: {stop_result.stderr.strip()}',
+                    'service': service,
+                    'action': action
+                }), 500
+            
+            # Disable service from auto-start
+            disable_result = subprocess.run(
+                ['sudo', 'systemctl', 'disable', service],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if disable_result.returncode != 0:
+                return jsonify({
+                    'success': False, 
+                    'error': f'Service stopped but failed to disable: {disable_result.stderr.strip()}',
+                    'service': service,
+                    'action': action
+                }), 500
+                
             return jsonify({
-                'success': False, 
-                'error': f'Failed to {action} service: {result.stderr.strip()}',
+                'success': True, 
+                'message': f'Service {service} stopped and disabled successfully',
                 'service': service,
                 'action': action
-            }), 500
+            })
             
     except subprocess.TimeoutExpired:
         return jsonify({

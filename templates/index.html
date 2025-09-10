@@ -601,8 +601,8 @@
                         <div class="stat-label">GPS Daemon</div>
                         <div class="service-controls">
                             <button class="btn btn-sm btn-secondary service-log-btn" data-service="gps-daemon">📋 View Logs</button>
-                            <button class="btn btn-sm btn-success service-enable-btn" data-service="gps-daemon" style="display: none;">✅ Enable</button>
-                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="gps-daemon" style="display: none;">❌ Disable</button>
+                            <button class="btn btn-sm btn-success service-enable-btn" data-service="gps-daemon" style="display: none;">▶️ Start</button>
+                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="gps-daemon" style="display: none;">⏹️ Stop</button>
                         </div>
                     </div>
                     <div class="stat-item service-item" data-service="gps-startup">
@@ -610,8 +610,8 @@
                         <div class="stat-label">GPS Startup</div>
                         <div class="service-controls">
                             <button class="btn btn-sm btn-secondary service-log-btn" data-service="gps-startup">📋 View Logs</button>
-                            <button class="btn btn-sm btn-success service-enable-btn" data-service="gps-startup" style="display: none;">✅ Enable</button>
-                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="gps-startup" style="display: none;">❌ Disable</button>
+                            <button class="btn btn-sm btn-success service-enable-btn" data-service="gps-startup" style="display: none;">▶️ Start</button>
+                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="gps-startup" style="display: none;">⏹️ Stop</button>
                         </div>
                     </div>
                     <div class="stat-item service-item" data-service="mediamtx">
@@ -619,8 +619,8 @@
                         <div class="stat-label">MediaMTX</div>
                         <div class="service-controls">
                             <button class="btn btn-sm btn-secondary service-log-btn" data-service="mediamtx">📋 View Logs</button>
-                            <button class="btn btn-sm btn-success service-enable-btn" data-service="mediamtx" style="display: none;">✅ Enable</button>
-                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="mediamtx" style="display: none;">❌ Disable</button>
+                            <button class="btn btn-sm btn-success service-enable-btn" data-service="mediamtx" style="display: none;">▶️ Start</button>
+                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="mediamtx" style="display: none;">⏹️ Stop</button>
                         </div>
                     </div>
                     <div class="stat-item service-item" data-service="heartbeat-daemon">
@@ -628,8 +628,8 @@
                         <div class="stat-label">Heartbeat Daemon</div>
                         <div class="service-controls">
                             <button class="btn btn-sm btn-secondary service-log-btn" data-service="heartbeat-daemon">📋 View Logs</button>
-                            <button class="btn btn-sm btn-success service-enable-btn" data-service="heartbeat-daemon" style="display: none;">✅ Enable</button>
-                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="heartbeat-daemon" style="display: none;">❌ Disable</button>
+                            <button class="btn btn-sm btn-success service-enable-btn" data-service="heartbeat-daemon" style="display: none;">▶️ Start</button>
+                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="heartbeat-daemon" style="display: none;">⏹️ Stop</button>
                         </div>
                     </div>
                     <div class="stat-item service-item" data-service="ups-monitor">
@@ -637,8 +637,8 @@
                         <div class="stat-label">UPS Monitor</div>
                         <div class="service-controls">
                             <button class="btn btn-sm btn-secondary service-log-btn" data-service="ups-monitor">📋 View Logs</button>
-                            <button class="btn btn-sm btn-success service-enable-btn" data-service="ups-monitor" style="display: none;">✅ Enable</button>
-                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="ups-monitor" style="display: none;">❌ Disable</button>
+                            <button class="btn btn-sm btn-success service-enable-btn" data-service="ups-monitor" style="display: none;">▶️ Start</button>
+                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="ups-monitor" style="display: none;">⏹️ Stop</button>
                         </div>
                     </div>
                 </div>
@@ -2369,42 +2369,82 @@
                             } else {
                                 displayText = 'Error';
                             }
+                            element.textContent = displayText;
                         } else {
-                            // Capitalize first letter for better display
-                            displayText = status.status.charAt(0).toUpperCase() + status.status.slice(1);
+                            // Create comprehensive status display with icons and separate lines
+                            const runningStatus = status.status.charAt(0).toUpperCase() + status.status.slice(1);
+                            const bootColor = status.enabled ? '#28a745' : '#dc3545'; // green for enabled, red for disabled
+                            const bootStatus = status.enabled ? 'Boot: Enabled' : 'Boot: Disabled';
+                            
+                            // Choose running status icon and color
+                            let runningIcon = '❓';
+                            let runningColor = '#6c757d';
+                            
+                            if (status.status === 'active') {
+                                runningIcon = '✅';
+                                runningColor = '#28a745';
+                            } else if (status.status === 'inactive') {
+                                runningIcon = '⭕';
+                                runningColor = '#dc3545';
+                            } else if (status.status === 'failed' || status.status === 'error') {
+                                runningIcon = '❌';
+                                runningColor = '#dc3545';
+                            } else if (status.status === 'activating') {
+                                runningIcon = '🔄';
+                                runningColor = '#ffc107';
+                            } else if (status.status === 'deactivating') {
+                                runningIcon = '⏳';
+                                runningColor = '#ffc107';
+                            }
+                            
+                            // Choose boot status icon
+                            const bootIcon = status.enabled ? '🚀' : '🚫';
+                            
+                            // Use innerHTML with multi-line display
+                            element.innerHTML = `
+                                <div style="line-height: 1.2; text-align: left;">
+                                    <div style="color: ${runningColor}; font-weight: bold;">
+                                        ${runningIcon} ${runningStatus}
+                                    </div>
+                                    <div style="color: ${bootColor}; font-size: 0.9em; font-weight: normal;">
+                                        ${bootIcon} ${bootStatus}
+                                    </div>
+                                </div>
+                            `;
                         }
                         
-                        element.textContent = displayText;
-                        
-                        // Color code based on status
+                        // Set class but don't override colors since we handle them inline for multi-line display
                         element.className = 'stat-value connection-status';
-                        if (status.status === 'active') {
-                            element.style.color = '#28a745'; // green
-                        } else if (status.status === 'inactive' || status.status === 'failed' || status.status === 'error') {
-                            element.style.color = '#dc3545'; // red
-                        } else if (status.status === 'activating' || status.status === 'deactivating') {
-                            element.style.color = '#ffc107'; // yellow
-                        } else if (status.status === 'unavailable' || status.status === 'timeout') {
-                            element.style.color = '#6c757d'; // gray
+                        
+                        // For error cases, apply color to the entire element
+                        if (status.error) {
+                            if (status.status === 'unavailable' || status.status === 'timeout') {
+                                element.style.color = '#6c757d'; // gray
+                            } else {
+                                element.style.color = '#dc3545'; // red
+                            }
                         } else {
-                            element.style.color = '#17a2b8'; // blue for other states
+                            // Reset color for normal cases since we use inline styles
+                            element.style.color = '';
                         }
                         
                         // Add tooltip with additional info if available
                         if (status.sub_state && status.sub_state !== 'running' && status.sub_state !== 'unknown') {
-                            element.title = `Sub-state: ${status.sub_state}`;
+                            element.title = `Running: ${status.status} | Boot: ${status.enabled ? 'Enabled' : 'Disabled'} | Sub-state: ${status.sub_state}`;
                         } else if (status.error) {
                             element.title = `Error: ${status.error}`;
                         } else {
-                            element.title = '';
+                            element.title = `Running: ${status.status} | Boot: ${status.enabled ? 'Enabled' : 'Disabled'}`;
                         }
                         
-                        // Show/hide enable/disable buttons based on enabled status
+                        // Show/hide start/stop buttons based on running status
                         if (enableBtn && disableBtn && !status.error && status.status !== 'unavailable') {
-                            if (status.enabled) {
+                            if (status.status === 'active') {
+                                // Service is running - show stop button
                                 enableBtn.style.display = 'none';
                                 disableBtn.style.display = 'inline-block';
                             } else {
+                                // Service is not running - show start button
                                 enableBtn.style.display = 'inline-block';
                                 disableBtn.style.display = 'none';
                             }
@@ -2495,7 +2535,7 @@
         }
         
         function enableService(service) {
-            if (!confirm(`Enable ${service} service? This will allow it to start automatically.`)) {
+            if (!confirm(`Enable and start ${service} service? This will start the service now and allow it to start automatically on boot.`)) {
                 return;
             }
             
@@ -2504,7 +2544,7 @@
             
             if (enableBtn) {
                 enableBtn.disabled = true;
-                enableBtn.innerHTML = '⏳ Enabling...';
+                enableBtn.innerHTML = '⏳ Starting...';
             }
             
             fetch('/service-control', {
@@ -2516,7 +2556,7 @@
             .then(data => {
                 if (data.success) {
                     // Success - buttons will be updated by next status poll
-                    console.log(`Successfully enabled ${service}`);
+                    console.log(`Successfully enabled and started ${service}`);
                 } else {
                     alert(`Failed to enable ${service}: ${data.error}`);
                 }
@@ -2528,13 +2568,13 @@
             .finally(() => {
                 if (enableBtn) {
                     enableBtn.disabled = false;
-                    enableBtn.innerHTML = '✅ Enable';
+                    enableBtn.innerHTML = '▶️ Start';
                 }
             });
         }
         
         function disableService(service) {
-            if (!confirm(`Disable ${service} service? This will prevent it from starting automatically.`)) {
+            if (!confirm(`Stop and disable ${service} service? This will stop the service now and prevent it from starting automatically on boot.`)) {
                 return;
             }
             
@@ -2543,7 +2583,7 @@
             
             if (disableBtn) {
                 disableBtn.disabled = true;
-                disableBtn.innerHTML = '⏳ Disabling...';
+                disableBtn.innerHTML = '⏳ Stopping...';
             }
             
             fetch('/service-control', {
@@ -2555,7 +2595,7 @@
             .then(data => {
                 if (data.success) {
                     // Success - buttons will be updated by next status poll
-                    console.log(`Successfully disabled ${service}`);
+                    console.log(`Successfully stopped and disabled ${service}`);
                 } else {
                     alert(`Failed to disable ${service}: ${data.error}`);
                 }
@@ -2567,7 +2607,7 @@
             .finally(() => {
                 if (disableBtn) {
                     disableBtn.disabled = false;
-                    disableBtn.innerHTML = '❌ Disable';
+                    disableBtn.innerHTML = '⏹️ Stop';
                 }
             });
         }
