@@ -148,20 +148,25 @@ toggle_gps_mode() {
         GPS_ACTIVE=true
         print_info "GPS daemon service is currently ACTIVE"
         
-        # Check if running in simulation mode by looking at the process
-        if $SUDO pgrep -f "gps_daemon.py.*--simulate" >/dev/null 2>&1; then
+        # Check if running in simulation mode by examining the actual process command line
+        GPS_CMDLINE=$(ps aux | grep "python3.*gps_daemon.py" | grep -v grep | head -1)
+        if echo "$GPS_CMDLINE" | grep -q -- "--simulate"; then
             GPS_SIMULATION=true
             print_info "Current mode: SIMULATION MODE"
         else
+            GPS_SIMULATION=false
             print_info "Current mode: REAL MODE"
         fi
     else
         # Check for background simulation process
-        if $SUDO pgrep -f "gps_daemon.py.*--simulate" >/dev/null 2>&1; then
+        GPS_CMDLINE=$(ps aux | grep "python3.*gps_daemon.py" | grep -v grep | head -1)
+        if [ -n "$GPS_CMDLINE" ] && echo "$GPS_CMDLINE" | grep -q -- "--simulate"; then
             GPS_ACTIVE=true
             GPS_SIMULATION=true
             print_info "GPS daemon is running in SIMULATION MODE (background process)"
         else
+            GPS_ACTIVE=false
+            GPS_SIMULATION=false
             print_info "GPS daemon is currently INACTIVE"
         fi
     fi
@@ -389,7 +394,22 @@ show_system_status() {
     echo ""
     
     echo "🛰️ GPS Status:"
-    echo "   GPS Daemon: $($SUDO systemctl is-active gps-daemon 2>/dev/null || echo 'inactive')"
+    GPS_STATUS="$($SUDO systemctl is-active gps-daemon 2>/dev/null || echo 'inactive')"
+    echo "   GPS Daemon: $GPS_STATUS"
+    
+    # Show GPS mode if active
+    if [ "$GPS_STATUS" = "active" ]; then
+        GPS_CMDLINE=$(ps aux | grep "python3.*gps_daemon.py" | grep -v grep | head -1)
+        if echo "$GPS_CMDLINE" | grep -q -- "--simulate"; then
+            echo "   GPS Mode: SIMULATION"
+        else
+            echo "   GPS Mode: REAL"
+        fi
+    elif ps aux | grep "python3.*gps_daemon.py" | grep -v grep | grep -q -- "--simulate"; then
+        echo "   GPS Daemon: active (background)"
+        echo "   GPS Mode: SIMULATION"
+    fi
+    
     echo "   GPS Startup Manager: $($SUDO systemctl is-active gps-startup 2>/dev/null || echo 'inactive')"
     SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
     if command -v python3 >/dev/null && [ -f "$SCRIPT_DIR/gps_client.py" ]; then
