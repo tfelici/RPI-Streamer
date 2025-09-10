@@ -120,17 +120,50 @@ run_develop_install() {
     fi
 }
 
-# Function to run installer in develop mode without updates
-run_develop_install_no_update() {
-    print_header "Running RPI Streamer Installer (Develop Branch, No Update)"
-    print_info "This will install using existing local files without GitHub updates"
+# Function to toggle auto-updates on boot
+toggle_auto_updates() {
+    print_header "Auto-Updates on Boot Management"
     
-    if [ -f "install_rpi_streamer.sh" ]; then
-        bash install_rpi_streamer.sh --develop --skip-update
-    else
-        print_error "install_rpi_streamer.sh not found in current directory"
-        print_info "Make sure you're running this from the RPI Streamer directory"
+    # Check if the auto-update service exists
+    if ! $SUDO systemctl list-unit-files | grep -q "^install_rpi_streamer.service"; then
+        print_error "install_rpi_streamer.service not found"
+        print_info "Auto-update service may not be installed"
         return 1
+    fi
+    
+    # Check current status
+    if $SUDO systemctl is-enabled install_rpi_streamer.service >/dev/null 2>&1; then
+        # Service is enabled, offer to disable
+        print_info "Auto-updates on boot are currently ENABLED"
+        echo ""
+        read -p "Do you want to DISABLE auto-updates on boot? (y/n): " confirm
+        case $confirm in
+            [Yy]|[Yy][Ee][Ss])
+                print_info "Disabling auto-updates on boot..."
+                $SUDO systemctl disable install_rpi_streamer.service
+                print_status "Auto-updates on boot disabled successfully!"
+                print_info "The system will no longer check for updates at startup"
+                ;;
+            *)
+                print_info "Operation cancelled"
+                ;;
+        esac
+    else
+        # Service is disabled, offer to enable
+        print_info "Auto-updates on boot are currently DISABLED"
+        echo ""
+        read -p "Do you want to ENABLE auto-updates on boot? (y/n): " confirm
+        case $confirm in
+            [Yy]|[Yy][Ee][Ss])
+                print_info "Enabling auto-updates on boot..."
+                $SUDO systemctl enable install_rpi_streamer.service
+                print_status "Auto-updates on boot enabled successfully!"
+                print_info "The system will check for updates at startup"
+                ;;
+            *)
+                print_info "Operation cancelled"
+                ;;
+        esac
     fi
 }
 
@@ -510,7 +543,7 @@ show_menu() {
     echo "  1) Restart Flask App Service"
     echo "  2) Check Flask App Service Logs"
     echo "  3) Install/Update (Develop Branch)"
-    echo "  4) Install Local Code (Develop, No Update)"
+    echo "  4) Toggle Auto-Updates on Boot"
     echo "  5) Toggle GPS Mode (Simulation/Real)"
     echo "  6) Restart GPS Startup Manager"
     echo "  7) Restart Heartbeat Daemon"
@@ -541,7 +574,7 @@ main() {
                 run_develop_install
                 ;;
             4)
-                run_develop_install_no_update
+                toggle_auto_updates
                 ;;
             5)
                 toggle_gps_mode

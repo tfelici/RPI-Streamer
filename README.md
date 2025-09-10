@@ -31,12 +31,6 @@ bash install_rpi_streamer.sh --main
 
 # Silent installation without interactive prompts
 bash install_rpi_streamer.sh --develop --daemon
-
-# Use existing local files without updating from GitHub
-bash install_rpi_streamer.sh --develop --skip-update
-
-# Combined options for automated deployment
-bash install_rpi_streamer.sh --develop --daemon --skip-update
 ```
 
 ### Installation Option Details
@@ -44,8 +38,6 @@ bash install_rpi_streamer.sh --develop --daemon --skip-update
 - **`--develop`**: Install latest development branch with newest features
 - **`--main`**: Install stable main branch (default if no branch specified)
 - **`--daemon`**: Run in daemon mode with no interactive prompts (ideal for automated deployment)
-- **`--skip-update`**: Use existing local files without checking GitHub for updates
-- **Multiple options**: Can be combined (e.g., `--develop --daemon --skip-update`)
 
 ### Use Cases
 
@@ -58,12 +50,6 @@ bash install_rpi_streamer.sh --main
 
 # Automated deployment without prompts
 bash install_rpi_streamer.sh --develop --daemon
-
-# Development work with local changes
-bash install_rpi_streamer.sh --develop --skip-update
-
-# Testing local modifications silently
-bash install_rpi_streamer.sh --develop --daemon --skip-update
 ```
 
 ## Branch Structure
@@ -340,7 +326,6 @@ rpiconfig
 
 # Or manually update via installation script:
 cd ~/flask_app
-bash install_rpi_streamer.sh --develop --skip-update  # Use local files only
 bash install_rpi_streamer.sh --develop               # Full update from develop branch
 bash install_rpi_streamer.sh --main                  # Update to stable main branch
 ```

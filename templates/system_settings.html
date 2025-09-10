@@ -141,12 +141,11 @@
             <!-- System Controls -->
             <h2>System Controls</h2>
             <div style="text-align: center; margin-bottom: 2rem;">
-                <button id="reboot-btn" class="btn btn-danger">Reboot System</button>
+                <div style="display: flex; gap: 1rem; justify-content: center; margin-bottom: 1rem;">
+                    <button id="reboot-btn" class="btn btn-danger">Reboot System</button>
+                    <button id="shutdown-btn" class="btn btn-danger">Shutdown System</button>
+                </div>
                 <div id="reboot-result" class="status-message" style="display: none;"></div>
-            </div>
-            
-            <div style="text-align: center; margin-bottom: 2rem;">
-                <button id="shutdown-btn" class="btn btn-danger">Shutdown System</button>
                 <div id="shutdown-result" class="status-message" style="display: none;"></div>
             </div>
             
@@ -163,6 +162,26 @@
             <!-- Update Section -->
             <div class="update-section">
                 <h2>System Updates</h2>
+                
+                <!-- Auto-update Toggle -->
+                <div style="margin-bottom: 1.5rem; padding: 1rem; background: #f8f9fa; border-radius: 0.5rem; border: 1px solid #dee2e6;">
+                    <h3 style="margin-top: 0; margin-bottom: 1rem;">Automatic Updates</h3>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <div>
+                            <strong>Check for updates at boot</strong>
+                            <div style="font-size: 0.9rem; color: #6c757d; margin-top: 0.25rem;">
+                                Automatically check for and install RPI Streamer updates when the system starts
+                            </div>
+                        </div>
+                        <label style="display: flex; align-items: center; margin-left: 1rem;">
+                            <input type="checkbox" id="auto-update-toggle" style="margin-right: 0.5rem;">
+                            <span id="auto-update-status">Loading...</span>
+                        </label>
+                    </div>
+                    <div id="auto-update-result" class="status-message" style="display: none; margin-top: 0.5rem;"></div>
+                </div>
+                
+                <!-- Manual Update Controls -->
                 <div style="text-align: center; margin-bottom: 1rem;">
                     <button id="check-update-btn" class="btn btn-primary">Check for Updates</button>
                     <button id="do-update-btn" class="btn btn-success" style="display: none;">Update Now</button>
@@ -200,6 +219,9 @@
         // Load WiFi mode status
         loadWifiStatus();
         
+        // Load auto-update status
+        loadAutoUpdateStatus();
+        
         // WiFi scan button
         document.getElementById('scan-wifi-btn').addEventListener('click', scanWifiNetworks);
         
@@ -207,6 +229,9 @@
         document.querySelectorAll('input[name="wifi-mode"]').forEach(radio => {
             radio.addEventListener('change', handleModeChange);
         });
+        
+        // Auto-update toggle handler
+        document.getElementById('auto-update-toggle').addEventListener('change', handleAutoUpdateToggle);
         
         // Password toggle handlers
         document.getElementById('toggle-wifi-pass').addEventListener('change', function() {
@@ -264,6 +289,69 @@
                 qrCodeDiv.innerHTML = '<div style="color: #6c757d; font-style: italic;">Configure hotspot settings to generate QR code</div>';
                 qrInfoDiv.textContent = '';
             }
+        }
+        
+        function loadAutoUpdateStatus() {
+            fetch('/system-settings-auto-update-status')
+                .then(r => r.json())
+                .then(data => {
+                    const toggle = document.getElementById('auto-update-toggle');
+                    const status = document.getElementById('auto-update-status');
+                    
+                    toggle.checked = data.enabled || false;
+                    status.textContent = data.enabled ? 'Enabled' : 'Disabled';
+                    status.style.color = data.enabled ? '#28a745' : '#6c757d';
+                })
+                .catch(error => {
+                    console.error('Error loading auto-update status:', error);
+                    document.getElementById('auto-update-status').textContent = 'Error loading status';
+                });
+        }
+        
+        function handleAutoUpdateToggle() {
+            const toggle = document.getElementById('auto-update-toggle');
+            const status = document.getElementById('auto-update-status');
+            const resultDiv = document.getElementById('auto-update-result');
+            
+            const newState = toggle.checked;
+            
+            // Show updating message
+            resultDiv.textContent = newState ? 'Enabling automatic updates...' : 'Disabling automatic updates...';
+            resultDiv.className = 'status-message';
+            resultDiv.style.display = 'block';
+            toggle.disabled = true;
+            
+            fetch('/system-settings-auto-update-toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: newState })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    status.textContent = newState ? 'Enabled' : 'Disabled';
+                    status.style.color = newState ? '#28a745' : '#6c757d';
+                    resultDiv.textContent = data.message || `Automatic updates ${newState ? 'enabled' : 'disabled'} successfully`;
+                    resultDiv.className = 'status-message status-success';
+                } else {
+                    // Revert toggle state on error
+                    toggle.checked = !newState;
+                    resultDiv.textContent = data.error || 'Failed to update auto-update setting';
+                    resultDiv.className = 'status-message status-error';
+                }
+            })
+            .catch(error => {
+                // Revert toggle state on error
+                toggle.checked = !newState;
+                resultDiv.textContent = 'Error updating auto-update setting: ' + error.message;
+                resultDiv.className = 'status-message status-error';
+            })
+            .finally(() => {
+                toggle.disabled = false;
+                setTimeout(() => {
+                    resultDiv.style.display = 'none';
+                }, 5000);
+            });
         }
         
         function updateWifiConnectButton() {

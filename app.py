@@ -1604,6 +1604,43 @@ def system_settings_factory_reset():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/system-settings-auto-update-status')
+def system_settings_auto_update_status():
+    try:
+        # Check if install_rpi_streamer.service is enabled
+        result = subprocess.run(['systemctl', 'is-enabled', 'install_rpi_streamer.service'], 
+                              capture_output=True, text=True)
+        enabled = result.returncode == 0 and result.stdout.strip() == 'enabled'
+        return jsonify({'enabled': enabled})
+    except Exception as e:
+        return jsonify({'enabled': False, 'error': str(e)})
+
+@app.route('/system-settings-auto-update-toggle', methods=['POST'])
+def system_settings_auto_update_toggle():
+    try:
+        data = request.get_json()
+        enable = data.get('enabled', False)
+        
+        if enable:
+            # Enable the service
+            subprocess.run(['sudo', 'systemctl', 'enable', 'install_rpi_streamer.service'], 
+                         check=True, capture_output=True)
+            message = 'Automatic updates enabled. The system will check for updates at boot.'
+        else:
+            # Disable the service
+            subprocess.run(['sudo', 'systemctl', 'disable', 'install_rpi_streamer.service'], 
+                         check=True, capture_output=True)
+            message = 'Automatic updates disabled. Updates will only be performed manually.'
+        
+        return jsonify({'success': True, 'message': message})
+    except subprocess.CalledProcessError as e:
+        error_msg = f"Failed to {'enable' if enable else 'disable'} auto-update service"
+        if e.stderr:
+            error_msg += f": {e.stderr.decode()}"
+        return jsonify({'success': False, 'error': error_msg})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 def get_current_git_branch():
     """
     Get the current git branch name to compare against the correct remote branch.
