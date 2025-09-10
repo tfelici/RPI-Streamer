@@ -537,8 +537,6 @@ show_menu() {
     echo -e "🔧 RPI STREAMER CONFIGURATION MENU"
     echo -e "==========================================${NC}"
     echo ""
-    show_system_status
-    echo ""
     echo "Available Options:"
     echo "  1) Restart Flask App Service"
     echo "  2) Check Flask App Service Logs"
