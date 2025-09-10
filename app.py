@@ -742,6 +742,153 @@ def gps_status():
     status = get_gps_tracking_status()
     return jsonify(status)
 
+@app.route('/gps-tracks')
+def gps_tracks():
+    """Get list of GPS tracks stored on disk"""
+    try:
+        from utils import get_storage_path
+        
+        # Get tracks directory path
+        tracks_path, usb_mount = get_storage_path('tracks')
+        tracks_dir = tracks_path
+        
+        tracks = []
+        
+        if os.path.exists(tracks_dir):
+            # Look for .tsv files (tab-separated GPS track files)
+            for filename in os.listdir(tracks_dir):
+                if filename.endswith('.tsv'):
+                    file_path = os.path.join(tracks_dir, filename)
+                    try:
+                        # Get file stats
+                        stat = os.stat(file_path)
+                        file_size = stat.st_size
+                        modified_time = datetime.fromtimestamp(stat.st_mtime)
+                        
+                        # Count lines to estimate track points
+                        with open(file_path, 'r') as f:
+                            line_count = sum(1 for line in f) - 1  # Subtract header line
+                        
+                        # Extract track info from filename
+                        # Expected format: YYYYMMDD_HHMMSS_username_vehicle.tsv
+                        name_parts = filename[:-4].split('_')  # Remove .tsv
+                        
+                        track_info = {
+                            'filename': filename,
+                            'file_path': file_path,
+                            'size': file_size,
+                            'size_mb': round(file_size / (1024 * 1024), 2),
+                            'modified': modified_time.isoformat(),
+                            'modified_display': modified_time.strftime('%Y-%m-%d %H:%M:%S'),
+                            'points': line_count,
+                            'duration_estimate': f"~{line_count} points"
+                        }
+                        
+                        # Try to parse track metadata from filename
+                        if len(name_parts) >= 4:
+                            try:
+                                date_str = name_parts[0]
+                                time_str = name_parts[1]
+                                username = name_parts[2]
+                                vehicle = name_parts[3]
+                                
+                                # Parse date and time
+                                track_date = datetime.strptime(f"{date_str}_{time_str}", '%Y%m%d_%H%M%S')
+                                
+                                track_info.update({
+                                    'date': track_date.strftime('%Y-%m-%d'),
+                                    'time': track_date.strftime('%H:%M:%S'),
+                                    'username': username,
+                                    'vehicle': vehicle,
+                                    'display_name': f"{track_date.strftime('%Y-%m-%d %H:%M')} - {username}/{vehicle}"
+                                })
+                            except (ValueError, IndexError):
+                                track_info['display_name'] = filename[:-4]  # Fallback to filename
+                        else:
+                            track_info['display_name'] = filename[:-4]  # Fallback to filename
+                            
+                        tracks.append(track_info)
+                        
+                    except Exception as e:
+                        print(f"Error processing track file {filename}: {e}")
+                        continue
+        
+        # Sort by modified time (newest first)
+        tracks.sort(key=lambda x: x['modified'], reverse=True)
+        
+        return jsonify({
+            'tracks': tracks,
+            'total_tracks': len(tracks),
+            'tracks_dir': tracks_dir
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'tracks': [],
+            'total_tracks': 0
+        }), 500
+
+@app.route('/download-track/<filename>')
+def download_track(filename):
+    """Download a GPS track file"""
+    try:
+        from utils import get_storage_path
+        from flask import send_file
+        
+        # Security: Only allow .tsv files and sanitize filename
+        if not filename.endswith('.tsv') or '..' in filename or '/' in filename:
+            return jsonify({'error': 'Invalid filename'}), 400
+        
+        # Get tracks directory path
+        tracks_path, usb_mount = get_storage_path('tracks')
+        file_path = os.path.join(tracks_path, filename)
+        
+        if not os.path.exists(file_path):
+            return jsonify({'error': 'Track file not found'}), 404
+        
+        return send_file(file_path, as_attachment=True, download_name=filename)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/delete-track', methods=['POST'])
+def delete_track():
+    """Delete a GPS track file"""
+    try:
+        from utils import get_storage_path
+        
+        data = request.get_json()
+        filename = data.get('filename')
+        
+        if not filename:
+            return jsonify({'success': False, 'error': 'Filename is required'}), 400
+        
+        # Security: Only allow .tsv files and sanitize filename
+        if not filename.endswith('.tsv') or '..' in filename or '/' in filename:
+            return jsonify({'success': False, 'error': 'Invalid filename'}), 400
+        
+        # Get tracks directory path
+        tracks_path, usb_mount = get_storage_path('tracks')
+        file_path = os.path.join(tracks_path, filename)
+        
+        if not os.path.exists(file_path):
+            return jsonify({'success': False, 'error': 'Track file not found'}), 404
+        
+        # Delete the file
+        os.remove(file_path)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Track {filename} deleted successfully'
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/hardware-id')
 def hardwareid():
     """Get the hardware ID for this device"""

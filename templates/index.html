@@ -434,6 +434,78 @@
                 padding: 6px 12px !important;
             }
         }
+        
+        /* GPS Tracks Panel Styles */
+        .track-item {
+            background: #ffffff;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            transition: box-shadow 0.2s;
+        }
+        
+        .track-item:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .track-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        
+        .track-name {
+            font-weight: bold;
+            color: #495057;
+            font-size: 1.1em;
+        }
+        
+        .track-date {
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+        
+        .track-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 0.5rem;
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+        
+        .track-detail {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        
+        .track-actions {
+            margin-top: 0.75rem;
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        
+        .track-btn {
+            font-size: 0.8rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+        }
+        
+        @media (max-width: 768px) {
+            .track-details {
+                grid-template-columns: 1fr;
+                gap: 0.25rem;
+            }
+            
+            .track-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.25rem;
+            }
+        }
     </style>
 </head>
 
@@ -894,6 +966,47 @@
                         <p><em>GPS tracking will auto-start when aircraft moves</em></p>
                     {% endif %}
                 {% endif %}
+            </div>
+        </div>
+
+        <!-- GPS Tracks Panel -->
+        <div class="frame" id="gps-tracks-panel">
+            <div class="panel-header">
+                <h2>📊 Flight Tracks</h2>
+                <button id="refresh-tracks-btn" class="btn btn-secondary" style="font-size: 1em; padding: 10px 18px;">🔄 Refresh</button>
+            </div>
+            
+            <div id="tracks-info" style="background: #f8f9fa; padding: 12px; border-radius: 6px; margin-bottom: 1rem; font-size: 14px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <strong>Total Tracks:</strong> <span id="total-tracks-count">--</span>
+                    </div>
+                    <div>
+                        <strong>Storage:</strong> <span id="tracks-storage-location">--</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="tracks-container">
+                <div id="tracks-loading" style="text-align: center; padding: 2rem; color: #6c757d;">
+                    <div>🔄 Loading tracks...</div>
+                </div>
+                
+                <div id="tracks-list" style="display: none;">
+                    <!-- Tracks will be populated here -->
+                </div>
+                
+                <div id="tracks-empty" style="display: none; text-align: center; padding: 2rem; color: #6c757d;">
+                    <div>📍 No flight tracks found</div>
+                    <div style="font-size: 0.9em; margin-top: 0.5rem;">
+                        Start GPS tracking to create your first flight track
+                    </div>
+                </div>
+                
+                <div id="tracks-error" style="display: none; text-align: center; padding: 2rem; color: #dc3545;">
+                    <div>❌ Error loading tracks</div>
+                    <div id="tracks-error-message" style="font-size: 0.9em; margin-top: 0.5rem;"></div>
+                </div>
             </div>
         </div>
 
@@ -1997,10 +2110,158 @@
         initializeDiagnostics();
         startServiceMonitoring();
         initializeLogViewer();
+        initializeGPSTracks();
         
         // Other existing DOMContentLoaded functionality
         initializeCollapsiblePanels();
     });
+    
+    // GPS Tracks functionality
+    function initializeGPSTracks() {
+        const refreshBtn = document.getElementById('refresh-tracks-btn');
+        
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', function() {
+                loadGPSTracks();
+            });
+        }
+        
+        // Load tracks on page load
+        loadGPSTracks();
+    }
+    
+    function loadGPSTracks() {
+        const loadingDiv = document.getElementById('tracks-loading');
+        const listDiv = document.getElementById('tracks-list');
+        const emptyDiv = document.getElementById('tracks-empty');
+        const errorDiv = document.getElementById('tracks-error');
+        const totalCountSpan = document.getElementById('total-tracks-count');
+        const storageLocationSpan = document.getElementById('tracks-storage-location');
+        
+        // Show loading state
+        loadingDiv.style.display = 'block';
+        listDiv.style.display = 'none';
+        emptyDiv.style.display = 'none';
+        errorDiv.style.display = 'none';
+        
+        fetch('/gps-tracks')
+            .then(response => response.json())
+            .then(data => {
+                loadingDiv.style.display = 'none';
+                
+                if (data.error) {
+                    errorDiv.style.display = 'block';
+                    document.getElementById('tracks-error-message').textContent = data.error;
+                    totalCountSpan.textContent = '--';
+                    storageLocationSpan.textContent = '--';
+                    return;
+                }
+                
+                const tracks = data.tracks || [];
+                totalCountSpan.textContent = tracks.length;
+                
+                // Show storage location (extract from tracks_dir)
+                if (data.tracks_dir) {
+                    const isUSB = data.tracks_dir.includes('/media/') || data.tracks_dir.includes('/mnt/');
+                    storageLocationSpan.textContent = isUSB ? '💾 USB Drive' : '💿 Local Storage';
+                } else {
+                    storageLocationSpan.textContent = '--';
+                }
+                
+                if (tracks.length === 0) {
+                    emptyDiv.style.display = 'block';
+                } else {
+                    listDiv.style.display = 'block';
+                    renderTracksList(tracks);
+                }
+            })
+            .catch(error => {
+                console.error('Error loading GPS tracks:', error);
+                loadingDiv.style.display = 'none';
+                errorDiv.style.display = 'block';
+                document.getElementById('tracks-error-message').textContent = 'Failed to load tracks';
+                totalCountSpan.textContent = '--';
+                storageLocationSpan.textContent = '--';
+            });
+    }
+    
+    function renderTracksList(tracks) {
+        const listDiv = document.getElementById('tracks-list');
+        
+        listDiv.innerHTML = tracks.map(track => `
+            <div class="track-item">
+                <div class="track-header">
+                    <div class="track-name">
+                        📍 ${track.display_name || track.filename}
+                    </div>
+                    <div class="track-date">
+                        ${track.modified_display}
+                    </div>
+                </div>
+                
+                <div class="track-details">
+                    <div class="track-detail">
+                        <span>🎯</span> ${track.points} points
+                    </div>
+                    <div class="track-detail">
+                        <span>💾</span> ${track.size_mb} MB
+                    </div>
+                    ${track.username ? `<div class="track-detail"><span>👤</span> ${track.username}</div>` : ''}
+                    ${track.vehicle ? `<div class="track-detail"><span>✈️</span> ${track.vehicle}</div>` : ''}
+                    ${track.date ? `<div class="track-detail"><span>📅</span> ${track.date}</div>` : ''}
+                    ${track.time ? `<div class="track-detail"><span>🕐</span> ${track.time}</div>` : ''}
+                </div>
+                
+                <div class="track-actions">
+                    <button class="btn btn-sm btn-outline-primary track-btn" onclick="downloadTrack('${track.filename}')">
+                        💾 Download
+                    </button>
+                    <button class="btn btn-sm btn-outline-info track-btn" onclick="viewTrackDetails('${track.filename}')">
+                        👁️ View Details
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger track-btn" onclick="deleteTrack('${track.filename}')">
+                        🗑️ Delete
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    function downloadTrack(filename) {
+        // Create a download link for the track file
+        window.open(`/download-track/${encodeURIComponent(filename)}`, '_blank');
+    }
+    
+    function viewTrackDetails(filename) {
+        // For now, just show an alert with filename
+        // This could be expanded to show detailed track information
+        alert(`Track Details: ${filename}\n\nThis feature can be expanded to show detailed track information like route map, statistics, etc.`);
+    }
+    
+    function deleteTrack(filename) {
+        if (!confirm(`Are you sure you want to delete the track "${filename}"?\n\nThis action cannot be undone.`)) {
+            return;
+        }
+        
+        fetch('/delete-track', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: filename })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Track deleted successfully');
+                loadGPSTracks(); // Refresh the list
+            } else {
+                alert(`Failed to delete track: ${data.error}`);
+            }
+        })
+        .catch(error => {
+            console.error('Error deleting track:', error);
+            alert('Error deleting track');
+        });
+    }
     
     // Cleanup on page unload
     window.addEventListener('beforeunload', function() {
