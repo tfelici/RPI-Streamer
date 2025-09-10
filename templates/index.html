@@ -114,11 +114,41 @@
             position: relative;
         }
         
-        .service-log-btn {
+        .service-controls {
             margin-top: 0.5rem;
+            display: flex;
+            gap: 0.3rem;
+            flex-wrap: wrap;
+        }
+        
+        .service-log-btn, .service-enable-btn, .service-disable-btn {
             font-size: 0.75rem;
             padding: 0.25rem 0.5rem;
             border-radius: 4px;
+            flex: 1;
+            min-width: 80px;
+        }
+        
+        .service-enable-btn {
+            background-color: #28a745;
+            border-color: #28a745;
+            color: white;
+        }
+        
+        .service-enable-btn:hover {
+            background-color: #218838;
+            border-color: #1e7e34;
+        }
+        
+        .service-disable-btn {
+            background-color: #ffc107;
+            border-color: #ffc107;
+            color: #212529;
+        }
+        
+        .service-disable-btn:hover {
+            background-color: #e0a800;
+            border-color: #d39e00;
         }
         
         .service-log-viewer {
@@ -569,27 +599,47 @@
                     <div class="stat-item service-item" data-service="gps-daemon">
                         <span class="stat-value connection-status" id="service-gps-daemon">--</span>
                         <div class="stat-label">GPS Daemon</div>
-                        <button class="btn btn-sm btn-secondary service-log-btn" data-service="gps-daemon">📋 View Logs</button>
+                        <div class="service-controls">
+                            <button class="btn btn-sm btn-secondary service-log-btn" data-service="gps-daemon">📋 View Logs</button>
+                            <button class="btn btn-sm btn-success service-enable-btn" data-service="gps-daemon" style="display: none;">✅ Enable</button>
+                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="gps-daemon" style="display: none;">❌ Disable</button>
+                        </div>
                     </div>
                     <div class="stat-item service-item" data-service="gps-startup">
                         <span class="stat-value connection-status" id="service-gps-startup">--</span>
                         <div class="stat-label">GPS Startup</div>
-                        <button class="btn btn-sm btn-secondary service-log-btn" data-service="gps-startup">📋 View Logs</button>
+                        <div class="service-controls">
+                            <button class="btn btn-sm btn-secondary service-log-btn" data-service="gps-startup">📋 View Logs</button>
+                            <button class="btn btn-sm btn-success service-enable-btn" data-service="gps-startup" style="display: none;">✅ Enable</button>
+                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="gps-startup" style="display: none;">❌ Disable</button>
+                        </div>
                     </div>
                     <div class="stat-item service-item" data-service="mediamtx">
                         <span class="stat-value connection-status" id="service-mediamtx">--</span>
                         <div class="stat-label">MediaMTX</div>
-                        <button class="btn btn-sm btn-secondary service-log-btn" data-service="mediamtx">📋 View Logs</button>
+                        <div class="service-controls">
+                            <button class="btn btn-sm btn-secondary service-log-btn" data-service="mediamtx">📋 View Logs</button>
+                            <button class="btn btn-sm btn-success service-enable-btn" data-service="mediamtx" style="display: none;">✅ Enable</button>
+                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="mediamtx" style="display: none;">❌ Disable</button>
+                        </div>
                     </div>
                     <div class="stat-item service-item" data-service="heartbeat-daemon">
                         <span class="stat-value connection-status" id="service-heartbeat-daemon">--</span>
                         <div class="stat-label">Heartbeat Daemon</div>
-                        <button class="btn btn-sm btn-secondary service-log-btn" data-service="heartbeat-daemon">📋 View Logs</button>
+                        <div class="service-controls">
+                            <button class="btn btn-sm btn-secondary service-log-btn" data-service="heartbeat-daemon">📋 View Logs</button>
+                            <button class="btn btn-sm btn-success service-enable-btn" data-service="heartbeat-daemon" style="display: none;">✅ Enable</button>
+                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="heartbeat-daemon" style="display: none;">❌ Disable</button>
+                        </div>
                     </div>
                     <div class="stat-item service-item" data-service="ups-monitor">
                         <span class="stat-value connection-status" id="service-ups-monitor">--</span>
                         <div class="stat-label">UPS Monitor</div>
-                        <button class="btn btn-sm btn-secondary service-log-btn" data-service="ups-monitor">📋 View Logs</button>
+                        <div class="service-controls">
+                            <button class="btn btn-sm btn-secondary service-log-btn" data-service="ups-monitor">📋 View Logs</button>
+                            <button class="btn btn-sm btn-success service-enable-btn" data-service="ups-monitor" style="display: none;">✅ Enable</button>
+                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="ups-monitor" style="display: none;">❌ Disable</button>
+                        </div>
                     </div>
                 </div>
                 
@@ -2302,6 +2352,9 @@
             
             services.forEach(service => {
                 const element = document.getElementById(`service-${service}`);
+                const enableBtn = document.querySelector(`[data-service="${service}"].service-enable-btn`);
+                const disableBtn = document.querySelector(`[data-service="${service}"].service-disable-btn`);
+                
                 if (element) {
                     const status = data[service];
                     if (status) {
@@ -2345,10 +2398,31 @@
                         } else {
                             element.title = '';
                         }
+                        
+                        // Show/hide enable/disable buttons based on enabled status
+                        if (enableBtn && disableBtn && !status.error && status.status !== 'unavailable') {
+                            if (status.enabled) {
+                                enableBtn.style.display = 'none';
+                                disableBtn.style.display = 'inline-block';
+                            } else {
+                                enableBtn.style.display = 'inline-block';
+                                disableBtn.style.display = 'none';
+                            }
+                        } else if (enableBtn && disableBtn) {
+                            // Hide both buttons if service is unavailable or has errors
+                            enableBtn.style.display = 'none';
+                            disableBtn.style.display = 'none';
+                        }
                     } else {
                         element.textContent = 'Unknown';
                         element.style.color = '#6c757d'; // gray
                         element.title = '';
+                        
+                        // Hide enable/disable buttons for unknown services
+                        if (enableBtn && disableBtn) {
+                            enableBtn.style.display = 'none';
+                            disableBtn.style.display = 'none';
+                        }
                     }
                 }
             });
@@ -2378,6 +2452,21 @@
                 });
             });
             
+            // Add click handlers for enable/disable buttons
+            document.querySelectorAll('.service-enable-btn').forEach(button => {
+                button.addEventListener('click', function() {
+                    const service = this.getAttribute('data-service');
+                    enableService(service);
+                });
+            });
+            
+            document.querySelectorAll('.service-disable-btn').forEach(button => {
+                button.addEventListener('click', function() {
+                    const service = this.getAttribute('data-service');
+                    disableService(service);
+                });
+            });
+            
             // Clear logs
             logClearBtn.addEventListener('click', function() {
                 logContent.innerHTML = '';
@@ -2402,6 +2491,84 @@
             // Close log viewer
             logCloseBtn.addEventListener('click', function() {
                 closeServiceLogs();
+            });
+        }
+        
+        function enableService(service) {
+            if (!confirm(`Enable ${service} service? This will allow it to start automatically.`)) {
+                return;
+            }
+            
+            const enableBtn = document.querySelector(`[data-service="${service}"].service-enable-btn`);
+            const disableBtn = document.querySelector(`[data-service="${service}"].service-disable-btn`);
+            
+            if (enableBtn) {
+                enableBtn.disabled = true;
+                enableBtn.innerHTML = '⏳ Enabling...';
+            }
+            
+            fetch('/service-control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ service: service, action: 'enable' })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Success - buttons will be updated by next status poll
+                    console.log(`Successfully enabled ${service}`);
+                } else {
+                    alert(`Failed to enable ${service}: ${data.error}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error enabling service:', error);
+                alert(`Error enabling ${service}: ${error.message}`);
+            })
+            .finally(() => {
+                if (enableBtn) {
+                    enableBtn.disabled = false;
+                    enableBtn.innerHTML = '✅ Enable';
+                }
+            });
+        }
+        
+        function disableService(service) {
+            if (!confirm(`Disable ${service} service? This will prevent it from starting automatically.`)) {
+                return;
+            }
+            
+            const enableBtn = document.querySelector(`[data-service="${service}"].service-enable-btn`);
+            const disableBtn = document.querySelector(`[data-service="${service}"].service-disable-btn`);
+            
+            if (disableBtn) {
+                disableBtn.disabled = true;
+                disableBtn.innerHTML = '⏳ Disabling...';
+            }
+            
+            fetch('/service-control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ service: service, action: 'disable' })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Success - buttons will be updated by next status poll
+                    console.log(`Successfully disabled ${service}`);
+                } else {
+                    alert(`Failed to disable ${service}: ${data.error}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error disabling service:', error);
+                alert(`Error disabling ${service}: ${error.message}`);
+            })
+            .finally(() => {
+                if (disableBtn) {
+                    disableBtn.disabled = false;
+                    disableBtn.innerHTML = '❌ Disable';
+                }
             });
         }
         

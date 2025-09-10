@@ -2040,7 +2040,7 @@ def service_status_sse():
 
 def get_service_status():
     """
-    Get status of system services.
+    Get status of system services including enabled/disabled status.
     Returns a dictionary with service statuses.
     """
     status = {}
@@ -2056,6 +2056,17 @@ def get_service_status():
             )
             
             service_status = result.stdout.strip()
+            
+            # Get enabled status
+            enabled_result = subprocess.run(
+                ['systemctl', 'is-enabled', service],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            enabled_status = enabled_result.stdout.strip()
+            is_enabled = enabled_status == 'enabled'
             
             # Get additional info if service is not active
             if service_status != 'active':
@@ -2077,34 +2088,137 @@ def get_service_status():
                     'status': service_status if service_status else 'inactive',
                     'active_state': details.get('ActiveState', 'unknown'),
                     'sub_state': details.get('SubState', 'unknown'),
-                    'load_state': details.get('LoadState', 'unknown')
+                    'load_state': details.get('LoadState', 'unknown'),
+                    'enabled': is_enabled,
+                    'enabled_status': enabled_status
                 }
             else:
                 status[service] = {
                     'status': service_status,
                     'active_state': 'active',
                     'sub_state': 'running',
-                    'load_state': 'loaded'
+                    'load_state': 'loaded',
+                    'enabled': is_enabled,
+                    'enabled_status': enabled_status
                 }
                 
         except subprocess.TimeoutExpired:
             status[service] = {
                 'status': 'timeout',
-                'error': 'systemctl command timed out'
+                'error': 'systemctl command timed out',
+                'enabled': False,
+                'enabled_status': 'unknown'
             }
         except FileNotFoundError:
             # systemctl not found (not on Linux)
             status[service] = {
                 'status': 'unavailable',
-                'error': 'systemctl not available'
+                'error': 'systemctl not available',
+                'enabled': False,
+                'enabled_status': 'unavailable'
             }
         except Exception as e:
             status[service] = {
                 'status': 'error',
-                'error': str(e)
+                'error': str(e),
+                'enabled': False,
+                'enabled_status': 'error'
             }
     
     return status
+
+@app.route('/service-control', methods=['POST'])
+def service_control():
+    """Enable or disable a system service"""
+    data = request.get_json()
+    service = data.get('service')
+    action = data.get('action')  # 'enable' or 'disable'
+    
+    if not service or service not in MONITORED_SERVICES:
+        return jsonify({'success': False, 'error': 'Invalid service name'}), 400
+    
+    if action not in ['enable', 'disable']:
+        return jsonify({'success': False, 'error': 'Invalid action. Use enable or disable'}), 400
+    
+    try:
+        # Use systemctl to enable/disable the service
+        result = subprocess.run(
+            ['sudo', 'systemctl', action, service],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0:
+            return jsonify({
+                'success': True, 
+                'message': f'Service {service} {action}d successfully',
+                'service': service,
+                'action': action
+            })
+        else:
+            return jsonify({
+                'success': False, 
+                'error': f'Failed to {action} service: {result.stderr.strip()}',
+                'service': service,
+                'action': action
+            }), 500
+            
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'success': False, 
+            'error': f'Timeout {action}ing service',
+            'service': service,
+            'action': action
+        }), 500
+    except Exception as e:
+        return jsonify({
+            'success': False, 
+            'error': f'Error {action}ing service: {str(e)}',
+            'service': service,
+            'action': action
+        }), 500
+
+@app.route('/service-status/<service>')
+def service_enabled_status(service):
+    """Get the enabled/disabled status of a service"""
+    if service not in MONITORED_SERVICES:
+        return jsonify({'error': 'Invalid service name'}), 400
+    
+    try:
+        # Check if service is enabled
+        result = subprocess.run(
+            ['systemctl', 'is-enabled', service],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        
+        enabled_status = result.stdout.strip()
+        is_enabled = enabled_status == 'enabled'
+        
+        # Also get the current active status
+        active_result = subprocess.run(
+            ['systemctl', 'is-active', service],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        
+        active_status = active_result.stdout.strip()
+        
+        return jsonify({
+            'service': service,
+            'enabled': is_enabled,
+            'enabled_status': enabled_status,
+            'active': active_status == 'active',
+            'active_status': active_status
+        })
+        
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'Timeout getting service status'}), 500
+    except Exception as e:
+        return jsonify({'error': f'Error getting service status: {str(e)}'}), 500
 
 @app.route('/diagnostics')
 def diagnostics():
