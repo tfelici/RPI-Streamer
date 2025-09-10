@@ -8,6 +8,7 @@ import math
 import socket
 import glob
 from datetime import datetime
+from typing import Optional
 
 # Use pymediainfo for fast video duration extraction
 try:
@@ -577,6 +578,102 @@ def mount_usb_device(device_path, fstype):
         pass
     
     return None
+
+def get_storage_path(data_type: str, subfolder: Optional[str] = None) -> tuple:
+    """
+    Get storage path for different data types (recordings, tracks, etc.)
+    Returns (storage_path, usb_mount) where usb_mount is None if using local storage
+    
+    Args:
+        data_type: Type of data ('recordings', 'tracks', etc.)
+        subfolder: Optional subfolder within the data type directory
+    
+    Returns:
+        tuple: (full_path, usb_mount_path_or_none)
+    """
+    import subprocess
+    import time
+    
+    # Check for USB storage first
+    usb_mount = find_usb_storage()
+    
+    if usb_mount:
+        print(f"Using USB storage at {usb_mount} for {data_type}")
+        if subfolder:
+            storage_path = os.path.join(usb_mount, 'streamerData', data_type, subfolder)
+        else:
+            storage_path = os.path.join(usb_mount, 'streamerData', data_type)
+        
+        # Copy settings and executables to USB
+        copy_result = copy_settings_and_executables_to_usb(usb_mount)
+        
+        # Force sync all data to USB drive
+        print("Syncing data to USB drive...")
+        try:
+            subprocess.run(['sync'], check=True)
+            time.sleep(2)  # Give extra time for exFAT filesystem
+            print("USB sync completed successfully")
+        except Exception as e:
+            print(f"Warning: USB sync failed: {e}")
+            
+        return storage_path, usb_mount
+    else:
+        print(f"No USB storage found, using local disk for {data_type}")
+        if subfolder:
+            storage_path = os.path.join(STREAMER_DATA_DIR, data_type, subfolder)
+        else:
+            storage_path = os.path.join(STREAMER_DATA_DIR, data_type)
+            
+        return storage_path, None
+
+
+def cleanup_pidfile(pidfile_path: str, cleanup_callback=None, sync_usb: bool = True, logger=None):
+    """
+    Generic PID file cleanup function with optional USB sync and custom cleanup
+    
+    Args:
+        pidfile_path: Path to the PID file to remove
+        cleanup_callback: Optional function to call before removing PID file
+        sync_usb: Whether to perform USB sync (default: True)
+        logger: Optional logger for messages (uses print if None)
+    """
+    def log_message(msg: str, level: str = "info"):
+        if logger:
+            if level == "info":
+                logger.info(msg)
+            elif level == "warning":
+                logger.warning(msg)
+            elif level == "debug":
+                logger.debug(msg)
+        else:
+            print(msg)
+    
+    # Perform USB sync if requested
+    if sync_usb:
+        log_message("Syncing all data to disk (including USB drives)...")
+        try:
+            import subprocess
+            subprocess.run(['sync'], check=True)
+            time.sleep(2)  # Give extra time for exFAT/USB
+            log_message("Sync completed. It is now safe to remove the USB drive.")
+        except Exception as e:
+            log_message(f"Warning: Final sync failed: {e}", "warning")
+    
+    # Call custom cleanup callback if provided
+    if cleanup_callback:
+        try:
+            cleanup_callback()
+        except Exception as e:
+            log_message(f"Warning: Cleanup callback failed: {e}", "warning")
+    
+    # Remove PID file
+    try:
+        if os.path.exists(pidfile_path):
+            os.remove(pidfile_path)
+            log_message(f"Removed PID file: {pidfile_path}")
+    except Exception as e:
+        log_message(f"Warning: Could not remove PID file on exit: {e}", "warning")
+
 
 def find_usb_storage():
     """

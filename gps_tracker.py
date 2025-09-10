@@ -28,7 +28,7 @@ import re
 import os
 from datetime import datetime
 from typing import Dict, List, Optional
-from utils import generate_gps_track_id, calculate_distance
+from utils import generate_gps_track_id, calculate_distance, get_storage_path, cleanup_pidfile
 from gps_client import get_gnss_location
 
 # Configure logging
@@ -95,6 +95,10 @@ class GPSTracker:
         # GPS state tracking
         self.gps_started = False
         
+        # Track file storage
+        self.track_file_path = None
+        self.usb_mount = None
+        
         # Movement detection
         self.last_position = None
         self.movement_threshold = 5.0  # meters - minimum distance to consider as movement
@@ -112,6 +116,70 @@ class GPSTracker:
         
         logger.info(f"GPS Tracker initialized for user: {username} on domain: {domain}")
 
+    def _setup_track_storage(self) -> bool:
+        """Set up track file storage (USB or local), similar to video recording storage"""
+        # Get storage path for tracks
+        track_dir, self.usb_mount = get_storage_path('tracks')
+        
+        # Create tracks directory
+        os.makedirs(track_dir, exist_ok=True)
+        
+        # Create track file path - using .tsv (tab-separated values) for crash resistance
+        self.track_file_path = os.path.join(track_dir, f"{self.track_id}.tsv")
+        
+        # Initialize track file with header and metadata as comments
+        try:
+            with open(self.track_file_path, 'w') as f:
+                # Write metadata as comments at the top
+                f.write(f"# Track ID: {self.track_id}\n")
+                f.write(f"# Username: {self.username}\n")
+                f.write(f"# Domain: {self.domain}\n")
+                f.write(f"# Start Time: {datetime.now().isoformat()}\n")
+                f.write(f"# Platform: {self.platform}\n")
+                f.write("#\n")
+                # Write header row
+                f.write("timestamp\tlatitude\tlongitude\taltitude\taccuracy\taltitudeAccuracy\theading\tspeed\n")
+            logger.info(f"Track file initialized: {self.track_file_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to initialize track file: {e}")
+            return False
+
+    def _save_coordinate_to_file(self, coordinate: Dict) -> bool:
+        """Save a coordinate to the track file as a tab-delimited line"""
+        if not self.track_file_path:
+            return False
+            
+        try:
+            # Extract location data
+            location = coordinate['location']
+            timestamp = coordinate['timestamp']
+            
+            # Format values, using empty string for None values
+            values = [
+                str(timestamp),
+                str(location['latitude']),
+                str(location['longitude']),
+                str(location.get('altitude', '')),
+                str(location.get('accuracy', '')),
+                str(location.get('altitudeAccuracy', '')),
+                str(location.get('heading', '')),
+                str(location.get('speed', ''))
+            ]
+            
+            # Write as tab-delimited line
+            with open(self.track_file_path, 'a') as f:
+                f.write('\t'.join(values) + '\n')
+            
+            # Note: USB sync is handled by the cleanup_pidfile function and stop_tracking()
+            # No need to sync after every coordinate - this would hurt performance
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to save coordinate to file: {e}")
+            return False
+
     def start_tracking(self) -> bool:
         """Start a new tracking session"""
         if self.tracking_active:
@@ -122,6 +190,12 @@ class GPSTracker:
             self.track_id = generate_gps_track_id()
         self.coordinates_to_sync = []
         self.tracking_active = True
+        
+        # Set up track file storage
+        if not self._setup_track_storage():
+            logger.error("Failed to set up track storage")
+            self.tracking_active = False
+            return False
         
         # Reset movement detection
         self.last_position = None
@@ -149,6 +223,17 @@ class GPSTracker:
             logger.info("Syncing remaining coordinates before stop...")
             self._sync_coordinates_to_server()
         
+        # Final sync to disk if using USB
+        if self.usb_mount:
+            logger.info("Syncing final track data to USB drive...")
+            try:
+                import subprocess
+                subprocess.run(['sync'], check=True)
+                time.sleep(2)  # Give extra time for exFAT/USB
+                logger.info("Final track sync completed. It is now safe to remove the USB drive.")
+            except Exception as e:
+                logger.warning(f"Final track sync failed: {e}")
+        
         # Send tracking ended signal
         self._send_tracking_ended()
         
@@ -158,6 +243,8 @@ class GPSTracker:
         self.tracking_active = False
         self.track_id = None
         self.coordinates_to_sync = []
+        self.track_file_path = None
+        self.usb_mount = None
         
         logger.info("Tracking session stopped")
         return True
@@ -242,6 +329,10 @@ class GPSTracker:
         }
         
         self.coordinates_to_sync.append(coordinate)
+        
+        # Also save coordinate to local file
+        self._save_coordinate_to_file(coordinate)
+        
         speed_info = f", speed={speed:.1f}m/s" if speed is not None and speed > 0 else ""
         alt_info = f", alt={altitude:.1f}m" if altitude is not None else ""
         acc_info = f", acc={accuracy:.1f}m" if accuracy is not None else ""
@@ -374,7 +465,9 @@ class GPSTracker:
             'track_id': self.track_id,
             'pending_coordinates': len(self.coordinates_to_sync),
             'sync_active': self.sync_active,
-            'username': self.username
+            'username': self.username,
+            'track_file_path': self.track_file_path,
+            'usb_storage': self.usb_mount is not None
         }
 
     def start_gps_tracking(self, update_interval: float = 2.0):
@@ -459,20 +552,9 @@ def main():
     # GPS tracker PID file - only one GPS tracker should be active at a time
     GPS_PIDFILE = "/tmp/gps-tracker.pid"
 
-    def cleanup_pidfile():
-        try:
-            if os.path.exists(GPS_PIDFILE):
-                os.remove(GPS_PIDFILE)
-                logger.info(f"Removed PID file: {GPS_PIDFILE}")
-        except Exception as e:
-            logger.warning(f"Could not remove active PID file on exit: {e}")
-        
-        # Also cleanup status file
-        cleanup_gps_status()
-
     def handle_exit(signum, frame):
         logger.info(f"Received exit signal {signum}, cleaning up...")
-        cleanup_pidfile()
+        cleanup_pidfile(GPS_PIDFILE, cleanup_gps_status, sync_usb=True, logger=logger)
         logger.info("Exiting gracefully...")
         sys.exit(0)
 
@@ -506,7 +588,7 @@ def main():
     finally:
         # Stop tracking
         tracker.stop_tracking()
-        cleanup_pidfile()
+        cleanup_pidfile(GPS_PIDFILE, cleanup_gps_status, sync_usb=True, logger=logger)
         logger.info("GPS Tracker stopped")
 
 
