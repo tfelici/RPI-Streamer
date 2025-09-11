@@ -17,7 +17,6 @@ import re
 import uuid
 import requests
 import socket
-import random
 import fcntl
 from datetime import datetime
 from pathlib import Path
@@ -365,208 +364,12 @@ def stop_streaming():
     
     return True, 'stopped', 200
 
-def get_gyropedia_flights(gyropedia_id, vehicle=None, domain="gyropilots.org"):
-    """
-    Get list of flights from Gyropedia similar to creategyropediaflightlist JavaScript function.
-    
-    Args:
-        gyropedia_id: The user's Gyropedia API key
-        vehicle: Vehicle registration number to match flights (optional)
-        domain: Domain to use for API calls (gyropilots.org or gapilots.org)
-    
-    Returns:
-        tuple: (success, flight_id, error_message)
-    """
-    try:
-        # Make GET request to get flight list
-        response = requests.get(
-            f'https://{domain}/ajaxservices.php',
-            params={
-                'command': 'getgyropediaflights',
-                'key': gyropedia_id,
-                'rand': str(random.random())  # Add random parameter like in JavaScript
-            },
-            timeout=10
-        )
-        
-        if response.status_code == 200:
-            try:
-                parsed_data = response.json()
-                
-                if 'error' in parsed_data and parsed_data['error']:
-                    return False, None, f"Gyropedia API error: {parsed_data.get('errormsg', 'Unknown error')}"
-                
-                # Look for flights, prefer planned flights (status 'P')
-                if 'flight' in parsed_data and parsed_data['flight']:
-                    planned_flights = [f for f in parsed_data['flight'] if f.get('status') == 'P']
-                    
-                    if planned_flights:
-                        # If we have a vehicle, look for matching flights first
-                        if vehicle and vehicle.strip():
-                            matching_flights = [f for f in planned_flights if f.get('reg', '').strip().upper() == vehicle.strip().upper()]
-                            
-                            if matching_flights:
-                                # Use first flight that matches the vehicle registration
-                                first_flight = matching_flights[0]
-                                flight_id = first_flight.get('flight_id')
-                                print(f"Found planned Gyropedia flight for vehicle {vehicle}: {flight_id}")
-                                return True, flight_id, None
-                            else:
-                                print(f"No planned flights found for vehicle registration {vehicle}, using first available planned flight")
-                        
-                        # Fallback: Use first planned flight (regardless of registration)
-                        first_flight = planned_flights[0]
-                        flight_id = first_flight.get('flight_id')
-                        flight_reg = first_flight.get('reg', 'Unknown')
-                        print(f"Found planned Gyropedia flight: {flight_id} (aircraft: {flight_reg})")
-                        return True, flight_id, None
-                    else:
-                        # No planned flights available
-                        return False, None, "No planned flights found in Gyropedia"
-                else:
-                    return False, None, "No flights found in Gyropedia response"
-                    
-            except json.JSONDecodeError as e:
-                return False, None, f"Failed to parse Gyropedia flight list response: {e}"
-        else:
-            return False, None, f"Gyropedia flight list request failed with HTTP {response.status_code}"
-            
-    except requests.RequestException as e:
-        return False, None, f"Network error getting Gyropedia flights: {e}"
-    except Exception as e:
-        return False, None, f"Unexpected error getting Gyropedia flights: {e}"
-
-def update_gyropedia_flight(gyropedia_id, state, settings, track_id=None, vehicle=None, flight_id=None):
-    """
-    Update Gyropedia flight status similar to updategyropediaflight JavaScript function.
-    
-    Args:
-        state: 'start' or 'stop'
-        settings: Application settings dictionary
-        track_id: GPS tracking ID if available
-        vehicle: Vehicle registration number to match flights (optional)
-        flight_id: Specific flight_id to update (if None, will get first available)
-    
-    Returns:
-        tuple: (success, flight_id_used) - success boolean and the flight_id that was used
-    """
-    try:
-        # Check if Gyropedia integration is configured
-        username = settings.get('username', '').strip()
-        domain = settings.get('domain', '').strip()
-        
-        if not gyropedia_id or not username:
-            print("Gyropedia integration not configured (missing gyropedia_id or username), skipping flight update")
-            return True, None  # Not an error, just not configured
-        
-        # If no flight_id provided, get the first available flight from Gyropedia
-        if not flight_id:
-            print(f"Getting first available flight from {domain}...")
-            success, flight_id, error = get_gyropedia_flights(gyropedia_id, vehicle, domain)
-            
-            if not success or not flight_id:
-                print(f"Could not get Gyropedia flight list: {error}")
-                return True, None  # Don't fail the GPS tracking just because we can't get flight list
-        
-        print(f"Using Gyropedia flight: {flight_id}")
-        
-        # Determine flight status based on state
-        if not state:
-            status = ''
-        elif state == 'start':
-            status = 'F'  # Flying/Active
-        else:  # stop
-            status = 'L'  # Landed
-        
-        # Get current time for start/end times
-        current_time = datetime.now().strftime('%H:%M')
-        
-        # Prepare source_id similar to JavaScript version
-        source_id = f"{username}:{track_id}" if track_id else ''
-        
-        # Prepare data for POST request
-        post_data = {
-            'command': 'updategyropediaflight',
-            'key': gyropedia_id,
-            'flight_id': flight_id,
-            'source_id': source_id,
-            'starttime': current_time if status == 'F' else '',
-            'endtime': current_time if status == 'L' else '',
-            'status': status
-        }
-        
-        # Make POST request to ajaxservices.php
-        response = requests.post(
-            f'https://{domain}/ajaxservices.php',
-            data=post_data,
-            timeout=10
-        )
-        
-        if response.status_code == 200:
-            try:
-                parsed_data = response.json()
-                if 'error' in parsed_data and parsed_data['error']:
-                    print(f"Gyropedia flight update error: {parsed_data['error']}")
-                    return False, flight_id
-                
-                print(f"Successfully updated Gyropedia flight {flight_id} to status '{status}'")
-                return True, flight_id
-                
-            except json.JSONDecodeError as e:
-                print(f"Failed to parse Gyropedia response: {e}")
-                return False, flight_id
-        else:
-            print(f"Gyropedia flight update failed with HTTP {response.status_code}")
-            return False, flight_id
-            
-    except requests.RequestException as e:
-        print(f"Network error updating Gyropedia flight: {e}")
-        return False, flight_id
-    except Exception as e:
-        print(f"Unexpected error updating Gyropedia flight: {e}")
-        return False, flight_id
-
-def save_gyropedia_flight_id(flight_id):
-    """Save the current gyropedia flight_id to a file for persistence"""
-    try:
-        flight_id_file = os.path.join(STREAMER_DATA_DIR, 'current_gyropedia_flight_id.txt')
-        with open(flight_id_file, 'w') as f:
-            f.write(str(flight_id))
-        print(f"Saved gyropedia flight_id: {flight_id}")
-    except Exception as e:
-        print(f"Error saving gyropedia flight_id: {e}")
-
-def load_gyropedia_flight_id():
-    """Load the current gyropedia flight_id from file"""
-    try:
-        flight_id_file = os.path.join(STREAMER_DATA_DIR, 'current_gyropedia_flight_id.txt')
-        if os.path.exists(flight_id_file):
-            with open(flight_id_file, 'r') as f:
-                flight_id = f.read().strip()
-                if flight_id:
-                    print(f"Loaded gyropedia flight_id: {flight_id}")
-                    return flight_id
-    except Exception as e:
-        print(f"Error loading gyropedia flight_id: {e}")
-    return None
-
-def clear_gyropedia_flight_id():
-    """Clear the stored gyropedia flight_id"""
-    try:
-        flight_id_file = os.path.join(STREAMER_DATA_DIR, 'current_gyropedia_flight_id.txt')
-        if os.path.exists(flight_id_file):
-            os.remove(flight_id_file)
-            print("Cleared stored gyropedia flight_id")
-    except Exception as e:
-        print(f"Error clearing gyropedia flight_id: {e}")
 
 def start_flight():
     """
     Helper function to start GPS tracking. Returns (success, message, status_code)
     
-    This function generates a track_id upfront and passes it to the GPS tracker process,
-    eliminating the need to wait for track_id generation and complex polling logic.
-    This approach is more reliable and provides immediate access to the track_id.
+    This function now delegates all initialization to gps_tracker.py for cleaner separation of concerns.
     """
     # Check if already tracking
     if is_gps_tracking():
@@ -576,7 +379,6 @@ def start_flight():
     settings = load_settings()
     username = settings['username'].strip()
     domain = settings.get('domain', '').strip()
-    vehicle = settings.get('vehicle', '').strip()
     
     if not username:
         return False, 'Flight server username is not configured. Please set a username for GPS tracking in the flight settings.', 400
@@ -584,55 +386,13 @@ def start_flight():
     if not domain:
         return False, 'Flight server domain is not configured. Please set a domain for GPS tracking in the flight settings.', 400
     
-    # Sync flight parameters from hardware database to flight server.
-    # Sets the selectedcamera and aicraft_reg
-    # cannot use setuserfield as this is protected by login
+    # Start GPS tracker
     try:
-        hardwareid = get_hardwareid()
-        response = requests.post(
-            f'https://{domain}/ajaxservices.php',
-            data={
-                'command': 'init_streamer_flightpars',
-                'hardwareid': hardwareid
-            },
-            timeout=10
-        )
-        if response.status_code == 200:
-            resp_json = response.json()
-            if 'gyropedia_id' in resp_json:
-                settings['gyropedia_id'] = resp_json['gyropedia_id']
-                print(f"Updated gyropedia_id: {resp_json['gyropedia_id']}")
-                # Save updated settings
-                save_settings(settings)
-            print(f"Successfully initialized flight parameters")
-        else:
-            return False, f'Failed to initialize flight parameters - HTTP {response.status_code}', 400
-    except requests.RequestException as e:
-        return False, f'Network error initializing flight parameters: {e}', 400
-    except Exception as e:
-        return False, f'Unexpected error initializing flight parameters: {e}', 400
-
-    # Generate track_id upfront using centralized function
-    track_id = generate_gps_track_id()
-    print(f"Generated track ID: {track_id}")
-    
-    # Start GPS tracker with the pre-generated track_id
-    try:
-        subprocess.Popen(['python', 'gps_tracker.py', username, '--domain', domain, '--track_id', track_id])
-        print(f"Started GPS tracker process with track ID: {track_id}")
+        subprocess.Popen(['python', 'gps_tracker.py', username, 
+                         '--domain', domain])
+        print(f"Started GPS tracker process")
     except Exception as e:
         return False, f'Failed to start GPS tracker process: {e}', 500
-        
-    gyropedia_id = settings.get('gyropedia_id', '').strip()
-    if (gyropedia_id):
-        # Update Gyropedia flight status to "Flying" (F) and store the flight_id
-        vehicle = settings.get('vehicle', '').strip()
-        success, flight_id = update_gyropedia_flight(gyropedia_id, 'start', settings, track_id, vehicle)
-        # Store the flight_id for use when stopping the flight
-        if success and flight_id:
-            save_gyropedia_flight_id(flight_id)
-        else:
-            print("Warning: Could not get flight_id from Gyropedia, flight ending may not work properly")
     
     # If gps_stream_link is enabled, also start video streaming
     if settings['gps_stream_link']:
@@ -654,7 +414,6 @@ def stop_flight():
         try:
             gps_status = get_gps_tracking_status()
             gps_pid = gps_status['pid']
-            track_id = gps_status.get('track_id')
             
             if gps_pid:
                 print(f"Stopping GPS tracking with PID {gps_pid}")
@@ -666,15 +425,6 @@ def stop_flight():
                         break
                     time.sleep(0.1)
                 print("GPS tracking stopped successfully.")
-            
-            # Update Gyropedia flight status to "Landed" (L) using the stored flight_id
-            gyropedia_id = settings.get('gyropedia_id', '').strip()
-            if (gyropedia_id):
-                vehicle = settings.get('vehicle', '').strip()
-                stored_flight_id = load_gyropedia_flight_id()
-                update_gyropedia_flight(gyropedia_id, 'stop', settings, track_id, vehicle, stored_flight_id)
-                # Clear the stored flight_id since the flight has ended
-                clear_gyropedia_flight_id()
             
         except Exception as e:
             print(f"Error stopping GPS tracking: {e}")
@@ -689,16 +439,6 @@ def stop_flight():
                 print(f"Warning: Failed to auto-stop video streaming: {message}")
     else:
         print("No active GPS tracking to stop.")
-    
-    gyropedia_id = settings.get('gyropedia_id', '').strip()
-    if (gyropedia_id):
-        # Update Gyropedia flight status even if GPS tracking wasn't active
-        # (in case the tracking stopped unexpectedly but we still want to mark flight as landed)
-        vehicle = settings.get('vehicle', '').strip()
-        stored_flight_id = load_gyropedia_flight_id()
-        update_gyropedia_flight(gyropedia_id, 'stop', settings, None, vehicle, stored_flight_id)
-        # Always clear the stored flight_id when stopping flight
-        clear_gyropedia_flight_id()
     
     return True, 'stopped', 200
 

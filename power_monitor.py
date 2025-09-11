@@ -1,4 +1,15 @@
 #!/usr/bin/python3
+"""
+UPS Power Monitor for RPI Streamer
+
+Monitors UPS power status and handles graceful shutdown on power loss.
+The grace period before shutdown is configurable through settings.json:
+- power_monitor_sleep_time: Grace period in seconds (default: 60)
+- Set to 0 or remove to disable power monitoring entirely
+
+When power monitoring is disabled, the script will still log UPS status
+but will not perform any shutdown actions on power loss.
+"""
 
 import os
 import time
@@ -9,9 +20,8 @@ from subprocess import call
 from x120x import X120X
 
 import fcntl
-from utils import is_streaming, is_gps_tracking, DEFAULT_SETTINGS, SETTINGS_FILE, load_settings
+from utils import is_streaming, is_gps_tracking, load_settings
 from app import stop_flight
-import json
 
 # Configure logging with rotation to prevent unlimited growth
 logging.basicConfig(
@@ -22,10 +32,6 @@ logging.basicConfig(
         RotatingFileHandler('/var/log/ups-monitor.log', maxBytes=50000, backupCount=1)
     ]
 )
-
-# User-configurable variables
-SLEEP_TIME = 60  # Time in seconds to wait between failure checks
-LOOP = True  # Set to True for continuous monitoring (required for systemd service)
 
 # Ensure only one instance of the script is running using file locking
 lockfile_path = "/var/run/ups-monitor.lock"
@@ -79,6 +85,13 @@ try:
                 
                 # Load current settings
                 settings = load_settings()
+                sleep_time = settings.get('power_monitor_sleep_time', 60)  # Default to 60 seconds
+                
+                # If sleep_time is 0 or None, disable power monitoring
+                if not sleep_time:
+                    print("Power monitoring disabled (sleep_time is 0 or unset). Skipping power loss handling.")
+                    logging.info("Power monitoring disabled - continuing normal monitoring")
+                    continue
                 
                 # Check if streaming or GPS tracking is active
                 streaming_active = is_streaming()
@@ -175,13 +188,13 @@ try:
                         logging.warning(activity_msg)
                 else:
                     # No activities running, proceed with normal shutdown
-                    print(f"Waiting {SLEEP_TIME} seconds before shutdown...")
+                    print(f"Waiting {sleep_time} seconds before shutdown...")
                     
                     # Poll for power restoration during grace period
                     elapsed_seconds = 0
                     check_interval = 10  # Check every 10 seconds
                     
-                    while elapsed_seconds < SLEEP_TIME:
+                    while elapsed_seconds < sleep_time:
                         time.sleep(check_interval)
                         elapsed_seconds += check_interval
                         
@@ -220,34 +233,40 @@ try:
                 print("UPS plugged in. No action required.")
                 logging.debug("UPS plugged in.")
 
-            if LOOP:
-                # Poll for power changes during sleep interval instead of simple sleep
-                elapsed_seconds = 0
-                check_interval = 10  # Check every 10 seconds
+            # Load sleep time setting for monitoring interval
+            settings = load_settings()
+            sleep_time = settings.get('power_monitor_sleep_time', 60)  # Default to 60 seconds
+            
+            # If power monitoring is disabled, use a simple sleep
+            if not sleep_time:
+                print("Power monitoring disabled - using simple 60-second monitoring interval")
+                time.sleep(60)
+                continue
+            
+            # Poll for power changes during sleep interval instead of simple sleep
+            elapsed_seconds = 0
+            check_interval = 10  # Check every 10 seconds
+            
+            while elapsed_seconds < sleep_time:
+                time.sleep(check_interval)
+                elapsed_seconds += check_interval
                 
-                while elapsed_seconds < SLEEP_TIME:
-                    time.sleep(check_interval)
-                    elapsed_seconds += check_interval
-                    
-                    # Check if power status has changed during sleep
-                    try:
-                        with X120X() as ups_sleep_check:
-                            ups_sleep_status = ups_sleep_check.get_status()
-                            sleep_ac_power = ups_sleep_status.get('ac_power_connected', False)
-                            
-                            # If power status changed, break out of sleep to handle it immediately
-                            if sleep_ac_power != ac_power_connected:
-                                status_change_msg = f"Power status changed during monitoring interval. Breaking sleep to handle immediately."
-                                print(status_change_msg)
-                                logging.info(status_change_msg)
-                                break
-                    except Exception as e:
-                        print(f"Error checking power during sleep interval: {e}")
-                        logging.error(f"Error checking power during sleep interval: {e}")
-                        # Continue the loop even if we can't check power status
-            else:
-                # Single run mode - exit after one successful check
-                exit(0)
+                # Check if power status has changed during sleep
+                try:
+                    with X120X() as ups_sleep_check:
+                        ups_sleep_status = ups_sleep_check.get_status()
+                        sleep_ac_power = ups_sleep_status.get('ac_power_connected', False)
+                        
+                        # If power status changed, break out of sleep to handle it immediately
+                        if sleep_ac_power != ac_power_connected:
+                            status_change_msg = f"Power status changed during monitoring interval. Breaking sleep to handle immediately."
+                            print(status_change_msg)
+                            logging.info(status_change_msg)
+                            break
+                except Exception as e:
+                    print(f"Error checking power during sleep interval: {e}")
+                    logging.error(f"Error checking power during sleep interval: {e}")
+                    # Continue the loop even if we can't check power status
                 
         except Exception as e:
             error_msg = f"Error during monitoring cycle: {e}"

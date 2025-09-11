@@ -78,7 +78,8 @@ DEFAULT_SETTINGS = {
     "gps_stream_link": False,
     "gps_start_mode": "manual",
     "gps_stop_on_power_loss": False,
-    "gps_stop_power_loss_minutes": 1
+    "gps_stop_power_loss_minutes": 1,
+    "power_monitor_sleep_time": 60
 }
 
 def list_audio_inputs():

@@ -1495,6 +1495,11 @@
                         content.classList.remove('collapsed');
                         icon.style.transform = 'rotate(0deg)';
                         localStorage.setItem(`panel-${targetId}`, 'expanded');
+                        
+                        // If this is the service monitoring panel and we have stored data, update the UI
+                        if (targetId === 'service-monitoring-content' && lastServiceData) {
+                            updateServiceStatusUI(lastServiceData);
+                        }
                     } else {
                         content.classList.add('collapsed');
                         icon.style.transform = 'rotate(-90deg)';
@@ -2106,14 +2111,14 @@
     // Initialize stats polling when DOM is ready
     // Combine all DOMContentLoaded handlers to prevent duplicate connections
     document.addEventListener('DOMContentLoaded', function() {
+        // Initialize collapsible panels first so panel states are ready
+        initializeCollapsiblePanels();
+        
         initializeStatsPolling();
         initializeDiagnostics();
         startServiceMonitoring();
         initializeLogViewer();
         initializeGPSTracks();
-        
-        // Other existing DOMContentLoaded functionality
-        initializeCollapsiblePanels();
     });
     
     // GPS Tracks functionality
@@ -2580,6 +2585,16 @@
                 serviceMonitoringEventSource.close();
             }
             
+            // Fetch initial service status immediately
+            fetch('/service-status')
+                .then(response => response.json())
+                .then(data => {
+                    updateServiceStatus(data);
+                })
+                .catch(error => {
+                    console.error('Error fetching initial service status:', error);
+                });
+            
             serviceMonitoringEventSource = new EventSource('/service-status-sse');
             
             serviceMonitoringEventSource.onmessage = function(event) {
@@ -2602,13 +2617,23 @@
             };
         }
         
+        // Store service data globally for when panel becomes visible
+        let lastServiceData = null;
+        
         function updateServiceStatus(data) {
-            // Only update if service monitoring panel is visible
+            // Always store the latest data
+            lastServiceData = data;
+            
+            // Only update UI if service monitoring panel is visible
             const serviceContent = document.getElementById('service-monitoring-content');
             if (serviceContent && serviceContent.classList.contains('collapsed')) {
-                return; // Skip update if panel is collapsed
+                return; // Skip UI update if panel is collapsed, but data is still stored
             }
             
+            updateServiceStatusUI(data);
+        }
+        
+        function updateServiceStatusUI(data) {
             const services = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon', 'ups-monitor'];
             
             services.forEach(service => {

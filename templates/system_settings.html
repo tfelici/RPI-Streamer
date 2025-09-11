@@ -140,23 +140,45 @@
         <div class="frame">
             <!-- System Controls -->
             <h2>System Controls</h2>
-            <div style="text-align: center; margin-bottom: 2rem;">
-                <div style="display: flex; gap: 1rem; justify-content: center; margin-bottom: 1rem;">
-                    <button id="reboot-btn" class="btn btn-danger">Reboot System</button>
-                    <button id="shutdown-btn" class="btn btn-danger">Shutdown System</button>
-                </div>
-                <div id="reboot-result" class="status-message" style="display: none;"></div>
-                <div id="shutdown-result" class="status-message" style="display: none;"></div>
+            
+            <!-- Power Management Settings -->
+            <div style="margin-bottom: 2rem; padding: 1rem; background: #f8f9fa; border-radius: 0.5rem; border: 1px solid #dee2e6;">
+                <h3 style="margin-top: 0; margin-bottom: 1rem;">Power Management</h3>
+                <form id="power-settings-form">
+                    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem;">
+                        <label for="power-sleep-time" style="margin: 0; font-weight: bold;">Grace Period (seconds):</label>
+                        <input type="number" id="power-sleep-time" name="power_monitor_sleep_time" min="0" max="3600" step="1" required style="width: 100px;">
+                        <button type="submit" class="btn btn-primary" style="padding: 0.25rem 0.75rem;">Save</button>
+                    </div>
+                    <p class="help-text" style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: var(--text-secondary);">
+                        Time to wait before shutting down when power is lost and tracking is inactive (0 = disable power monitoring)
+                    </p>
+                    <div id="power-settings-result" class="status-message" style="display: none;"></div>
+                </form>
             </div>
             
-            <!-- Factory Reset Section -->
-            <div style="text-align: center; margin-bottom: 2rem;">
-                <h3 style="color: #d32f2f; margin-bottom: 1rem;">Factory Reset</h3>
-                <p style="color: #666; margin-bottom: 1rem; font-size: 0.9rem;">
-                    This will reset all settings to factory defaults. WiFi credentials, authentication, and all configuration will be lost.
-                </p>
-                <button id="factory-reset-btn" class="btn btn-danger">Reset to Factory Defaults</button>
-                <div id="factory-reset-result" class="status-message" style="display: none;"></div>
+            <!-- System Operations -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem;">
+                <!-- Power Controls -->
+                <div style="text-align: center;">
+                    <h4 style="margin: 0 0 0.5rem 0; color: #495057;">Power Controls</h4>
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <button id="reboot-btn" class="btn btn-danger" style="padding: 0.5rem;">Reboot System</button>
+                        <button id="shutdown-btn" class="btn btn-danger" style="padding: 0.5rem;">Shutdown System</button>
+                    </div>
+                    <div id="reboot-result" class="status-message" style="display: none; margin-top: 0.5rem;"></div>
+                    <div id="shutdown-result" class="status-message" style="display: none; margin-top: 0.5rem;"></div>
+                </div>
+                
+                <!-- Factory Reset -->
+                <div style="text-align: center;">
+                    <h4 style="margin: 0 0 0.5rem 0; color: #d32f2f;">Factory Reset</h4>
+                    <p style="color: #666; margin: 0 0 0.5rem 0; font-size: 0.8rem;">
+                        Reset all settings to defaults
+                    </p>
+                    <button id="factory-reset-btn" class="btn btn-danger" style="padding: 0.5rem;">Reset to Defaults</button>
+                    <div id="factory-reset-result" class="status-message" style="display: none; margin-top: 0.5rem;"></div>
+                </div>
             </div>
             
             <!-- Update Section -->
@@ -164,25 +186,24 @@
                 <h2>System Updates</h2>
                 
                 <!-- Auto-update Toggle -->
-                <div style="margin-bottom: 1.5rem; padding: 1rem; background: #f8f9fa; border-radius: 0.5rem; border: 1px solid #dee2e6;">
-                    <h3 style="margin-top: 0; margin-bottom: 1rem;">Automatic Updates</h3>
+                <div style="margin-bottom: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 0.5rem; border: 1px solid #dee2e6;">
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
                         <div>
-                            <strong>Check for updates at boot</strong>
-                            <div style="font-size: 0.9rem; color: #6c757d; margin-top: 0.25rem;">
-                                Automatically check for and install RPI Streamer updates when the system starts
+                            <strong>Auto-updates at boot</strong>
+                            <div style="font-size: 0.8rem; color: #6c757d;">
+                                Check for updates when system starts
                             </div>
                         </div>
-                        <label style="display: flex; align-items: center; margin-left: 1rem;">
+                        <label style="display: flex; align-items: center;">
                             <input type="checkbox" id="auto-update-toggle" style="margin-right: 0.5rem;">
                             <span id="auto-update-status">Loading...</span>
                         </label>
                     </div>
-                    <div id="auto-update-result" class="status-message" style="display: none; margin-top: 0.5rem;"></div>
+                    <div id="auto-update-result" class="status-message" style="display: none;"></div>
                 </div>
                 
                 <!-- Manual Update Controls -->
-                <div style="text-align: center; margin-bottom: 1rem;">
+                <div style="display: flex; gap: 1rem; justify-content: center; margin-bottom: 1rem;">
                     <button id="check-update-btn" class="btn btn-primary">Check for Updates</button>
                     <button id="do-update-btn" class="btn btn-success" style="display: none;">Update Now</button>
                 </div>
@@ -204,7 +225,7 @@
         let currentWifiSSID = null;
         let currentWifiConnected = false;
         
-        // Load current auth settings and WiFi status
+        // Load current auth settings, WiFi status, and power settings
         fetch('/system-settings-data').then(r => r.json()).then(data => {
             if (data.auth) {
                 document.getElementById('auth-username').value = data.auth.username || '';
@@ -213,6 +234,9 @@
             if (data.wifi) {
                 document.getElementById('wifi-ssid').value = data.wifi.manual_ssid || '';
                 document.getElementById('wifi-pass').value = data.wifi.manual_password || '';
+            }
+            if (data.settings) {
+                document.getElementById('power-sleep-time').value = data.settings.power_monitor_sleep_time || 60;
             }
         });
         
@@ -656,6 +680,57 @@
                 resultDiv.style.display = 'block';
             }).catch(error => {
                 resultDiv.textContent = 'Error updating authentication settings: ' + error.message;
+                resultDiv.className = 'status-message status-error';
+                resultDiv.style.display = 'block';
+            }).finally(() => {
+                submitBtn.disabled = false;
+            });
+        };
+        
+        // Power settings form submit
+        document.getElementById('power-settings-form').onsubmit = function(e) {
+            e.preventDefault();
+            const resultDiv = document.getElementById('power-settings-result');
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const sleepTimeInput = document.getElementById('power-sleep-time');
+            
+            // Validate input
+            const sleepTime = parseInt(sleepTimeInput.value);
+            if (isNaN(sleepTime) || sleepTime < 0 || sleepTime > 3600) {
+                resultDiv.textContent = 'Grace period must be between 0 and 3600 seconds';
+                resultDiv.className = 'status-message status-error';
+                resultDiv.style.display = 'block';
+                return;
+            }
+            
+            // Show updating message
+            resultDiv.textContent = 'Updating power management settings...';
+            resultDiv.className = 'status-message';
+            resultDiv.style.display = 'block';
+            submitBtn.disabled = true;
+            
+            fetch('/system-settings-power', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    power_monitor_sleep_time: sleepTime
+                })
+            }).then(r => r.json()).then(data => {
+                let message;
+                if (data.success) {
+                    if (sleepTime === 0) {
+                        message = 'Power monitoring disabled successfully!';
+                    } else {
+                        message = `Grace period set to ${sleepTime} seconds successfully!`;
+                    }
+                } else {
+                    message = data.error || 'Error saving power settings';
+                }
+                resultDiv.textContent = message;
+                resultDiv.className = data.success ? 'status-message status-success' : 'status-message status-error';
+                resultDiv.style.display = 'block';
+            }).catch(error => {
+                resultDiv.textContent = 'Error updating power settings: ' + error.message;
                 resultDiv.className = 'status-message status-error';
                 resultDiv.style.display = 'block';
             }).finally(() => {
