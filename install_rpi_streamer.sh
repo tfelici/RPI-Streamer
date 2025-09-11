@@ -3,8 +3,6 @@
 # Usage: bash install_rpi_streamer.sh [OPTIONS]
 #
 # Options:
-#   --skip-update     Skip updating the codebase from GitHub repository
-#                     (use existing local files without checking for updates)
 #   --main            Install stable main branch (default)
 #   --develop         Install latest develop branch (may be unstable)
 #   --daemon          Run in daemon mode (no interactive prompts)
@@ -12,7 +10,6 @@
 # Examples:
 #   bash install_rpi_streamer.sh                     # Basic installation with main branch
 #   bash install_rpi_streamer.sh --develop          # Installation with develop branch
-#   bash install_rpi_streamer.sh --skip-update      # Installation without updating codebase
 #   bash install_rpi_streamer.sh --daemon           # Silent installation without prompts
 
 # This script installs the RPI Streamer Flask app and MediaMTX on a Raspberry Pi running Raspberry Pi OS Lite.
@@ -71,18 +68,6 @@ cd "$HOME/flask_app"
 #     Update the codebase to match the remote GitHub repository if changes are available.
 #     This ensures the device has the latest version from the remote repository.
 #     If the repository is not already cloned, it will clone it fresh.
-#     
-#     The --skip-update option allows you to:
-#       - Use existing local files without checking for updates
-#       - Skip the git fetch and reset operations
-#       - Maintain any local modifications you may have made
-#       - Avoid network calls to GitHub during installation
-#
-#     Use --skip-update when:
-#       - You want to use a specific local version of the code
-#       - You have made local modifications you want to preserve
-#       - You're in an environment with limited internet connectivity
-#       - You're testing local changes and don't want them overwritten
 echo "Updating RPI Streamer codebase..."
 
 # Check if git is installed
@@ -95,47 +80,41 @@ fi
 UPDATES_AVAILABLE=false
 IS_NEW_INSTALLATION=false
 
-# If repository exists, check for updates unless --skip-update is specified
+# If repository exists, check for updates
 # If not, it's a new installation and we should proceed
 if [ -d .git ]; then
-    # Only skip update if --skip-update is passed
-    if [[ "$@" == *"--skip-update"* ]]; then
-        echo "Skipping repository update (--skip-update specified)"
-        echo "✅ Proceeding with existing local files"
+    # Get current commit hash before fetch
+    CURRENT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
+    
+    sudo git fetch --all
+    
+    # Determine which branch to use based on flags (support both old and new naming)
+    if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
+        TARGET_BRANCH="origin/develop"
+        BRANCH_NAME="develop"
     else
-        # Get current commit hash before fetch
-        CURRENT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
+        # Default to main branch for stability
+        TARGET_BRANCH="origin/main"
+        BRANCH_NAME="main"
+    fi
+    
+    # Get the latest commit hash from remote
+    LATEST_COMMIT=$(git rev-parse $TARGET_BRANCH 2>/dev/null || echo "")
+    
+    # Check if there are updates available
+    if [ "$CURRENT_COMMIT" != "$LATEST_COMMIT" ] && [ -n "$LATEST_COMMIT" ]; then
+        echo "📦 Updates available on $BRANCH_NAME branch"
+        echo "   Current: ${CURRENT_COMMIT:0:8}"
+        echo "   Latest:  ${LATEST_COMMIT:0:8}"
+        UPDATES_AVAILABLE=true
         
-        sudo git fetch --all
-        
-        # Determine which branch to use based on flags (support both old and new naming)
-        if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
-            TARGET_BRANCH="origin/develop"
-            BRANCH_NAME="develop"
-        else
-            # Default to main branch for stability
-            TARGET_BRANCH="origin/main"
-            BRANCH_NAME="main"
-        fi
-        
-        # Get the latest commit hash from remote
-        LATEST_COMMIT=$(git rev-parse $TARGET_BRANCH 2>/dev/null || echo "")
-        
-        # Check if there are updates available
-        if [ "$CURRENT_COMMIT" != "$LATEST_COMMIT" ] && [ -n "$LATEST_COMMIT" ]; then
-            echo "📦 Updates available on $BRANCH_NAME branch"
-            echo "   Current: ${CURRENT_COMMIT:0:8}"
-            echo "   Latest:  ${LATEST_COMMIT:0:8}"
-            UPDATES_AVAILABLE=true
-            
-            sudo git reset --hard $TARGET_BRANCH
-            sudo git clean -f -d
-            echo "Repository updated to latest $BRANCH_NAME branch"
-        else
-            echo "✅ Already up to date on $BRANCH_NAME branch"
-            echo "💡 No installation needed - system is current"
-            exit 0
-        fi
+        sudo git reset --hard $TARGET_BRANCH
+        sudo git clean -f -d
+        echo "Repository updated to latest $BRANCH_NAME branch"
+    else
+        echo "✅ Already up to date on $BRANCH_NAME branch"
+        echo "💡 No installation needed - system is current"
+        exit 0
     fi
 else
     echo "Repository not found, this is a new installation..."
@@ -819,32 +798,15 @@ echo "   🔧 Manual control: sudo systemctl start/stop gps-daemon.service"
 #create a systemd service for this script
 printf "Creating systemd service for this script...\n"
 
-# Check if --skip-update flag is present
-if [[ "$@" == *"--skip-update"* ]]; then
-    echo "Skipping install_rpi_streamer.service creation (--skip-update specified)"
-    echo "Removing existing install_rpi_streamer.service if present..."
-    
-    # Stop and disable the service if it exists
-    sudo systemctl stop install_rpi_streamer.service 2>/dev/null || true
-    sudo systemctl disable install_rpi_streamer.service 2>/dev/null || true
-    
-    # Remove the service file
-    sudo rm -f /etc/systemd/system/install_rpi_streamer.service
-    
-    # Reload systemd to update the service list
-    sudo systemctl daemon-reload
-    
-    echo "✅ install_rpi_streamer.service removed (not needed when using local code)"
+# Determine which branch flag to pass based on current installation (support both old and new naming)
+BRANCH_FLAG=""
+if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
+    BRANCH_FLAG="--develop"
 else
-    # Determine which branch flag to pass based on current installation (support both old and new naming)
-    BRANCH_FLAG=""
-    if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
-        BRANCH_FLAG="--develop"
-    else
-        BRANCH_FLAG="--main"
-    fi
+    BRANCH_FLAG="--main"
+fi
 
-    sudo tee /etc/systemd/system/install_rpi_streamer.service >/dev/null << EOF
+sudo tee /etc/systemd/system/install_rpi_streamer.service >/dev/null << EOF
 [Unit]
 Description=RPI Streamer Installation Script
 After=network-online.target
@@ -859,10 +821,9 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 EOF
 
-    sudo systemctl daemon-reload
-    sudo systemctl enable install_rpi_streamer
-    echo "✅ install_rpi_streamer.service created and enabled"
-fi
+sudo systemctl daemon-reload
+sudo systemctl enable install_rpi_streamer
+echo "✅ install_rpi_streamer.service created and enabled"
 sudo systemctl enable flask_app
 sudo systemctl restart flask_app
 sudo systemctl enable mediamtx
@@ -1235,13 +1196,11 @@ echo "   🔑 SSH Server (remote terminal access)"
 
 echo ""
 echo "🛠️ Installation Script Options:"
-echo "   --skip-update  : Skip updating codebase from GitHub (use existing local files)"
 echo "   --daemon       : Run in daemon mode (no interactive prompts)"
 echo ""
 echo "🌐 Examples:"
 echo "   bash install_rpi_streamer.sh                      # Interactive installation"
 echo "   bash install_rpi_streamer.sh --daemon             # Silent installation"
-echo "   bash install_rpi_streamer.sh --skip-update        # Use existing local files"
 echo ""
 echo "📚 Documentation:"
 echo "   GPS Tracker: GPS_TRACKER_README.md"

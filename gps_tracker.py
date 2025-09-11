@@ -28,7 +28,7 @@ import re
 import os
 from datetime import datetime
 from typing import Dict, List, Optional
-from utils import generate_gps_track_id, calculate_distance
+from utils import generate_gps_track_id, calculate_distance, get_storage_path, cleanup_pidfile, load_settings, save_settings, get_hardwareid, STREAMER_DATA_DIR
 from gps_client import get_gnss_location
 
 # Configure logging
@@ -74,6 +74,227 @@ def cleanup_gps_status():
         pass
 
 
+def initialize_flight_parameters(domain, hardwareid):
+    """
+    Sync flight parameters from hardware database to flight server.
+    Sets the selectedcamera and aircraft_reg
+    Loops indefinitely until successful - relies on SIGTERM handler for clean exit
+    Returns (success, updated_settings, error_message)
+    """
+    retry_count = 0
+    while True:
+        try:
+            retry_count += 1
+            if retry_count > 1:
+                logger.info(f"Attempting to initialize flight parameters (attempt {retry_count})...")
+            else:
+                logger.info("Initializing flight parameters...")
+            
+            response = requests.post(
+                f'https://{domain}/ajaxservices.php',
+                data={
+                    'command': 'init_streamer_flightpars',
+                    'hardwareid': hardwareid
+                },
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                try:
+                    resp_json = response.json()
+                    settings = load_settings()
+                    if 'gyropedia_id' in resp_json:
+                        settings['gyropedia_id'] = resp_json['gyropedia_id']
+                        logger.info(f"Updated gyropedia_id: {resp_json['gyropedia_id']}")
+                        # Save updated settings
+                        save_settings(settings)
+                    logger.info(f"Successfully initialized flight parameters after {retry_count} attempt(s)")
+                    return True, settings, None
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Invalid JSON response from server: {e}")
+                    time.sleep(5)
+                    continue
+            else:
+                logger.warning(f'Failed to initialize flight parameters - HTTP {response.status_code}')
+                time.sleep(5)
+                continue
+                
+        except requests.exceptions.ConnectionError as e:
+            logger.warning(f'No internet connection available: {e}')
+            time.sleep(10)  # Longer wait for connection issues
+            continue
+        except requests.exceptions.Timeout as e:
+            logger.warning(f'Request timeout: {e}')
+            time.sleep(5)
+            continue
+        except requests.RequestException as e:
+            logger.warning(f'Network error initializing flight parameters: {e}')
+            time.sleep(5)
+            continue
+        except Exception as e:
+            logger.warning(f'Unexpected error initializing flight parameters: {e}')
+            time.sleep(5)
+            continue
+
+
+def get_gyropedia_flights(gyropedia_id, vehicle=None, domain="gyropilots.org"):
+    """
+    Get list of flights from Gyropedia similar to creategyropediaflightlist JavaScript function.
+    """
+    try:
+        import random
+        
+        # Make GET request to get flight list
+        response = requests.get(
+            f'https://{domain}/ajaxservices.php',
+            params={
+                'command': 'getgyropediaflights',
+                'key': gyropedia_id,
+                'rand': str(random.random())  # Add random parameter like in JavaScript
+            },
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            try:
+                parsed_data = response.json()
+                
+                if 'error' in parsed_data and parsed_data['error']:
+                    return False, None, f"Gyropedia API error: {parsed_data.get('errormsg', 'Unknown error')}"
+                
+                # Look for flights, prefer planned flights (status 'P')
+                if 'flight' in parsed_data and parsed_data['flight']:
+                    planned_flights = [f for f in parsed_data['flight'] if f.get('status') == 'P']
+                    
+                    if planned_flights:
+                        # If we have a vehicle, look for matching flights first
+                        if vehicle and vehicle.strip():
+                            matching_flights = [f for f in planned_flights if f.get('reg', '').strip().upper() == vehicle.strip().upper()]
+                            
+                            if matching_flights:
+                                # Use first flight that matches the vehicle registration
+                                first_flight = matching_flights[0]
+                                flight_id = first_flight.get('flight_id')
+                                logger.info(f"Found planned Gyropedia flight for vehicle {vehicle}: {flight_id}")
+                                return True, flight_id, None
+                            else:
+                                logger.info(f"No planned flights found for vehicle registration {vehicle}, using first available planned flight")
+                        
+                        # Fallback: Use first planned flight (regardless of registration)
+                        first_flight = planned_flights[0]
+                        flight_id = first_flight.get('flight_id')
+                        flight_reg = first_flight.get('reg', 'Unknown')
+                        logger.info(f"Found planned Gyropedia flight: {flight_id} (aircraft: {flight_reg})")
+                        return True, flight_id, None
+                    else:
+                        # No planned flights available
+                        return False, None, "No planned flights found in Gyropedia"
+                else:
+                    return False, None, "No flights found in Gyropedia response"
+                    
+            except json.JSONDecodeError as e:
+                return False, None, f"Failed to parse Gyropedia flight list response: {e}"
+        else:
+            return False, None, f"Gyropedia flight list request failed with HTTP {response.status_code}"
+            
+    except requests.RequestException as e:
+        return False, None, f"Network error getting Gyropedia flights: {e}"
+    except Exception as e:
+        return False, None, f"Unexpected error getting Gyropedia flights: {e}"
+
+
+def update_gyropedia_flight(gyropedia_id, state, settings, track_id=None, vehicle=None, flight_id=None):
+    """
+    Update Gyropedia flight status similar to updategyropediaflight JavaScript function.
+    """
+    try:
+        domain = settings.get('domain', '').strip()
+        username = settings.get('username', '').strip()
+        
+        # Check if Gyropedia integration is configured
+        if not gyropedia_id or not username:
+            logger.info("Gyropedia integration not configured (missing gyropedia_id or username), skipping flight update")
+            return True, None  # Not an error, just not configured
+        
+        # If no flight_id provided, get the first available flight from Gyropedia
+        if not flight_id:
+            logger.info(f"Getting first available flight from {domain}...")
+            success, flight_id, error = get_gyropedia_flights(gyropedia_id, vehicle, domain)
+            
+            if not success or not flight_id:
+                logger.info(f"Could not get Gyropedia flight list: {error}")
+                return True, None  # Don't fail the GPS tracking just because we can't get flight list
+        
+        logger.info(f"Using Gyropedia flight: {flight_id}")
+        
+        # Determine flight status based on state
+        if not state:
+            status = ''
+        elif state == 'start':
+            status = 'F'  # Flying/Active
+        else:  # stop
+            status = 'L'  # Landed
+        
+        # Get current time for start/end times
+        current_time = datetime.now().strftime('%H:%M')
+        
+        # Prepare source_id similar to JavaScript version
+        source_id = f"{username}:{track_id}" if track_id else ''
+        
+        # Prepare data for POST request
+        post_data = {
+            'command': 'updategyropediaflight',
+            'key': gyropedia_id,
+            'flight_id': flight_id,
+            'source_id': source_id,
+            'starttime': current_time if status == 'F' else '',
+            'endtime': current_time if status == 'L' else '',
+            'status': status
+        }
+        
+        # Make POST request to ajaxservices.php
+        response = requests.post(
+            f'https://{domain}/ajaxservices.php',
+            data=post_data,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            try:
+                parsed_data = response.json()
+                if 'error' in parsed_data and parsed_data['error']:
+                    logger.error(f"Gyropedia flight update error: {parsed_data['error']}")
+                    return False, flight_id
+                
+                logger.info(f"Successfully updated Gyropedia flight {flight_id} to status '{status}'")
+                return True, flight_id
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse Gyropedia response: {e}")
+                return False, flight_id
+        else:
+            logger.error(f"Gyropedia flight update failed with HTTP {response.status_code}")
+            return False, flight_id
+            
+    except requests.RequestException as e:
+        logger.error(f"Network error updating Gyropedia flight: {e}")
+        return False, flight_id
+    except Exception as e:
+        logger.error(f"Unexpected error updating Gyropedia flight: {e}")
+        return False, flight_id
+
+
+def save_gyropedia_flight_id(flight_id):
+    """Save the current gyropedia flight_id to a file for persistence"""
+    try:
+        flight_id_file = os.path.join(STREAMER_DATA_DIR, 'current_gyropedia_flight_id.txt')
+        with open(flight_id_file, 'w') as f:
+            f.write(str(flight_id))
+        logger.info(f"Saved gyropedia flight_id: {flight_id}")
+    except Exception as e:
+        logger.error(f"Error saving gyropedia flight_id: {e}")
+
+
 class GPSTracker:
     def __init__(self, username: str, domain: str, track_id: Optional[str] = None):
         # Validate required parameters
@@ -95,6 +316,10 @@ class GPSTracker:
         # GPS state tracking
         self.gps_started = False
         
+        # Track file storage
+        self.track_file_path = None
+        self.usb_mount = None
+        
         # Movement detection
         self.last_position = None
         self.movement_threshold = 5.0  # meters - minimum distance to consider as movement
@@ -112,6 +337,70 @@ class GPSTracker:
         
         logger.info(f"GPS Tracker initialized for user: {username} on domain: {domain}")
 
+    def _setup_track_storage(self) -> bool:
+        """Set up track file storage (USB or local), similar to video recording storage"""
+        # Get storage path for tracks
+        track_dir, self.usb_mount = get_storage_path('tracks')
+        
+        # Create tracks directory
+        os.makedirs(track_dir, exist_ok=True)
+        
+        # Create track file path - using .tsv (tab-separated values) for crash resistance
+        self.track_file_path = os.path.join(track_dir, f"{self.track_id}.tsv")
+        
+        # Initialize track file with header and metadata as comments
+        try:
+            with open(self.track_file_path, 'w') as f:
+                # Write metadata as comments at the top
+                f.write(f"# Track ID: {self.track_id}\n")
+                f.write(f"# Username: {self.username}\n")
+                f.write(f"# Domain: {self.domain}\n")
+                f.write(f"# Start Time: {datetime.now().isoformat()}\n")
+                f.write(f"# Platform: {self.platform}\n")
+                f.write("#\n")
+                # Write header row
+                f.write("timestamp\tlatitude\tlongitude\taltitude\taccuracy\taltitudeAccuracy\theading\tspeed\n")
+            logger.info(f"Track file initialized: {self.track_file_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to initialize track file: {e}")
+            return False
+
+    def _save_coordinate_to_file(self, coordinate: Dict) -> bool:
+        """Save a coordinate to the track file as a tab-delimited line"""
+        if not self.track_file_path:
+            return False
+            
+        try:
+            # Extract location data
+            location = coordinate['location']
+            timestamp = coordinate['timestamp']
+            
+            # Format values, using empty string for None values
+            values = [
+                str(timestamp),
+                str(location['latitude']),
+                str(location['longitude']),
+                str(location.get('altitude', '')),
+                str(location.get('accuracy', '')),
+                str(location.get('altitudeAccuracy', '')),
+                str(location.get('heading', '')),
+                str(location.get('speed', ''))
+            ]
+            
+            # Write as tab-delimited line
+            with open(self.track_file_path, 'a') as f:
+                f.write('\t'.join(values) + '\n')
+            
+            # Note: USB sync is handled by the cleanup_pidfile function and stop_tracking()
+            # No need to sync after every coordinate - this would hurt performance
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to save coordinate to file: {e}")
+            return False
+
     def start_tracking(self) -> bool:
         """Start a new tracking session"""
         if self.tracking_active:
@@ -122,6 +411,12 @@ class GPSTracker:
             self.track_id = generate_gps_track_id()
         self.coordinates_to_sync = []
         self.tracking_active = True
+        
+        # Set up track file storage
+        if not self._setup_track_storage():
+            logger.error("Failed to set up track storage")
+            self.tracking_active = False
+            return False
         
         # Reset movement detection
         self.last_position = None
@@ -149,6 +444,17 @@ class GPSTracker:
             logger.info("Syncing remaining coordinates before stop...")
             self._sync_coordinates_to_server()
         
+        # Final sync to disk if using USB
+        if self.usb_mount:
+            logger.info("Syncing final track data to USB drive...")
+            try:
+                import subprocess
+                subprocess.run(['sync'], check=True)
+                time.sleep(2)  # Give extra time for exFAT/USB
+                logger.info("Final track sync completed. It is now safe to remove the USB drive.")
+            except Exception as e:
+                logger.warning(f"Final track sync failed: {e}")
+        
         # Send tracking ended signal
         self._send_tracking_ended()
         
@@ -158,6 +464,8 @@ class GPSTracker:
         self.tracking_active = False
         self.track_id = None
         self.coordinates_to_sync = []
+        self.track_file_path = None
+        self.usb_mount = None
         
         logger.info("Tracking session stopped")
         return True
@@ -242,6 +550,10 @@ class GPSTracker:
         }
         
         self.coordinates_to_sync.append(coordinate)
+        
+        # Also save coordinate to local file
+        self._save_coordinate_to_file(coordinate)
+        
         speed_info = f", speed={speed:.1f}m/s" if speed is not None and speed > 0 else ""
         alt_info = f", alt={altitude:.1f}m" if altitude is not None else ""
         acc_info = f", acc={accuracy:.1f}m" if accuracy is not None else ""
@@ -374,7 +686,9 @@ class GPSTracker:
             'track_id': self.track_id,
             'pending_coordinates': len(self.coordinates_to_sync),
             'sync_active': self.sync_active,
-            'username': self.username
+            'username': self.username,
+            'track_file_path': self.track_file_path,
+            'usb_storage': self.usb_mount is not None
         }
 
     def start_gps_tracking(self, update_interval: float = 2.0):
@@ -453,26 +767,16 @@ def main():
     parser.add_argument('--interval', type=float, default=2.0, help='GPS update interval in seconds')
     parser.add_argument('--duration', type=int, help='Duration to run in seconds')
     parser.add_argument('--track_id', type=str, help='Optional: Use a specific track ID for the session')
+
     
     args = parser.parse_args()
     
     # GPS tracker PID file - only one GPS tracker should be active at a time
     GPS_PIDFILE = "/tmp/gps-tracker.pid"
 
-    def cleanup_pidfile():
-        try:
-            if os.path.exists(GPS_PIDFILE):
-                os.remove(GPS_PIDFILE)
-                logger.info(f"Removed PID file: {GPS_PIDFILE}")
-        except Exception as e:
-            logger.warning(f"Could not remove active PID file on exit: {e}")
-        
-        # Also cleanup status file
-        cleanup_gps_status()
-
     def handle_exit(signum, frame):
         logger.info(f"Received exit signal {signum}, cleaning up...")
-        cleanup_pidfile()
+        cleanup_pidfile(GPS_PIDFILE, cleanup_gps_status, sync_usb=True, logger=logger)
         logger.info("Exiting gracefully...")
         sys.exit(0)
 
@@ -480,8 +784,34 @@ def main():
     signal.signal(signal.SIGTERM, handle_exit)
     signal.signal(signal.SIGINT, handle_exit)
     
+    # Always initialize flight parameters - will loop until successful
+    try:
+        hardwareid = get_hardwareid()
+        success, settings, error_msg = initialize_flight_parameters(args.domain, hardwareid)
+        # Function will loop until success, so we should always get success=True here
+    except Exception as e:
+        logger.error(f"Error getting hardware ID: {e}")
+        sys.exit(1)
+    
+    # Generate track_id if not provided
+    track_id = args.track_id if args.track_id else generate_gps_track_id()
+    logger.info(f"Using track ID: {track_id}")
+    
+    # Handle Gyropedia integration automatically if configured
+    gyropedia_id = settings.get('gyropedia_id', '').strip()
+    if gyropedia_id:
+        vehicle = settings.get('vehicle', '').strip()
+        success, flight_id = update_gyropedia_flight(gyropedia_id, 'start', settings, track_id, vehicle)
+        # Store the flight_id for use when stopping the flight
+        if success and flight_id:
+            save_gyropedia_flight_id(flight_id)
+        else:
+            logger.warning("Could not get flight_id from Gyropedia, flight ending may not work properly")
+    else:
+        logger.info("Gyropedia integration not configured (no gyropedia_id found in settings)")
+    
     # Create GPS tracker instance
-    tracker = GPSTracker(args.username, args.domain, track_id=args.track_id)
+    tracker = GPSTracker(args.username, args.domain, track_id=track_id)
     
     try:
         # Start tracking
@@ -504,9 +834,39 @@ def main():
         logger.info("Received interrupt signal")
         
     finally:
+        # Handle Gyropedia integration on exit if configured
+        try:
+            gyropedia_id = settings.get('gyropedia_id', '').strip()
+            if gyropedia_id:
+                vehicle = settings.get('vehicle', '').strip()
+                
+                # Load stored flight_id
+                stored_flight_id = None
+                try:
+                    flight_id_file = os.path.join(STREAMER_DATA_DIR, 'current_gyropedia_flight_id.txt')
+                    if os.path.exists(flight_id_file):
+                        with open(flight_id_file, 'r') as f:
+                            stored_flight_id = f.read().strip()
+                except Exception as e:
+                    logger.warning(f"Error loading gyropedia flight_id: {e}")
+                
+                # Update flight to landed status
+                update_gyropedia_flight(gyropedia_id, 'stop', settings, track_id, vehicle, stored_flight_id)
+                
+                # Clear the stored flight_id
+                try:
+                    flight_id_file = os.path.join(STREAMER_DATA_DIR, 'current_gyropedia_flight_id.txt')
+                    if os.path.exists(flight_id_file):
+                        os.remove(flight_id_file)
+                        logger.info("Cleared stored gyropedia flight_id")
+                except Exception as e:
+                    logger.warning(f"Error clearing gyropedia flight_id: {e}")
+        except Exception as e:
+            logger.warning(f"Error handling Gyropedia integration on exit: {e}")
+        
         # Stop tracking
         tracker.stop_tracking()
-        cleanup_pidfile()
+        cleanup_pidfile(GPS_PIDFILE, cleanup_gps_status, sync_usb=True, logger=logger)
         logger.info("GPS Tracker stopped")
 
 

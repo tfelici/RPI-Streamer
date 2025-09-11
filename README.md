@@ -31,12 +31,6 @@ bash install_rpi_streamer.sh --main
 
 # Silent installation without interactive prompts
 bash install_rpi_streamer.sh --develop --daemon
-
-# Use existing local files without updating from GitHub
-bash install_rpi_streamer.sh --develop --skip-update
-
-# Combined options for automated deployment
-bash install_rpi_streamer.sh --develop --daemon --skip-update
 ```
 
 ### Installation Option Details
@@ -44,8 +38,6 @@ bash install_rpi_streamer.sh --develop --daemon --skip-update
 - **`--develop`**: Install latest development branch with newest features
 - **`--main`**: Install stable main branch (default if no branch specified)
 - **`--daemon`**: Run in daemon mode with no interactive prompts (ideal for automated deployment)
-- **`--skip-update`**: Use existing local files without checking GitHub for updates
-- **Multiple options**: Can be combined (e.g., `--develop --daemon --skip-update`)
 
 ### Use Cases
 
@@ -58,12 +50,6 @@ bash install_rpi_streamer.sh --main
 
 # Automated deployment without prompts
 bash install_rpi_streamer.sh --develop --daemon
-
-# Development work with local changes
-bash install_rpi_streamer.sh --develop --skip-update
-
-# Testing local modifications silently
-bash install_rpi_streamer.sh --develop --daemon --skip-update
 ```
 
 ## Branch Structure
@@ -119,20 +105,24 @@ rpiconfig
 The `rpiconfig` script provides a user-friendly menu with the following options:
 
 1. **Restart Flask App Service** - Quick restart of the main web application
-2. **Install/Update (Develop Branch)** - Full installation with latest develop branch features
-3. **Install Local Code (Develop, No Update)** - Install using existing local files without GitHub updates
-4. **Restart GPS Daemon (Simulation Mode)** - Start GPS daemon with simulated location data for testing
-5. **Restart GPS Daemon (Real Mode)** - Start GPS daemon for real GPS hardware
-6. **Show System Status** - Display current service states and system information
+2. **Check Flask App Service Logs** - View and monitor Flask application logs
+3. **Install/Update (Develop Branch)** - Full installation with latest develop branch features
+4. **Install Local Code (Develop, No Update)** - Install using existing local files without GitHub updates
+5. **Toggle GPS Mode (Simulation/Real)** - Switch between GPS simulation mode and real hardware mode
+6. **Restart GPS Startup Manager** - Restart the GPS automatic startup management service
 7. **Restart Heartbeat Daemon** - Restart the centralized hardware monitoring daemon
-8. **Exit** - Close the configuration menu
+8. **Show System Status** - Display current service states and system information
+9. **Enable/Disable Power Monitor Service** - Toggle UPS power monitoring service on/off
+**r. Reboot Now** - Safely restart the Raspberry Pi system
+**0. Exit** - Close the configuration menu
 
 ### Features
 
 - **🎨 Color-coded interface** with clear status indicators
-- **🔧 System status overview** showing all service states
+- **🔧 System status overview** showing all service states including UPS monitor
 - **⚡ Quick service management** without memorizing systemd commands
-- **🛰️ GPS mode switching** between simulation and real hardware
+- **🛰️ GPS mode switching** with intelligent toggle between simulation and real hardware
+- **🔋 Power monitor control** for enabling/disabling UPS monitoring service
 - **📊 Real-time status** updates and error reporting
 - **🔒 Privilege detection** automatically handles sudo requirements
 
@@ -336,7 +326,6 @@ rpiconfig
 
 # Or manually update via installation script:
 cd ~/flask_app
-bash install_rpi_streamer.sh --develop --skip-update  # Use local files only
 bash install_rpi_streamer.sh --develop               # Full update from develop branch
 bash install_rpi_streamer.sh --main                  # Update to stable main branch
 ```
