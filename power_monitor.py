@@ -64,6 +64,7 @@ except (IOError, OSError):
         lockfile.close()
     sys.exit(1)
 
+poll_time = 60  # Default poll time if settings load fails
 try:
     logging.info("Starting UPS monitoring")
     if args.daemon:
@@ -95,17 +96,18 @@ try:
                 logging.info(f"Capacity: {capacity:.2f}% ({battery_status}), AC Power: {'Plugged in' if ac_power_connected else 'Unplugged'}, Voltage: {voltage:.2f}V")
             # First connection closed here
             
+            # Load current settings
+            settings = load_settings()
+            sleep_time = settings.get('power_monitor_sleep_time')
+            
             # Handle power state outside of connection context
             if not ac_power_connected:
                 logging.warning("UPS is unplugged or AC power loss detected.")
                 
-                # Load current settings
-                settings = load_settings()
-                sleep_time = settings.get('power_monitor_sleep_time')
-                
                 # If sleep_time is 0 or None, disable power monitoring
                 if not sleep_time:
-                    logging.info("Power monitoring disabled (sleep_time is 0 or unset) - continuing normal monitoring")
+                    logging.info("Power monitoring disabled (sleep_time is 0 or unset) - continuing normal monitoring for 60 seconds")
+                    time.sleep(poll_time)
                     continue
                 else:
                     logging.info(f"Power monitoring active - grace period set to {sleep_time} seconds")
@@ -225,37 +227,8 @@ try:
             else:
                 logging.debug("UPS plugged in.")
 
-            # Load sleep time setting for monitoring interval
-            settings = load_settings()
-            sleep_time = settings.get('power_monitor_sleep_time')  # No default - should be explicitly set if monitoring is enabled
-            
-            # If power monitoring is disabled, use a simple sleep
-            if not sleep_time:
-                logging.debug("Power monitoring disabled - using simple 60-second monitoring interval")
-                time.sleep(60)
-                continue
-            
-            # Poll for power changes during sleep interval instead of simple sleep
-            elapsed_seconds = 0
-            check_interval = 10  # Check every 10 seconds
-            
-            while elapsed_seconds < sleep_time:
-                time.sleep(check_interval)
-                elapsed_seconds += check_interval
-                
-                # Check if power status has changed during sleep
-                try:
-                    with X120X() as ups_sleep_check:
-                        ups_sleep_status = ups_sleep_check.get_status()
-                        sleep_ac_power = ups_sleep_status.get('ac_power_connected', False)
-                        
-                        # If power status changed, break out of sleep to handle it immediately
-                        if sleep_ac_power != ac_power_connected:
-                            logging.info("Power status changed during monitoring interval. Breaking sleep to handle immediately.")
-                            break
-                except Exception as e:
-                    logging.error(f"Error checking power during sleep interval: {e}")
-                    # Continue the loop even if we can't check power status
+            # Simple monitoring interval between cycles
+            time.sleep(poll_time)
                 
         except Exception as e:
             logging.error(f"Error during monitoring cycle: {e}")
