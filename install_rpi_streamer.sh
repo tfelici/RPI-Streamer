@@ -634,11 +634,13 @@ sudo tee /etc/udev/rules.d/99-sim7600-gps.rules >/dev/null << 'EOFUDEV'
 # Using PRODUCT environment variable for consistency with removal rule
 # PRODUCT format is "vendor/product/version" = "1e0e/9011/318"
 ACTION=="add", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9011/318", RUN+="/bin/systemctl restart gps-daemon.service"
+ACTION=="add", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9001/318", RUN+="/bin/systemctl restart gps-daemon.service"
 
 # When SIM7600G-H is removed, stop GPS daemon immediately
 # Using PRODUCT environment variable for removal events since ATTR{} attributes are not available
 # PRODUCT format is "vendor/product/version" = "1e0e/9011/318"
 ACTION=="remove", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9011/318", RUN+="/bin/systemctl stop gps-daemon.service"
+ACTION=="remove", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9001/318", RUN+="/bin/systemctl stop gps-daemon.service"
 EOFUDEV
 
 # Set proper permissions for udev rule
