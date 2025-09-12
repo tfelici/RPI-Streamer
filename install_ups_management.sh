@@ -121,16 +121,6 @@ fi
 
 # Configure power monitor script location
 echo "🔋 Setting up power monitoring service..."
-SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-POWER_MONITOR_SCRIPT="$SCRIPT_DIR/power_monitor.py"
-
-# Verify power monitor script exists
-if [ -f "$POWER_MONITOR_SCRIPT" ]; then
-    echo "Using power monitor script at: $POWER_MONITOR_SCRIPT"
-else
-    echo "Error: power_monitor.py not found in script directory. Cannot setup power monitor service."
-    exit 1
-fi
 
 # Create systemd service file
 echo "⚙️ Creating systemd service for UPS monitoring..."
@@ -144,8 +134,8 @@ Wants=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=$SCRIPT_DIR
-ExecStart=/usr/bin/python3 $POWER_MONITOR_SCRIPT --daemon
+WorkingDirectory=$HOME/flask_app
+ExecStart=/usr/bin/python3 $HOME/flask_app/power_monitor.py --daemon
 Restart=always
 RestartSec=10
 StandardOutput=journal
