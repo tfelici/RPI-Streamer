@@ -64,7 +64,7 @@ except (IOError, OSError):
         lockfile.close()
     sys.exit(1)
 
-poll_time = 60 # Polling interval in seconds
+poll_time = 30 # Polling interval in seconds
 try:
     logging.info("Starting UPS monitoring")
     if args.daemon:
