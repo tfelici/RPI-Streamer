@@ -85,7 +85,7 @@ try:
                 
                 # Load current settings
                 settings = load_settings()
-                sleep_time = settings.get('power_monitor_sleep_time', 60)  # Default to 60 seconds
+                sleep_time = settings.get('power_monitor_sleep_time')
                 
                 # If sleep_time is 0 or None, disable power monitoring
                 if not sleep_time:
@@ -235,7 +235,7 @@ try:
 
             # Load sleep time setting for monitoring interval
             settings = load_settings()
-            sleep_time = settings.get('power_monitor_sleep_time', 60)  # Default to 60 seconds
+            sleep_time = settings.get('power_monitor_sleep_time')  # No default - should be explicitly set if monitoring is enabled
             
             # If power monitoring is disabled, use a simple sleep
             if not sleep_time:
