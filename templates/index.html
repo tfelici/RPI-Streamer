@@ -1834,7 +1834,14 @@
                     // Update ethernet and wifi status
                     ethernet.textContent = connection.ethernet || 'Disconnected';
                     wifi.textContent = connection.wifi || 'Disconnected';
-                    dongle4g.textContent = connection['4g'] || 'No device';
+                    
+                    // Update 4G status with network type if available
+                    let dongle4gStatus = connection['4g'] || 'No device';
+                    if (connection['4g_dongle'] && connection['4g_dongle'].network_type && 
+                        connection['4g'] && connection['4g'] !== 'No device' && !connection['4g'].includes('Error')) {
+                        dongle4gStatus = `${connection['4g']} (${connection['4g_dongle'].network_type})`;
+                    }
+                    dongle4g.textContent = dongle4gStatus;
                     
                     // Update GPS status
                     if (connection.gps) {
