@@ -4,7 +4,7 @@ UPS Power Monitor for RPI Streamer
 
 Monitors UPS power status and handles graceful shutdown on power loss.
 The grace period before shutdown is configurable through settings.json:
-- power_monitor_sleep_time: Grace period in seconds (default: 60)
+- power_monitor_sleep_time: Grace period in seconds
 - Set to 0 or remove to disable power monitoring entirely
 
 When power monitoring is disabled, the script will still log UPS status
@@ -92,6 +92,9 @@ try:
                     print("Power monitoring disabled (sleep_time is 0 or unset). Skipping power loss handling.")
                     logging.info("Power monitoring disabled - continuing normal monitoring")
                     continue
+                else:
+                    print(f"Power monitoring active - will wait {sleep_time} seconds before shutdown if power not restored.")
+                    logging.info(f"Power monitoring active - grace period set to {sleep_time} seconds")
                 
                 # Check if streaming or GPS tracking is active
                 streaming_active = is_streaming()
