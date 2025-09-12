@@ -64,7 +64,7 @@ except (IOError, OSError):
         lockfile.close()
     sys.exit(1)
 
-poll_time = 60  # Default poll time if settings load fails
+poll_time = 60 # Polling interval in seconds
 try:
     logging.info("Starting UPS monitoring")
     if args.daemon:
@@ -106,7 +106,7 @@ try:
                 
                 # If sleep_time is 0 or None, disable power monitoring
                 if not sleep_time:
-                    logging.info("Power monitoring disabled (sleep_time is 0 or unset) - continuing normal monitoring for 60 seconds")
+                    logging.info(f"Power monitoring disabled (sleep_time is 0 or unset) - continuing normal monitoring for {poll_time} seconds")
                     time.sleep(poll_time)
                     continue
                 else:
@@ -146,8 +146,8 @@ try:
                                         logging.info(f"Power restored after {elapsed_seconds//60} minutes {elapsed_seconds%60} seconds. GPS tracking continues.")
                                         break
                                     else:
-                                        # Show progress every minute
-                                        if elapsed_seconds % 60 == 0:
+                                        # Show progress every poll_time seconds
+                                        if elapsed_seconds % poll_time == 0:
                                             remaining_minutes = (timeout_seconds - elapsed_seconds) // 60
                                             logging.info(f"Power still lost. GPS tracking will stop in {remaining_minutes} minutes if power not restored.")
                             except Exception as e:
