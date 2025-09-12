@@ -31,12 +31,20 @@ from typing import Dict, List, Optional
 from utils import generate_gps_track_id, calculate_distance, get_storage_path, cleanup_pidfile, load_settings, save_settings, get_hardwareid, STREAMER_DATA_DIR
 from gps_client import get_gnss_location
 
-# Configure logging
+# Configure logging with rotation to keep logs under 1MB
+from logging.handlers import RotatingFileHandler
+
+file_handler = RotatingFileHandler(
+    'gps_tracker.log',
+    maxBytes=1024*1024,  # 1MB max size
+    backupCount=3        # Keep 3 backup files
+)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('gps_tracker.log'),
+        file_handler,
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -707,34 +715,15 @@ class GPSTracker:
                     success, location_data = get_gnss_location()
                     
                     if success and location_data and location_data.get('fix_status') == 'valid':
-                        # Get accuracy directly from GPS daemon (no longer need to calculate from HDOP)
-                        gps_accuracy = location_data.get('accuracy', 10.0)  # Default to 10m if not available
+                        # Add the location to tracking directly using location_data
+                        self.add_location(**location_data)
                         
-                        # Convert speed from m/s to km/h if needed
-                        speed_ms = location_data.get('speed', 0) or 0
-                        
-                        # Ensure speed is numeric for calculation
-                        if isinstance(speed_ms, (int, float)):
-                            speed_kmh = speed_ms * 3.6
-                        else:
-                            speed_kmh = 0
-                        
-                        # Convert GNSS data format to GPS format for compatibility
-                        gps_data = {
-                            'latitude': location_data['latitude'],
-                            'longitude': location_data['longitude'],
-                            'altitude': location_data.get('altitude'),  # meters above sea level
-                            'accuracy': gps_accuracy,  # meters (horizontal accuracy)
-                            'altitudeAccuracy': location_data.get('altitudeAccuracy'),  # meters (vertical accuracy)
-                            'heading': location_data.get('heading'),  # degrees relative to true north
-                            'speed': speed_ms  # meters per second (not converted to km/h)
-                        }
-                        # Add the location to tracking
-                        self.add_location(**gps_data)
-                        speed_display = f", speed={speed_ms:.1f}m/s" if speed_ms and speed_ms > 0 else ""
-                        alt_display = f", alt={gps_data['altitude']:.1f}m" if gps_data['altitude'] is not None else ""
-                        logger.debug(f"GPS coordinates: lat={gps_data['latitude']:.6f}, lon={gps_data['longitude']:.6f}{alt_display}{speed_display}")
-                        write_gps_status("active", f"GPS active - lat: {gps_data['latitude']:.6f}, lon: {gps_data['longitude']:.6f}", gps_data)
+                        # Display information for logging
+                        speed = location_data.get('speed') or 0
+                        speed_display = f", speed={speed:.1f}m/s" if speed > 0 else ""
+                        alt_display = f", alt={location_data.get('altitude'):.1f}m" if location_data.get('altitude') is not None else ""
+                        logger.debug(f"GPS coordinates: lat={location_data['latitude']:.6f}, lon={location_data['longitude']:.6f}{alt_display}{speed_display}")
+                        write_gps_status("active", f"GPS active - lat: {location_data['latitude']:.6f}, lon: {location_data['longitude']:.6f}", location_data)
                     elif success and location_data and location_data.get('fix_status') == 'no_fix':
                         logger.debug("GPS data not available (no satellite fix)")
                         write_gps_status("connected", "GPS hardware connected but no satellite fix")

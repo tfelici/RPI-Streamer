@@ -23,13 +23,13 @@ import fcntl
 from utils import is_streaming, is_gps_tracking, load_settings
 from app import stop_flight
 
-# Configure logging with rotation to prevent unlimited growth
+# Configure logging with rotation to keep logs under 1MB
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        RotatingFileHandler('/var/log/ups-monitor.log', maxBytes=50000, backupCount=1)
+        RotatingFileHandler('/var/log/ups-monitor.log', maxBytes=1024*1024, backupCount=3)
     ]
 )
 

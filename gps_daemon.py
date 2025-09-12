@@ -1005,8 +1005,30 @@ def main():
     
     args = parser.parse_args()
     
-    # Basic root logger configuration.
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    # Import RotatingFileHandler for log rotation
+    from logging.handlers import RotatingFileHandler
+    
+    # Configure logging with rotation to keep logs under 1MB
+    log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    log_file = '/var/log/gps_daemon.log' if args.daemon else 'gps_daemon.log'
+    
+    # Create rotating file handler
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=1024*1024,  # 1MB max size
+        backupCount=3        # Keep 3 backup files
+    )
+    file_handler.setFormatter(logging.Formatter(log_format))
+    
+    logging.basicConfig(
+        level=logging.INFO, 
+        format=log_format,
+        handlers=[
+            file_handler,
+            logging.StreamHandler()
+        ]
+    )
+    
     # If running interactively (not daemon) and stdout is a TTY, ensure
     # plain logging.info() calls print to the command line.
     try:
@@ -1016,7 +1038,7 @@ def main():
             has_stream = any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers)
             if not has_stream:
                 sh = logging.StreamHandler(sys.stdout)
-                sh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+                sh.setFormatter(logging.Formatter(log_format))
                 root_logger.addHandler(sh)
     except Exception:
         # If anything goes wrong checking the TTY, fall back to basicConfig only

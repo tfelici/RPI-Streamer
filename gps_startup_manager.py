@@ -126,7 +126,10 @@ motion_detection_state = {
 def detect_motion():
     """
     Detect motion using GPS dongle by comparing current position with last known position
-    Returns True if significant movement is detected, False otherwise
+    Returns:
+        True - significant movement detected
+        False - no movement detected  
+        None - GPS error, ignore this result
     """
     state = motion_detection_state
     current_time = time.time()
@@ -135,29 +138,15 @@ def detect_motion():
         # Get current GPS position using GPS daemon client
         success, location_data = get_gnss_location()
 
-        gps_data = None
-        if success and location_data and location_data.get('fix_status') == 'valid':
-            # Convert speed from m/s to km/h if needed
-            speed_ms = location_data.get('speed', 0) or 0
-            speed_kmh = speed_ms * 3.6 if isinstance(speed_ms, (int, float)) else 0
-
-            gps_data = {
-                'latitude': location_data['latitude'],
-                'longitude': location_data['longitude'],
-                'altitude': location_data.get('altitude', 0),
-                'speed': speed_kmh,  # Convert from m/s to km/h
-                'heading': location_data.get('course', 0) or 0,
-                'accuracy': 5.0  # Default accuracy estimate
-            }
-
-        if gps_data is None:
+        if not (success and location_data and location_data.get('fix_status') == 'valid'):
             logger.debug("No GPS fix available for motion detection")
-            return False
+            return None  # GPS error - ignore this result
 
-        current_lat = gps_data['latitude']
-        current_lon = gps_data['longitude']
+        current_lat = location_data['latitude']
+        current_lon = location_data['longitude']
+        gps_accuracy = location_data.get('accuracy', 5.0)  # Default to 5m if accuracy not available
 
-        logger.debug(f"Motion detection GPS: lat={current_lat:.6f}, lon={current_lon:.6f}")
+        logger.debug(f"Motion detection GPS: lat={current_lat:.6f}, lon={current_lon:.6f}, accuracy={gps_accuracy:.1f}m")
 
         # First position - store it and don't consider it motion
         if state['last_position'] is None:
@@ -172,11 +161,14 @@ def detect_motion():
             current_lat, current_lon
         )
 
-        logger.debug(f"Distance from last position: {distance:.1f}m (threshold: {state['movement_threshold']}m)")
+        # Use the larger of movement threshold or GPS accuracy as minimum distance
+        effective_threshold = max(state['movement_threshold'], gps_accuracy * 2)
+        
+        logger.debug(f"Distance from last position: {distance:.1f}m (threshold: {effective_threshold:.1f}m, GPS accuracy: {gps_accuracy:.1f}m)")
 
-        # Check if movement exceeds threshold
-        if distance >= state['movement_threshold']:
-            logger.info(f"MOTION DETECTED! Aircraft moved {distance:.1f}m")
+        # Check if movement exceeds both the threshold and GPS accuracy margin
+        if distance >= effective_threshold:
+            logger.info(f"MOTION DETECTED! Aircraft moved {distance:.1f}m (above accuracy margin of {gps_accuracy:.1f}m)")
             # Update position for next comparison
             state['last_position'] = (current_lat, current_lon)
             state['last_position_time'] = current_time
@@ -188,7 +180,7 @@ def detect_motion():
 
     except Exception as e:
         logger.exception(f"Error in GPS motion detection: {e}")
-        return False
+        return None  # GPS error - ignore this result
 
 
 def monitor_motion(updated_settings):
@@ -196,11 +188,16 @@ def monitor_motion(updated_settings):
     logger.info("Motion detection monitoring started...")
     motion_threshold_count = 3  # Require motion detected 3 times to start
     motion_count = 0
+    stationary_timeout = 60  # Reset motion count only after 60 seconds of no motion
 
     while True:
         try:
-            if detect_motion():
+            motion_result = detect_motion()
+            
+            if motion_result is True:
+                # Motion detected
                 motion_count += 1
+                last_motion_time = time.time()
                 logger.info(f"Motion detected ({motion_count}/{motion_threshold_count})")
 
                 if motion_count >= motion_threshold_count:
@@ -217,13 +214,20 @@ def monitor_motion(updated_settings):
                         else:
                             logger.error(f"Failed to start GPS tracking: {message}")
                             motion_count = 0  # Reset counter on failure
+                            last_motion_time = None
                     else:
                         logger.info("GPS tracking already active")
                         break
-            else:
-                # Reset motion count if no motion detected
-                if motion_count > 0:
-                    motion_count = max(0, motion_count - 1)
+            elif motion_result is False:
+                # Below threshold movement - check if vehicle has been stationary long enough
+                current_time = time.time()
+                if last_motion_time is not None and motion_count > 0:
+                    time_since_motion = current_time - last_motion_time
+                    if time_since_motion > stationary_timeout:
+                        logger.info(f"Vehicle stationary for {time_since_motion:.1f}s, resetting motion count")
+                        motion_count = max(0, motion_count - 1)
+                        last_motion_time = current_time  # Reset timer
+            # motion_result is None - GPS error, ignore this result and don't change motion_count
 
             time.sleep(2)  # Check every 2 seconds
 
@@ -311,14 +315,39 @@ def signal_handler(signum, frame):
 
 if __name__ == '__main__':
     import argparse
+    from logging.handlers import RotatingFileHandler
 
     parser = argparse.ArgumentParser(description='GPS Startup Manager')
     parser.add_argument('--daemon', action='store_true', default=False,
                         help='Run in daemon mode (no console output, log to runtime/journal)')
+    parser.add_argument('--debug', action='store_true', default=False,
+                        help='Enable debug logging')
     args = parser.parse_args()
 
-    # Basic logging configuration
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    # Basic logging configuration - set level based on debug flag
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    
+    # Configure logging with both console and rotating file output
+    # Use /var/log for system services or current directory for development
+    log_file = '/var/log/gps_startup_manager.log' if args.daemon else 'gps_startup_manager.log'
+    
+    # Create rotating file handler to keep logs under 1MB
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=1024*1024,  # 1MB max size
+        backupCount=3        # Keep 3 backup files
+    )
+    file_handler.setFormatter(logging.Formatter(log_format))
+    
+    logging.basicConfig(
+        level=log_level,
+        format=log_format,
+        handlers=[
+            file_handler,
+            logging.StreamHandler()
+        ]
+    )
 
     # If running interactively (not daemon) and stdout is a TTY, ensure logs print to console
     try:

@@ -851,9 +851,30 @@ if __name__ == '__main__':
     # whether we're running in daemon mode by inspecting sys.argv so
     # we can configure interactive logging appropriately.
     daemon_mode = '--daemon' in sys.argv
+    
+    # Import RotatingFileHandler for log rotation
+    from logging.handlers import RotatingFileHandler
 
-    # Basic logging configuration (interactive runs)
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    # Configure logging with rotation to keep logs under 1MB
+    log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    log_file = '/var/log/heartbeat_daemon.log' if daemon_mode else 'heartbeat_daemon.log'
+    
+    # Create rotating file handler
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=1024*1024,  # 1MB max size
+        backupCount=3        # Keep 3 backup files
+    )
+    file_handler.setFormatter(logging.Formatter(log_format))
+    
+    logging.basicConfig(
+        level=logging.INFO, 
+        format=log_format,
+        handlers=[
+            file_handler,
+            logging.StreamHandler()
+        ]
+    )
 
     # If running interactively (not daemon) and stdout is a TTY, ensure logs print to console
     try:
@@ -862,7 +883,7 @@ if __name__ == '__main__':
             has_stream = any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers)
             if not has_stream:
                 sh = logging.StreamHandler(sys.stdout)
-                sh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+                sh.setFormatter(logging.Formatter(log_format))
                 root_logger.addHandler(sh)
     except Exception:
         pass
