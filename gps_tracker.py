@@ -527,16 +527,41 @@ class GPSTracker:
         logger.debug(f"Still stationary: movement {distance:.1f}m < {self.movement_threshold}m threshold")
         return False
 
-    def add_location(self, latitude: float, longitude: float, 
-                    altitude: Optional[float] = None, 
-                    accuracy: Optional[float] = None,
-                    altitudeAccuracy: Optional[float] = None,
-                    heading: Optional[float] = None, 
-                    speed: Optional[float] = None) -> bool:
-        """Add a GPS location point to the tracking session (only if movement detected)"""
+    def add_location(self, **kwargs) -> bool:
+        """Add a GPS location point to the tracking session (only if movement detected)
+        
+        Args:
+            **kwargs: GPS data fields including:
+                latitude: GPS latitude coordinate (required)
+                longitude: GPS longitude coordinate (required)
+                altitude: Altitude in meters (optional)
+                accuracy: Horizontal accuracy in meters (optional)
+                altitudeAccuracy: Vertical accuracy in meters (optional)
+                heading: Heading/bearing in degrees (optional)
+                speed: Speed in m/s (optional)
+                Additional GPS data fields are accepted and ignored
+        
+        Returns:
+            bool: True if location was added, False if tracking inactive or no movement detected
+        """
         if not self.tracking_active:
             logger.warning("Cannot add location - tracking is not active")
             return False
+        
+        # Extract required parameters from kwargs
+        latitude = kwargs.get('latitude')
+        longitude = kwargs.get('longitude')
+        
+        if latitude is None or longitude is None:
+            logger.warning("Cannot add location - latitude and longitude are required")
+            return False
+        
+        # Extract optional parameters
+        altitude = kwargs.get('altitude')
+        accuracy = kwargs.get('accuracy')
+        altitudeAccuracy = kwargs.get('altitudeAccuracy')
+        heading = kwargs.get('heading')
+        speed = kwargs.get('speed')
         
         # Check if location should be recorded based on movement
         if not self._should_record_location(latitude, longitude):
