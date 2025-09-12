@@ -189,6 +189,7 @@ def monitor_motion(updated_settings):
     motion_threshold_count = 3  # Require motion detected 3 times to start
     motion_count = 0
     stationary_timeout = 60  # Reset motion count only after 60 seconds of no motion
+    last_motion_time = None  # Initialize to None
 
     while True:
         try:
