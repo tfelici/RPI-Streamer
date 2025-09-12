@@ -119,22 +119,17 @@ if ! grep -q "^i2c-dev" "$MODULES_FILE"; then
   echo "i2c-dev" | sudo tee -a "$MODULES_FILE" > /dev/null
 fi
 
-# Install and configure power monitor script
+# Configure power monitor script location
 echo "🔋 Setting up power monitoring service..."
-POWER_MONITOR_SCRIPT="/usr/local/bin/power_monitor.py"
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+POWER_MONITOR_SCRIPT="$SCRIPT_DIR/power_monitor.py"
 
-# Copy power monitor script to system location
-if [ -f "$SCRIPT_DIR/power_monitor.py" ]; then
-    echo "Installing power monitor script..."
-    sudo cp "$SCRIPT_DIR/power_monitor.py" "$POWER_MONITOR_SCRIPT"
-    sudo chmod +x "$POWER_MONITOR_SCRIPT"
-    
-    # Ensure Loop is set to True for continuous monitoring
-    sudo sed -i 's/^Loop\s*=\s*False/Loop = True/' "$POWER_MONITOR_SCRIPT"
-    echo "Power monitor script installed to $POWER_MONITOR_SCRIPT"
+# Verify power monitor script exists
+if [ -f "$POWER_MONITOR_SCRIPT" ]; then
+    echo "Using power monitor script at: $POWER_MONITOR_SCRIPT"
 else
-    echo "Warning: power_monitor.py not found in script directory. Skipping power monitor setup."
+    echo "Error: power_monitor.py not found in script directory. Cannot setup power monitor service."
+    exit 1
 fi
 
 # Create systemd service file
@@ -149,7 +144,8 @@ Wants=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/python3 $HOME/flask_app/power_monitor.py
+WorkingDirectory=$SCRIPT_DIR
+ExecStart=/usr/bin/python3 $POWER_MONITOR_SCRIPT --daemon
 Restart=always
 RestartSec=10
 StandardOutput=journal

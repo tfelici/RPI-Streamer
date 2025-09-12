@@ -15,6 +15,7 @@ import os
 import time
 import logging
 import sys
+import argparse
 from logging.handlers import RotatingFileHandler
 from subprocess import call
 from x120x import X120X
@@ -23,15 +24,32 @@ import fcntl
 from utils import is_streaming, is_gps_tracking, load_settings
 from app import stop_flight
 
-# Configure logging with rotation to keep logs under 1MB
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        RotatingFileHandler('/var/log/ups-monitor.log', maxBytes=1024*1024, backupCount=3)
-    ]
-)
+# Parse command line arguments
+parser = argparse.ArgumentParser(description='UPS Power Monitor for RPI Streamer')
+parser.add_argument('--daemon', action='store_true', 
+                    help='Run in daemon mode with file logging (default: interactive mode with terminal output only)')
+args = parser.parse_args()
+
+# Configure logging based on mode
+if args.daemon:
+    # Daemon mode: log to both console and file
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),
+            RotatingFileHandler('/var/log/ups-monitor.log', maxBytes=1024*1024, backupCount=3)
+        ]
+    )
+else:
+    # Interactive mode: log to console only
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler()
+        ]
+    )
 
 # Ensure only one instance of the script is running using file locking
 lockfile_path = "/var/run/ups-monitor.lock"
@@ -41,13 +59,17 @@ try:
     lockfile.write(str(os.getpid()))
     lockfile.flush()
 except (IOError, OSError):
-    print("Another instance of UPS monitor is already running")
+    logging.error("Another instance of UPS monitor is already running")
     if 'lockfile' in locals() and lockfile:
         lockfile.close()
     sys.exit(1)
 
 try:
     logging.info("Starting UPS monitoring")
+    if args.daemon:
+        logging.info("Running in daemon mode - logging to console and file")
+    else:
+        logging.info("Running in interactive mode - logging to console only")
     
     # Main monitoring loop - runs until error occurs
     while True:
@@ -66,22 +88,16 @@ try:
                 
                 # Handle case where UPS communication fails
                 if voltage is None or capacity is None or ac_power_connected is None:
-                    error_msg = "UPS communication error - device may be disconnected."
-                    print(error_msg)
-                    logging.error(error_msg)
+                    logging.error("UPS communication error - device may be disconnected.")
                     # Exit and let service restart us
                     exit(1)
                 
-                status_msg = f"Capacity: {capacity:.2f}% ({battery_status}), AC Power: {'Plugged in' if ac_power_connected else 'Unplugged'}, Voltage: {voltage:.2f}V"
-                print(status_msg)
-                logging.info(status_msg)
+                logging.info(f"Capacity: {capacity:.2f}% ({battery_status}), AC Power: {'Plugged in' if ac_power_connected else 'Unplugged'}, Voltage: {voltage:.2f}V")
             # First connection closed here
             
             # Handle power state outside of connection context
             if not ac_power_connected:
-                warning_msg = "UPS is unplugged or AC power loss detected."
-                print(warning_msg)
-                logging.warning(warning_msg)
+                logging.warning("UPS is unplugged or AC power loss detected.")
                 
                 # Load current settings
                 settings = load_settings()
@@ -89,11 +105,9 @@ try:
                 
                 # If sleep_time is 0 or None, disable power monitoring
                 if not sleep_time:
-                    print("Power monitoring disabled (sleep_time is 0 or unset). Skipping power loss handling.")
-                    logging.info("Power monitoring disabled - continuing normal monitoring")
+                    logging.info("Power monitoring disabled (sleep_time is 0 or unset) - continuing normal monitoring")
                     continue
                 else:
-                    print(f"Power monitoring active - will wait {sleep_time} seconds before shutdown if power not restored.")
                     logging.info(f"Power monitoring active - grace period set to {sleep_time} seconds")
                 
                 # Check if streaming or GPS tracking is active
@@ -108,12 +122,10 @@ try:
                         timeout_minutes = settings['gps_stop_power_loss_minutes']
                         timeout_seconds = timeout_minutes * 60
                         
-                        timeout_msg = f"GPS tracking active during power loss. Will stop GPS tracking after {timeout_minutes} minutes if power not restored."
-                        print(timeout_msg)
-                        logging.warning(timeout_msg)
+                        logging.warning(f"GPS tracking active during power loss. Will stop GPS tracking after {timeout_minutes} minutes if power not restored.")
                         
                         # Poll power status during timeout period instead of sleeping
-                        print(f"Monitoring power status for {timeout_minutes} minutes before stopping GPS tracking...")
+                        logging.info(f"Monitoring power status for {timeout_minutes} minutes before stopping GPS tracking...")
                         elapsed_seconds = 0
                         check_interval = 10  # Check every 10 seconds
                         
@@ -129,24 +141,19 @@ try:
                                     
                                     if timeout_ac_power:
                                         # Power restored! Exit the timeout loop
-                                        recovery_msg = f"Power restored after {elapsed_seconds//60} minutes {elapsed_seconds%60} seconds. GPS tracking continues."
-                                        print(recovery_msg)
-                                        logging.info(recovery_msg)
+                                        logging.info(f"Power restored after {elapsed_seconds//60} minutes {elapsed_seconds%60} seconds. GPS tracking continues.")
                                         break
                                     else:
                                         # Show progress every minute
                                         if elapsed_seconds % 60 == 0:
                                             remaining_minutes = (timeout_seconds - elapsed_seconds) // 60
-                                            progress_msg = f"Power still lost. GPS tracking will stop in {remaining_minutes} minutes if power not restored."
-                                            print(progress_msg)
-                                            logging.info(progress_msg)
+                                            logging.info(f"Power still lost. GPS tracking will stop in {remaining_minutes} minutes if power not restored.")
                             except Exception as e:
-                                print(f"Error checking power during timeout: {e}")
                                 logging.error(f"Error checking power during timeout: {e}")
                                 # Continue the loop even if we can't check power status
                         else:
                             # Timeout completed without power restoration
-                            print("Timeout period completed. Power not restored.")
+                            logging.warning("Timeout period completed. Power not restored.")
                             
                             # Final power check before stopping GPS
                             try:
@@ -159,25 +166,17 @@ try:
                                         try:
                                             success, message, status_code = stop_flight()
                                             if success:
-                                                print("GPS tracking stopped due to prolonged power loss")
                                                 logging.warning("GPS tracking stopped due to prolonged power loss")
                                             else:
-                                                print(f"Failed to stop GPS tracking: {message}")
                                                 logging.error(f"Failed to stop GPS tracking: {message}")
                                         except Exception as e:
-                                            print(f"Error stopping GPS tracking: {e}")
                                             logging.error(f"Error stopping GPS tracking: {e}")
                                         
                                         # Continue normal monitoring after stopping GPS
-                                        continue_msg = "GPS tracking stopped due to prolonged power loss. Continuing normal power monitoring."
-                                        print(continue_msg)
-                                        logging.info(continue_msg)
+                                        logging.info("GPS tracking stopped due to prolonged power loss. Continuing normal power monitoring.")
                                     else:
-                                        recovery_msg = "Power restored just before GPS timeout. GPS tracking continues."
-                                        print(recovery_msg)
-                                        logging.info(recovery_msg)
+                                        logging.info("Power restored just before GPS timeout. GPS tracking continues.")
                             except Exception as e:
-                                print(f"Error during final timeout check: {e}")
                                 logging.error(f"Error during final timeout check: {e}")
                     else:
                         activities = []
@@ -186,12 +185,10 @@ try:
                         if gps_active:
                             activities.append("GPS tracking")
                         # Standard behavior - skip shutdown while activities are running
-                        activity_msg = f"UPS unplugged but {' and '.join(activities)} {'is' if len(activities)==1 else 'are'} active. Skipping shutdown to prevent interruption."
-                        print(activity_msg)
-                        logging.warning(activity_msg)
+                        logging.warning(f"UPS unplugged but {' and '.join(activities)} {'is' if len(activities)==1 else 'are'} active. Skipping shutdown to prevent interruption.")
                 else:
                     # No activities running, proceed with normal shutdown
-                    print(f"Waiting {sleep_time} seconds before shutdown...")
+                    logging.info(f"Waiting {sleep_time} seconds before shutdown...")
                     
                     # Poll for power restoration during grace period
                     elapsed_seconds = 0
@@ -209,12 +206,9 @@ try:
                                 
                                 if grace_ac_power:
                                     # Power restored during grace period
-                                    grace_recovery_msg = f"Power restored during grace period after {elapsed_seconds} seconds. Continuing monitoring."
-                                    print(grace_recovery_msg)
-                                    logging.info(grace_recovery_msg)
+                                    logging.info(f"Power restored during grace period after {elapsed_seconds} seconds. Continuing monitoring.")
                                     break
                         except Exception as e:
-                            print(f"Error checking power during grace period: {e}")
                             logging.error(f"Error checking power during grace period: {e}")
                     else:
                         # Grace period completed without power restoration
@@ -224,16 +218,11 @@ try:
                             recheck_ac_power = ups_status_recheck.get('ac_power_connected', False)
                             
                             if not recheck_ac_power:
-                                shutdown_message = "UPS still unplugged after grace period. Initiating shutdown."
-                                print(shutdown_message)
-                                logging.critical(shutdown_message)
+                                logging.critical("UPS still unplugged after grace period. Initiating shutdown.")
                                 call("sudo nohup shutdown -h now", shell=True)
                             else:
-                                recovery_msg = "Power restored during grace period. Continuing monitoring."
-                                print(recovery_msg)
-                                logging.info(recovery_msg)
+                                logging.info("Power restored during grace period. Continuing monitoring.")
             else:
-                print("UPS plugged in. No action required.")
                 logging.debug("UPS plugged in.")
 
             # Load sleep time setting for monitoring interval
@@ -242,7 +231,7 @@ try:
             
             # If power monitoring is disabled, use a simple sleep
             if not sleep_time:
-                print("Power monitoring disabled - using simple 60-second monitoring interval")
+                logging.debug("Power monitoring disabled - using simple 60-second monitoring interval")
                 time.sleep(60)
                 continue
             
@@ -262,29 +251,21 @@ try:
                         
                         # If power status changed, break out of sleep to handle it immediately
                         if sleep_ac_power != ac_power_connected:
-                            status_change_msg = f"Power status changed during monitoring interval. Breaking sleep to handle immediately."
-                            print(status_change_msg)
-                            logging.info(status_change_msg)
+                            logging.info("Power status changed during monitoring interval. Breaking sleep to handle immediately.")
                             break
                 except Exception as e:
-                    print(f"Error checking power during sleep interval: {e}")
                     logging.error(f"Error checking power during sleep interval: {e}")
                     # Continue the loop even if we can't check power status
                 
         except Exception as e:
-            error_msg = f"Error during monitoring cycle: {e}"
-            print(error_msg)
-            logging.error(error_msg)
+            logging.error(f"Error during monitoring cycle: {e}")
             # Exit and let service restart us
             exit(1)
 
 except KeyboardInterrupt:
-    print("Monitoring stopped by user")
     logging.info("Monitoring stopped by user (KeyboardInterrupt)")
 except Exception as e:
-    error_msg = f"Fatal error: {e}"
-    print(error_msg)
-    logging.critical(error_msg)
+    logging.critical(f"Fatal error: {e}")
     exit(1)
 
 finally:

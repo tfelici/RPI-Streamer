@@ -911,7 +911,8 @@ def system_settings():
 @app.route('/system-settings-data')
 def system_settings_data():
     auth, wifi = get_auth_and_wifi()
-    return jsonify({'auth': auth, 'wifi': wifi})
+    settings = load_settings()
+    return jsonify({'auth': auth, 'wifi': wifi, 'settings': settings})
 
 @app.route('/system-settings-auth', methods=['POST'])
 def system_settings_auth():
@@ -931,6 +932,35 @@ def system_settings_auth():
         return jsonify({'success': True, 'message': 'Authentication disabled (empty password).'})
     else:
         return jsonify({'success': True, 'message': 'Authentication settings updated.'})
+
+@app.route('/system-settings-power', methods=['POST'])
+def system_settings_power():
+    try:
+        data = request.get_json()
+        sleep_time = data.get('power_monitor_sleep_time')
+        
+        if sleep_time is None:
+            return jsonify({'success': False, 'error': 'Power monitor sleep time is required.'})
+        
+        # Validate the sleep time value
+        if not isinstance(sleep_time, int) or sleep_time < 0 or sleep_time > 3600:
+            return jsonify({'success': False, 'error': 'Sleep time must be between 0 and 3600 seconds.'})
+        
+        # Load current settings, update power setting, and save
+        settings = load_settings()
+        settings['power_monitor_sleep_time'] = sleep_time
+        save_settings(settings)
+        
+        if sleep_time == 0:
+            message = 'Power monitoring disabled successfully!'
+        else:
+            message = f'Grace period set to {sleep_time} seconds successfully!'
+            
+        return jsonify({'success': True, 'message': message})
+        
+    except Exception as e:
+        print(f"Error updating power settings: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/system-settings-wifi', methods=['POST'])
 def system_settings_wifi():
