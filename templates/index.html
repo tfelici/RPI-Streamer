@@ -713,6 +713,24 @@
                             <button class="btn btn-sm btn-warning service-disable-btn" data-service="ups-monitor" style="display: none;">⏹️ Stop</button>
                         </div>
                     </div>
+                    <div class="stat-item service-item" data-service="relay-ffmpeg.py">
+                        <span class="stat-value connection-status" id="service-relay-ffmpeg.py">--</span>
+                        <div class="stat-label">Relay FFmpeg</div>
+                        <div class="service-controls">
+                            <button class="btn btn-sm btn-secondary service-log-btn" data-service="relay-ffmpeg.py">📋 View Logs</button>
+                            <button class="btn btn-sm btn-success service-enable-btn" data-service="relay-ffmpeg.py" style="display: none;">▶️ Start</button>
+                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="relay-ffmpeg.py" style="display: none;">⏹️ Stop</button>
+                        </div>
+                    </div>
+                    <div class="stat-item service-item" data-service="relay-ffmpeg-record.py">
+                        <span class="stat-value connection-status" id="service-relay-ffmpeg-record.py">--</span>
+                        <div class="stat-label">Relay FFmpeg Record</div>
+                        <div class="service-controls">
+                            <button class="btn btn-sm btn-secondary service-log-btn" data-service="relay-ffmpeg-record.py">📋 View Logs</button>
+                            <button class="btn btn-sm btn-success service-enable-btn" data-service="relay-ffmpeg-record.py" style="display: none;">▶️ Start</button>
+                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="relay-ffmpeg-record.py" style="display: none;">⏹️ Stop</button>
+                        </div>
+                    </div>
                 </div>
                 
                 <!-- Service Log Viewer -->
@@ -2263,7 +2281,6 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert('Track deleted successfully');
                 loadGPSTracks(); // Refresh the list
             } else {
                 alert(`Failed to delete track: ${data.error}`);
@@ -2592,16 +2609,6 @@
                 serviceMonitoringEventSource.close();
             }
             
-            // Fetch initial service status immediately
-            fetch('/service-status')
-                .then(response => response.json())
-                .then(data => {
-                    updateServiceStatus(data);
-                })
-                .catch(error => {
-                    console.error('Error fetching initial service status:', error);
-                });
-            
             serviceMonitoringEventSource = new EventSource('/service-status-sse');
             
             serviceMonitoringEventSource.onmessage = function(event) {
@@ -2641,7 +2648,8 @@
         }
         
         function updateServiceStatusUI(data) {
-            const services = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon', 'ups-monitor'];
+            const services = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon', 'ups-monitor', 'relay-ffmpeg.py', 'relay-ffmpeg-record.py'];
+            const processes = ['relay-ffmpeg.py', 'relay-ffmpeg-record.py']; // Python processes (not systemd services)
             
             services.forEach(service => {
                 const element = document.getElementById(`service-${service}`);
@@ -2652,6 +2660,7 @@
                     const status = data[service];
                     if (status) {
                         let displayText = status.status;
+                        const isProcess = processes.includes(service);
                         
                         // Handle error cases
                         if (status.error) {
@@ -2693,17 +2702,29 @@
                             // Choose boot status icon
                             const bootIcon = status.enabled ? '🚀' : '🚫';
                             
-                            // Use innerHTML with multi-line display
-                            element.innerHTML = `
-                                <div style="line-height: 1.2; text-align: left;">
-                                    <div style="color: ${runningColor}; font-weight: bold;">
-                                        ${runningIcon} ${runningStatus}
+                            // Use innerHTML with different display for services vs processes
+                            if (isProcess) {
+                                // For processes, only show running status (no boot status)
+                                element.innerHTML = `
+                                    <div style="line-height: 1.2; text-align: left;">
+                                        <div style="color: ${runningColor}; font-weight: bold;">
+                                            ${runningIcon} ${runningStatus}
+                                        </div>
                                     </div>
-                                    <div style="color: ${bootColor}; font-size: 0.9em; font-weight: normal;">
-                                        ${bootIcon} ${bootStatus}
+                                `;
+                            } else {
+                                // For services, show both running and boot status
+                                element.innerHTML = `
+                                    <div style="line-height: 1.2; text-align: left;">
+                                        <div style="color: ${runningColor}; font-weight: bold;">
+                                            ${runningIcon} ${runningStatus}
+                                        </div>
+                                        <div style="color: ${bootColor}; font-size: 0.9em; font-weight: normal;">
+                                            ${bootIcon} ${bootStatus}
+                                        </div>
                                     </div>
-                                </div>
-                            `;
+                                `;
+                            }
                         }
                         
                         // Set class but don't override colors since we handle them inline for multi-line display
@@ -2723,11 +2744,19 @@
                         
                         // Add tooltip with additional info if available
                         if (status.sub_state && status.sub_state !== 'running' && status.sub_state !== 'unknown') {
-                            element.title = `Running: ${status.status} | Boot: ${status.enabled ? 'Enabled' : 'Disabled'} | Sub-state: ${status.sub_state}`;
+                            if (isProcess) {
+                                element.title = `Running: ${status.status} | Sub-state: ${status.sub_state}`;
+                            } else {
+                                element.title = `Running: ${status.status} | Boot: ${status.enabled ? 'Enabled' : 'Disabled'} | Sub-state: ${status.sub_state}`;
+                            }
                         } else if (status.error) {
                             element.title = `Error: ${status.error}`;
                         } else {
-                            element.title = `Running: ${status.status} | Boot: ${status.enabled ? 'Enabled' : 'Disabled'}`;
+                            if (isProcess) {
+                                element.title = `Running: ${status.status}`;
+                            } else {
+                                element.title = `Running: ${status.status} | Boot: ${status.enabled ? 'Enabled' : 'Disabled'}`;
+                            }
                         }
                         
                         // Show/hide start/stop buttons based on running status

@@ -4,7 +4,7 @@ import subprocess
 import sys
 import time
 import signal
-from utils import get_setting, get_storage_path, cleanup_pidfile
+from utils import get_storage_path, cleanup_pidfile
 
 def main():
     if len(sys.argv) < 2:

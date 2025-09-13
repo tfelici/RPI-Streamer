@@ -328,10 +328,14 @@ def start_streaming():
     if not stream_url:
         return False, 'Remote Streaming URL is not set. Please configure it in Settings.', 400
     
-    # Start relay-ffmpeg.py asynchronously
-    subprocess.Popen(['python', 'relay-ffmpeg.py', 'webcam'])
-    # Also start relay-ffmpeg-record.py asynchronously
-    subprocess.Popen(['python', 'relay-ffmpeg-record.py', 'webcam'])
+    # Start relay-ffmpeg.py asynchronously with log output (unbuffered)
+    relay_log = open('/tmp/relay-ffmpeg.log', 'w')
+    subprocess.Popen(['python', '-u', 'relay-ffmpeg.py', 'webcam'], 
+                    stdout=relay_log, stderr=subprocess.STDOUT)
+    # Also start relay-ffmpeg-record.py asynchronously with log output (unbuffered)
+    record_log = open('/tmp/relay-ffmpeg-record.log', 'w')
+    subprocess.Popen(['python', '-u', 'relay-ffmpeg-record.py', 'webcam'], 
+                    stdout=record_log, stderr=subprocess.STDOUT)
     
     return True, 'started', 200
 
@@ -1800,14 +1804,17 @@ def ups_monitor_log():
 # Global list of monitored services
 MONITORED_SERVICES = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon', 'ups-monitor']
 
+# List of Python processes to monitor (separate from systemd services)
+MONITORED_PROCESSES = ['relay-ffmpeg.py', 'relay-ffmpeg-record.py']
+
 @app.route('/service-logs-sse/<service>')
 def service_logs_sse(service):
     """SSE endpoint for real-time service log monitoring."""
     import json
     
     # Validate service name
-    if service not in MONITORED_SERVICES:
-        return jsonify({'error': 'Invalid service name'}), 400
+    if service not in MONITORED_SERVICES and service not in MONITORED_PROCESSES:
+        return jsonify({'error': 'Invalid service or process name'}), 400
     
     def event_stream():
         client_timeout = 0
@@ -1819,56 +1826,95 @@ def service_logs_sse(service):
             if initial_logs:
                 yield f"data: {json.dumps({'type': 'initial', 'lines': initial_logs})}\n\n"
             
-            # Start following logs in real-time
+            # Handle real-time log following differently for services vs processes
             log_process = None
-            try:
-                log_process = subprocess.Popen(
-                    ['journalctl', '-u', service, '-f', '--no-pager', '-o', 'json'],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    bufsize=1
-                )
+            if service in MONITORED_PROCESSES:
+                # For Python processes, follow their log files with tail -f
+                log_files = {
+                    'relay-ffmpeg.py': '/tmp/relay-ffmpeg.log',
+                    'relay-ffmpeg-record.py': '/tmp/relay-ffmpeg-record.log'
+                }
                 
-                while client_timeout < max_timeout:
+                log_file = log_files.get(service)
+                if log_file and os.path.exists(log_file):
                     try:
-                        # Read line with timeout
-                        line = log_process.stdout.readline()
-                        if line:
+                        log_process = subprocess.Popen(
+                            ['tail', '-f', log_file],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True,
+                            bufsize=1
+                        )
+                        
+                        while client_timeout < max_timeout:
                             try:
-                                # Parse journalctl JSON output
-                                log_entry = json.loads(line.strip())
-                                message = log_entry.get('MESSAGE', '')
-                                timestamp = log_entry.get('__REALTIME_TIMESTAMP')
+                                # Read line with timeout
+                                line = log_process.stdout.readline()
+                                if line:
+                                    yield f"data: {json.dumps({'type': 'log', 'line': line.strip(), 'timestamp': None})}\n\n"
+                                    client_timeout = 0  # Reset timeout on activity
+                                else:
+                                    time.sleep(0.1)
+                                    client_timeout += 0.1
+                                    
+                            except Exception as e:
+                                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                                break
                                 
-                                # Convert timestamp from microseconds to milliseconds
-                                if timestamp:
-                                    timestamp = int(timestamp) // 1000
-                                
-                                yield f"data: {json.dumps({'type': 'log', 'line': message, 'timestamp': timestamp})}\n\n"
-                                client_timeout = 0  # Reset timeout on activity
-                            except json.JSONDecodeError:
-                                # Handle non-JSON lines
-                                yield f"data: {json.dumps({'type': 'log', 'line': line.strip(), 'timestamp': None})}\n\n"
-                        else:
-                            time.sleep(0.1)
-                            client_timeout += 0.1
-                            
                     except Exception as e:
-                        yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-                        break
-                        
-            except Exception as e:
-                yield f"data: {json.dumps({'type': 'error', 'message': f'Failed to start log monitoring: {str(e)}'})}\n\n"
+                        yield f"data: {json.dumps({'type': 'error', 'message': f'Failed to follow log file {log_file}: {str(e)}'})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'type': 'error', 'message': f'Log file not found for {service}'})}\n\n"
+            else:
+                # For systemd services, use journalctl
+                try:
+                    log_process = subprocess.Popen(
+                        ['journalctl', '-u', service, '-f', '--no-pager', '-o', 'json'],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        bufsize=1
+                    )
+                    
+                    while client_timeout < max_timeout:
+                        try:
+                            # Read line with timeout
+                            line = log_process.stdout.readline()
+                            if line:
+                                try:
+                                    # Parse journalctl JSON output
+                                    log_entry = json.loads(line.strip())
+                                    message = log_entry.get('MESSAGE', '')
+                                    timestamp = log_entry.get('__REALTIME_TIMESTAMP')
+                                    
+                                    # Convert timestamp from microseconds to milliseconds
+                                    if timestamp:
+                                        timestamp = int(timestamp) // 1000
+                                    
+                                    yield f"data: {json.dumps({'type': 'log', 'line': message, 'timestamp': timestamp})}\n\n"
+                                    client_timeout = 0  # Reset timeout on activity
+                                except json.JSONDecodeError:
+                                    # Handle non-JSON lines
+                                    yield f"data: {json.dumps({'type': 'log', 'line': line.strip(), 'timestamp': None})}\n\n"
+                            else:
+                                time.sleep(0.1)
+                                client_timeout += 0.1
+                                
+                        except Exception as e:
+                            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                            break
                 
-            finally:
-                if log_process:
-                    log_process.terminate()
-                    try:
-                        log_process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        log_process.kill()
-                        
+                except Exception as e:
+                    yield f"data: {json.dumps({'type': 'error', 'message': f'Failed to start log monitoring: {str(e)}'})}\n\n"
+                    
+                finally:
+                    if log_process:
+                        log_process.terminate()
+                        try:
+                            log_process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            log_process.kill()
+                            
         except GeneratorExit:
             print(f"Service logs SSE client disconnected for {service}")
         except Exception as e:
@@ -1878,13 +1924,63 @@ def service_logs_sse(service):
     
     return Response(event_stream(), mimetype='text/event-stream')
 
-def get_service_logs(service, lines=50):
+def get_process_logs(process, lines=50):
     """
-    Get recent logs for a service.
+    Get recent logs for a Python process from its log file.
     Returns a list of log entries with timestamp and message.
     """
     try:
-        # Get recent logs using journalctl
+        # Map process names to their log files
+        log_files = {
+            'relay-ffmpeg.py': '/tmp/relay-ffmpeg.log',
+            'relay-ffmpeg-record.py': '/tmp/relay-ffmpeg-record.log'
+        }
+        
+        log_file = log_files.get(process)
+        if not log_file:
+            return [{'line': f'No log file configured for {process}', 'timestamp': None}]
+        
+        # Check if log file exists
+        if not os.path.exists(log_file):
+            return [{'line': f'Log file {log_file} does not exist', 'timestamp': None}]
+        
+        # Read the last N lines from the log file
+        result = subprocess.run(
+            ['tail', '-n', str(lines), log_file],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode != 0:
+            return [{'line': f'Error reading log file: {result.stderr}', 'timestamp': None}]
+        
+        logs = []
+        for line in result.stdout.strip().split('\n'):
+            if line.strip():
+                # Simple log entry without JSON parsing (since these are plain text logs)
+                logs.append({'line': line.strip(), 'timestamp': None})
+        
+        return logs
+        
+    except subprocess.TimeoutExpired:
+        return [{'line': 'Timeout reading process logs', 'timestamp': None}]
+    except FileNotFoundError:
+        return [{'line': 'tail command not available', 'timestamp': None}]
+    except Exception as e:
+        return [{'line': f'Error: {str(e)}', 'timestamp': None}]
+
+def get_service_logs(service, lines=50):
+    """
+    Get recent logs for a service or process.
+    Returns a list of log entries with timestamp and message.
+    """
+    # Handle Python processes differently from systemd services
+    if service in MONITORED_PROCESSES:
+        return get_process_logs(service, lines)
+    
+    try:
+        # Get recent logs using journalctl for systemd services
         result = subprocess.run(
             ['journalctl', '-u', service, '-n', str(lines), '--no-pager', '-o', 'json'],
             capture_output=True,
@@ -1930,6 +2026,16 @@ def service_status_sse():
         client_timeout = 0
         max_timeout = 30  # Stop after 30 seconds of no activity
         
+        # Send initial status immediately when client connects
+        try:
+            initial_status = get_service_status()
+            yield f"data: {json.dumps(initial_status)}\n\n"
+            last_status = initial_status
+        except Exception as e:
+            print(f"Error getting initial service status: {e}")
+            error_data = {'error': str(e)}
+            yield f"data: {json.dumps(error_data)}\n\n"
+        
         while client_timeout < max_timeout:
             try:
                 status = get_service_status()
@@ -1939,6 +2045,8 @@ def service_status_sse():
                     yield f"data: {json.dumps(status)}\n\n"
                     last_status = status
                     client_timeout = 0  # Reset timeout on successful yield
+                else:
+                    client_timeout += 1  # Increment timeout when no changes
                     
                 time.sleep(3)  # Update every 3 seconds
             except GeneratorExit:
@@ -1955,10 +2063,73 @@ def service_status_sse():
     
     return Response(event_stream(), mimetype='text/event-stream')
 
+def get_process_status(process_name):
+    """
+    Get status of a Python process by checking if it's running.
+    Returns a dictionary with process status information.
+    """
+    try:
+        # Use pgrep to find processes by name
+        result = subprocess.run(
+            ['pgrep', '-f', process_name],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        
+        if result.returncode == 0 and result.stdout.strip():
+            # Process is running
+            pids = result.stdout.strip().split('\n')
+            return {
+                'status': 'active',
+                'active_state': 'active',
+                'sub_state': 'running',
+                'load_state': 'loaded',
+                'enabled': True,  # Python processes don't have enabled/disabled concept
+                'enabled_status': 'enabled',
+                'pids': pids,
+                'process_count': len(pids)
+            }
+        else:
+            # Process is not running
+            return {
+                'status': 'inactive',
+                'active_state': 'inactive',
+                'sub_state': 'dead',
+                'load_state': 'loaded',
+                'enabled': False,
+                'enabled_status': 'disabled',
+                'pids': [],
+                'process_count': 0
+            }
+            
+    except subprocess.TimeoutExpired:
+        return {
+            'status': 'timeout',
+            'error': 'pgrep command timed out',
+            'enabled': False,
+            'enabled_status': 'unknown'
+        }
+    except FileNotFoundError:
+        # pgrep not found
+        return {
+            'status': 'unavailable',
+            'error': 'pgrep not available',
+            'enabled': False,
+            'enabled_status': 'unavailable'
+        }
+    except Exception as e:
+        return {
+            'status': 'error',
+            'error': str(e),
+            'enabled': False,
+            'enabled_status': 'error'
+        }
+
 def get_service_status():
     """
-    Get status of system services including enabled/disabled status.
-    Returns a dictionary with service statuses.
+    Get status of system services and Python processes.
+    Returns a dictionary with service and process statuses.
     """
     status = {}
     
@@ -2042,17 +2213,105 @@ def get_service_status():
                 'enabled_status': 'error'
             }
     
+    # Check Python processes
+    for process in MONITORED_PROCESSES:
+        status[process] = get_process_status(process)
+    
     return status
+
+def handle_process_control(process, action):
+    """Handle starting/stopping Python processes"""
+    if action not in ['enable', 'disable']:
+        return jsonify({'success': False, 'error': 'Invalid action. Use enable or disable'}), 400
+        
+    try:
+        if action == 'enable':
+            # Check if process is already running
+            current_status = get_process_status(process)
+            if current_status['status'] == 'active':
+                return jsonify({
+                    'success': True, 
+                    'message': f'Process {process} is already running',
+                    'service': process,
+                    'action': action
+                })
+            
+            # Start the process
+            if process == 'relay-ffmpeg.py':
+                # Use the existing streaming start function
+                success, message, status_code = start_streaming()
+                if success:
+                    return jsonify({
+                        'success': True, 
+                        'message': f'Process {process} started successfully',
+                        'service': process,
+                        'action': action
+                    })
+                else:
+                    return jsonify({
+                        'success': False, 
+                        'error': message,
+                        'service': process,
+                        'action': action
+                    }), status_code
+            else:
+                # For other processes, we'd need specific start logic
+                return jsonify({
+                    'success': False, 
+                    'error': f'Starting {process} not implemented',
+                    'service': process,
+                    'action': action
+                }), 500
+                
+        elif action == 'disable':
+            # Stop the process
+            if process in ['relay-ffmpeg.py', 'relay-ffmpeg-record.py']:
+                # Use the existing streaming stop function
+                success, message, status_code = stop_streaming()
+                if success:
+                    return jsonify({
+                        'success': True, 
+                        'message': f'Process {process} stopped successfully',
+                        'service': process,
+                        'action': action
+                    })
+                else:
+                    return jsonify({
+                        'success': False, 
+                        'error': message,
+                        'service': process,
+                        'action': action
+                    }), status_code
+            else:
+                return jsonify({
+                    'success': False, 
+                    'error': f'Stopping {process} not implemented',
+                    'service': process,
+                    'action': action
+                }), 500
+                
+    except Exception as e:
+        return jsonify({
+            'success': False, 
+            'error': f'Error {action}ing process: {str(e)}',
+            'service': process,
+            'action': action
+        }), 500
 
 @app.route('/service-control', methods=['POST'])
 def service_control():
-    """Enable or disable a system service"""
+    """Enable or disable a system service or start/stop a Python process"""
     data = request.get_json()
     service = data.get('service')
     action = data.get('action')  # 'enable' or 'disable'
     
-    if not service or service not in MONITORED_SERVICES:
-        return jsonify({'success': False, 'error': 'Invalid service name'}), 400
+    # Check if it's a valid service or process
+    if not service or (service not in MONITORED_SERVICES and service not in MONITORED_PROCESSES):
+        return jsonify({'success': False, 'error': 'Invalid service or process name'}), 400
+        
+    # Handle Python processes differently from systemd services
+    if service in MONITORED_PROCESSES:
+        return handle_process_control(service, action)
     
     if action not in ['enable', 'disable']:
         return jsonify({'success': False, 'error': 'Invalid action. Use enable or disable'}), 400
@@ -2155,9 +2414,22 @@ def service_control():
 
 @app.route('/service-status/<service>')
 def service_enabled_status(service):
-    """Get the enabled/disabled status of a service"""
-    if service not in MONITORED_SERVICES:
-        return jsonify({'error': 'Invalid service name'}), 400
+    """Get the enabled/disabled status of a service or process"""
+    if service not in MONITORED_SERVICES and service not in MONITORED_PROCESSES:
+        return jsonify({'error': 'Invalid service or process name'}), 400
+        
+    # Handle Python processes
+    if service in MONITORED_PROCESSES:
+        try:
+            process_status = get_process_status(service)
+            return jsonify({
+                'enabled': process_status.get('enabled', False),
+                'status': process_status.get('status', 'unknown'),
+                'active_state': process_status.get('active_state', 'unknown'),
+                'process_count': process_status.get('process_count', 0)
+            })
+        except Exception as e:
+            return jsonify({'error': f'Error getting process status: {str(e)}'}), 500
     
     try:
         # Check if service is enabled
