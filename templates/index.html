@@ -2318,11 +2318,14 @@
         function renderActiveRecordingsPanel(files) {
             let frame = document.getElementById('active-recordings-frame');
             if (!frame) return;
-            // Show/hide the panel based on streaming/active files
-            if ((!files || files.length === 0) && !streaming) {
+            
+            // Show/hide the panel based on streaming status and active files
+            if (!streaming) {
                 frame.style.display = 'none';
                 return;
             }
+            
+            // Only show if streaming is active
             frame.style.display = '';
             const listDiv = frame.querySelector('#active-recordings-list');
             listDiv.innerHTML = '';
@@ -2381,6 +2384,11 @@
         function fetchActiveRecordings() {
             // Only fetch if streaming (since active recordings only matter when streaming)
             if (!streaming) {
+                // If streaming stopped, hide the active recordings panel
+                const frame = document.getElementById('active-recordings-frame');
+                if (frame) {
+                    frame.style.display = 'none';
+                }
                 return; // Skip polling if not streaming
             }
             
@@ -2492,6 +2500,36 @@
             streamingStatusEventSource.onerror = function() {
                 // SSE has terminated, stop the refresh
                 stopStreamingStatusRefresh();
+                
+                // Stop active recordings polling
+                stopActiveRecordingsRefresh();
+                
+                // Hide active recordings panel since streaming stopped
+                const activeFrame = document.getElementById('active-recordings-frame');
+                if (activeFrame) {
+                    activeFrame.style.display = 'none';
+                }
+                
+                // Update streaming state
+                streaming = false;
+                streamBtn.textContent = 'Start Streaming';
+                streamStatus.textContent = 'Streaming is stopped.';
+                streamStatus.style.display = '';
+                streamStatus.style.color = '';
+                streamStatus.style.backgroundColor = '';
+                streamStatus.style.padding = '';
+                streamStatus.style.borderRadius = '';
+                streamStatus.style.fontWeight = '';
+                streamBtn.disabled = false;
+
+                // Hide streaming info panel
+                const streamingInfoPanel = document.getElementById('streaming-info-panel');
+                if (streamingInfoPanel) {
+                    streamingInfoPanel.style.display = 'none';
+                }
+                
+                // Update and show the upload recordings list
+                updateUploadRecordingsList();
             };
         }
 
@@ -2555,12 +2593,8 @@
                         if (activeFrame) activeFrame.style.display = '';
                         startActiveRecordingsRefresh();
                         startStreamingStatusRefresh();
-                    } else {
-                        // Stop SSE connections
-                        stopStreamingStatusRefresh();
-                        // update and show the upload recordings list
-                        updateUploadRecordingsList();
                     }
+                    // Note: Cleanup when streaming stops is now handled by the SSE error handler
                 })
                 .catch(() => {
                     streamStatus.textContent = 'Error.';
