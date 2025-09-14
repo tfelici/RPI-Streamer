@@ -15,9 +15,6 @@
 # This script installs the RPI Streamer Flask app and MediaMTX on a Raspberry Pi running Raspberry Pi OS Lite.
 # It also sets up a systemd service for the Flask app and MediaMTX, with optional remote access configuration.
 #
-# Optional UPS Management: Install UPS monitoring before running this script:
-#   curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_ups_management.sh?$(date +%s)
-#   bash install_ups_management.sh
 ################################################
 
 set -e
@@ -59,6 +56,21 @@ echo ""
 # Check for GitHub updates immediately after confirming internet connectivity
 echo "🔄 Checking for GitHub updates..."
 
+# Determine which branch to use based on flags (support both old and new naming)
+# Make this available globally for the entire script
+if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
+    TARGET_BRANCH="origin/develop"
+    BRANCH_NAME="develop"
+    BRANCH_FLAG="--develop"
+    echo "Using develop branch for installation"
+else
+    # Default to main branch for stability
+    TARGET_BRANCH="origin/main"
+    BRANCH_NAME="main"
+    BRANCH_FLAG="--main"
+    echo "Using main branch for installation"
+fi
+
 # Setup flask app directory
 echo "Setting up Flask app directory... $HOME/flask_app"
 mkdir -p "$HOME/flask_app"
@@ -88,17 +100,7 @@ if [ -d .git ]; then
     
     sudo git fetch --all
     
-    # Determine which branch to use based on flags (support both old and new naming)
-    if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
-        TARGET_BRANCH="origin/develop"
-        BRANCH_NAME="develop"
-    else
-        # Default to main branch for stability
-        TARGET_BRANCH="origin/main"
-        BRANCH_NAME="main"
-    fi
-    
-    # Get the latest commit hash from remote
+    # Get the latest commit hash from remote (TARGET_BRANCH and BRANCH_NAME already set globally)
     LATEST_COMMIT=$(git rev-parse $TARGET_BRANCH 2>/dev/null || echo "")
     
     # Check if there are updates available
@@ -125,15 +127,9 @@ else
     cd flask_app
     sudo git clone https://github.com/tfelici/RPI-Streamer.git .
 
-    # Determine which branch to checkout after cloning (support both old and new naming)
-    if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
-        sudo git checkout develop
-        echo "Using develop branch"
-    else
-        # Default to main branch for stability
-        sudo git checkout main
-        echo "Using main branch"
-    fi
+    # Checkout the branch determined globally (BRANCH_NAME already set)
+    sudo git checkout $BRANCH_NAME
+    echo "Using $BRANCH_NAME branch"
 fi
 
 # Change ownership of the flask_app directory to the current user
@@ -428,14 +424,9 @@ check_and_download_executable() {
 # Download the StreamerUploader executables for different platforms
 printf "Checking StreamerUploader executables...\n"
 
-# Determine which Streamer-Uploader branch to use based on flags (support both old and new naming)
-STREAMER_UPLOADER_BRANCH="main"
-if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
-    STREAMER_UPLOADER_BRANCH="develop"
-    printf "Using Streamer-Uploader develop branch for executables...\n"
-else
-    printf "Using Streamer-Uploader main branch for executables...\n"
-fi
+# Use the same branch as the main RPI Streamer installation
+STREAMER_UPLOADER_BRANCH=$BRANCH_NAME
+printf "Using Streamer-Uploader $STREAMER_UPLOADER_BRANCH branch for executables...\n"
 
 # Check and download Windows executable
 check_and_download_executable "Windows" "Uploader-windows.exe" "windows/dist/StreamerUploader.exe" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/windows/dist/StreamerUploader.exe"
@@ -800,14 +791,6 @@ echo "   🔧 Manual control: sudo systemctl start/stop gps-daemon.service"
 #create a systemd service for this script
 printf "Creating systemd service for this script...\n"
 
-# Determine which branch flag to pass based on current installation (support both old and new naming)
-BRANCH_FLAG=""
-if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
-    BRANCH_FLAG="--develop"
-else
-    BRANCH_FLAG="--main"
-fi
-
 sudo tee /etc/systemd/system/install_rpi_streamer.service >/dev/null << EOF
 [Unit]
 Description=RPI Streamer Installation Script
@@ -816,7 +799,7 @@ Wants=network-online.target
 [Service]
 User=$USER
 Type=oneshot
-ExecStart=/usr/bin/curl -H "Cache-Control: no-cache" -L -o $HOME/flask_app/install_rpi_streamer.sh "https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh?$(date +%s)"
+ExecStart=/usr/bin/curl -H "Cache-Control: no-cache" -L -o $HOME/flask_app/install_rpi_streamer.sh "https://raw.githubusercontent.com/tfelici/RPI-Streamer/$BRANCH_NAME/install_rpi_streamer.sh?$(date +%s)"
 ExecStartPost=/bin/bash -e $HOME/flask_app/install_rpi_streamer.sh $BRANCH_FLAG --daemon
 RemainAfterExit=yes
 [Install]
@@ -1223,7 +1206,7 @@ echo "   sudo journalctl -u gps-daemon -f                  # View daemon logs"
 echo ""
 echo "�🔋 Optional UPS Management:"
 echo "   Install UPS monitoring for battery backup systems:"
-echo "   curl -H \"Cache-Control: no-cache\" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_ups_management.sh"
+echo "   curl -H \"Cache-Control: no-cache\" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/$BRANCH_NAME/install_ups_management.sh"
 echo "   bash install_ups_management.sh"
 
 # Generate unique hardware identifier and register hardware
