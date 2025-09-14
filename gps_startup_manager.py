@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from utils import is_gps_tracking, load_settings, save_settings, calculate_distance, get_hardwareid
 from gps_client import get_gnss_location
+import math
 
 def start_flight_via_api():
     """
@@ -114,12 +115,43 @@ def get_streamer_settings(poll_until_success=False, poll_interval=30):
             attempt += 1
 
 
+def calculate_bearing(lat1, lon1, lat2, lon2):
+    """
+    Calculate the bearing (direction) from point 1 to point 2 in degrees (0-360)
+    """
+    lat1_rad = math.radians(lat1)
+    lat2_rad = math.radians(lat2)
+    delta_lon = math.radians(lon2 - lon1)
+    
+    y = math.sin(delta_lon) * math.cos(lat2_rad)
+    x = math.cos(lat1_rad) * math.sin(lat2_rad) - math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(delta_lon)
+    
+    bearing = math.atan2(y, x)
+    bearing = math.degrees(bearing)
+    bearing = (bearing + 360) % 360  # Normalize to 0-360 degrees
+    
+    return bearing
+
+
+def angle_difference(angle1, angle2):
+    """
+    Calculate the smallest angle difference between two bearings (0-180 degrees)
+    """
+    diff = abs(angle1 - angle2)
+    if diff > 180:
+        diff = 360 - diff
+    return diff
+
+
 # Motion detection state
 motion_detection_state = {
     'last_position': None,
     'last_position_time': None,
     'movement_threshold': 10.0,  # meters - larger threshold for startup detection
     'position_timeout': 30.0,   # seconds - how long to wait for GPS fix
+    'position_history': [],      # Store last few positions for direction analysis
+    'bearing_history': [],       # Store bearings between consecutive positions
+    'max_history': 3,           # Keep last 3 positions for direction calculation
 }
 
 
@@ -127,8 +159,8 @@ def detect_motion():
     """
     Detect motion using GPS dongle by comparing current position with last known position
     Returns:
-        True - significant movement detected
-        False - no movement detected  
+        True - significant directional movement detected (two consecutive movements within 30 degrees)
+        False - no movement or inconsistent movement detected  
         None - GPS error, ignore this result
     """
     state = motion_detection_state
@@ -145,20 +177,30 @@ def detect_motion():
         current_lat = location_data['latitude']
         current_lon = location_data['longitude']
         gps_accuracy = location_data.get('accuracy', 5.0)  # Default to 5m if accuracy not available
+        current_position = (current_lat, current_lon, current_time)
 
         logger.debug(f"Motion detection GPS: lat={current_lat:.6f}, lon={current_lon:.6f}, accuracy={gps_accuracy:.1f}m")
 
-        # First position - store it and don't consider it motion
-        if state['last_position'] is None:
-            state['last_position'] = (current_lat, current_lon)
-            state['last_position_time'] = current_time
-            logger.debug("Stored first GPS position for motion detection")
+        # Add current position to history
+        state['position_history'].append(current_position)
+        
+        # Keep only the last max_history positions
+        if len(state['position_history']) > state['max_history']:
+            state['position_history'] = state['position_history'][-state['max_history']:]
+
+        # Need at least 2 positions to detect movement
+        if len(state['position_history']) < 2:
+            logger.debug("Need more position history for motion detection")
             return False
 
-        # Calculate distance from last position
+        # Get the last two positions
+        prev_pos = state['position_history'][-2]
+        curr_pos = state['position_history'][-1]
+        
+        # Calculate distance from previous position
         distance = calculate_distance(
-            state['last_position'][0], state['last_position'][1],
-            current_lat, current_lon
+            prev_pos[0], prev_pos[1],
+            curr_pos[0], curr_pos[1]
         )
 
         # Use the larger of movement threshold or GPS accuracy as minimum distance
@@ -166,17 +208,38 @@ def detect_motion():
         
         logger.debug(f"Distance from last position: {distance:.1f}m (threshold: {effective_threshold:.1f}m, GPS accuracy: {gps_accuracy:.1f}m)")
 
-        # Check if movement exceeds both the threshold and GPS accuracy margin
-        if distance >= effective_threshold:
-            logger.info(f"MOTION DETECTED! Aircraft moved {distance:.1f}m (above accuracy margin of {gps_accuracy:.1f}m)")
-            # Update position for next comparison
-            state['last_position'] = (current_lat, current_lon)
-            state['last_position_time'] = current_time
-            return True
+        # If movement is below threshold, return False
+        if distance < effective_threshold:
+            return False
 
-        # Update position time even if no movement (for timeout detection)
-        state['last_position_time'] = current_time
-        return False
+        # Calculate bearing for this movement
+        bearing = calculate_bearing(prev_pos[0], prev_pos[1], curr_pos[0], curr_pos[1])
+        state['bearing_history'].append(bearing)
+        
+        # Keep bearing history aligned with position history
+        if len(state['bearing_history']) > state['max_history'] - 1:
+            state['bearing_history'] = state['bearing_history'][-(state['max_history'] - 1):]
+
+        logger.debug(f"Movement detected: {distance:.1f}m at bearing {bearing:.1f}°")
+
+        # Need at least 2 bearings to check directional consistency
+        if len(state['bearing_history']) < 2:
+            logger.debug("Need more bearing history for directional analysis")
+            return False
+
+        # Check if the last two movements are within 30 degrees of each other
+        last_bearing = state['bearing_history'][-1]
+        prev_bearing = state['bearing_history'][-2]
+        bearing_diff = angle_difference(last_bearing, prev_bearing)
+        
+        logger.debug(f"Bearing comparison: previous={prev_bearing:.1f}°, current={last_bearing:.1f}°, difference={bearing_diff:.1f}°")
+
+        if bearing_diff <= 30.0:
+            logger.info(f"DIRECTIONAL MOTION DETECTED! Two consecutive movements within {bearing_diff:.1f}° (bearings: {prev_bearing:.1f}° → {last_bearing:.1f}°)")
+            return True
+        else:
+            logger.debug(f"Movement detected but not directional: bearing difference {bearing_diff:.1f}° > 30°")
+            return False
 
     except Exception as e:
         logger.exception(f"Error in GPS motion detection: {e}")
