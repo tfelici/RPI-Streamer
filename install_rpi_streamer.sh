@@ -312,24 +312,30 @@ sudo apt-get install mediainfo -y
 
 # GPS Tracker dependencies (using direct NMEA parsing)
 
-# Ensure WiFi interface is ready for NetworkManager management
-echo "📡 Preparing WiFi interface for NetworkManager management..."
+# Only prepare WiFi interface when NOT running in daemon mode
+# In daemon mode (updates), preserve existing WiFi/hotspot state
+if [[ "$@" != *"--daemon"* ]]; then
+    # Ensure WiFi interface is ready for NetworkManager management
+    echo "📡 Preparing WiFi interface for NetworkManager management..."
 
-# Unblock WiFi radio if needed (defensive measure - app.py will also do this when creating hotspot)
-sudo rfkill unblock wifi 2>/dev/null || echo "Note: WiFi radio unblock not needed or already active"
+    # Unblock WiFi radio if needed (defensive measure - app.py will also do this when creating hotspot)
+    sudo rfkill unblock wifi 2>/dev/null || echo "Note: WiFi radio unblock not needed or already active"
 
-# Ensure WiFi radio is enabled for NetworkManager (modern Pi OS default)
-sudo nmcli radio wifi on 2>/dev/null || echo "Note: WiFi radio already enabled or not available"
+    # Ensure WiFi radio is enabled for NetworkManager (modern Pi OS default)
+    sudo nmcli radio wifi on 2>/dev/null || echo "Note: WiFi radio already enabled or not available"
 
-# Disconnect any existing WiFi connections to ensure clean state
-sudo nmcli device disconnect wlan0 2>/dev/null || true
+    # Disconnect any existing WiFi connections to ensure clean state
+    sudo nmcli device disconnect wlan0 2>/dev/null || true
 
-echo "✅ WiFi interface prepared for hotspot mode via NetworkManager"
-echo "� WiFi hotspot configuration available via web interface:"
-echo "   • Access the RPI Streamer web interface after installation"
-echo "   • Navigate to Network Settings or WiFi Hotspot section"
-echo "   • Configure hotspot name, password, and IP settings"
-echo "   • Enable/disable hotspot as needed through the web interface"
+    echo "✅ WiFi interface prepared for hotspot mode via NetworkManager"
+    echo "� WiFi hotspot configuration available via web interface:"
+    echo "   • Access the RPI Streamer web interface after installation"
+    echo "   • Navigate to Network Settings or WiFi Hotspot section"
+    echo "   • Configure hotspot name, password, and IP settings"
+    echo "   • Enable/disable hotspot as needed through the web interface"
+else
+    echo "🤖 Running in daemon mode - preserving existing WiFi/hotspot configuration"
+fi
 
 # AutoSSH for reliable reverse tunnel management
 sudo apt-get install autossh -y
