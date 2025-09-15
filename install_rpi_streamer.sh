@@ -612,6 +612,7 @@ NoNewPrivileges=true
 [Install]
 WantedBy=multi-user.target
 loggerEOF
+EOF
 
 # Create systemd service for modem recovery daemon
 printf "Creating systemd service for Modem Recovery Daemon...\n"
