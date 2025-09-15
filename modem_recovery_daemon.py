@@ -60,6 +60,7 @@ class ModemRecovery:
         self.modem_id = None
         self.last_check_time = datetime.now()
         self.connection_history = []  # Track connection status history
+        self.last_sim_status = None  # Track SIM status changes
         
     def find_modem(self):
         """Find the cellular modem using ModemManager"""
@@ -88,11 +89,142 @@ class ModemRecovery:
             logger.error(f"Error finding modem: {e}")
             return False
     
+    def check_sim_card_status(self):
+        """Check if SIM card is present and valid"""
+        if not self.modem_id:
+            if not self.find_modem():
+                return False, "No modem found"
+        
+        try:
+            # First check basic modem status to see if SIM is detected
+            result = subprocess.run(['mmcli', '-m', self.modem_id], 
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode != 0:
+                logger.error(f"Failed to get modem status: {result.stderr}")
+                return False, "ModemManager error"
+            
+            modem_output = result.stdout.lower()
+            logger.debug(f"DEBUG: Raw modem output (first 500 chars): {result.stdout[:500]}")
+            
+            # Check for explicit SIM missing indicators first
+            if ('sim missing' in modem_output or 
+                'no sim' in modem_output or 
+                'sim: none' in modem_output or
+                'sim slot: empty' in modem_output):
+                return False, "No SIM card detected"
+            
+            # Check for SIM lock status - be more specific about what indicates a lock
+            if ('state: locked' in modem_output or 
+                'sim-pin required' in modem_output or 
+                'sim-puk required' in modem_output or
+                'unlock required' in modem_output):
+                return False, "SIM card is locked (PIN/PUK required)"
+            
+            # Quick test: try to query SIM directly to see if it responds
+            try:
+                quick_sim_test = subprocess.run(['mmcli', '-i', '0'], 
+                                              capture_output=True, text=True, timeout=5)
+                if quick_sim_test.returncode != 0:
+                    # SIM query failed - likely no SIM present
+                    logger.debug(f"DEBUG: Direct SIM query failed: {quick_sim_test.stderr}")
+                    if 'not found' in quick_sim_test.stderr.lower():
+                        return False, "No SIM card detected"
+                    # If it's some other error, continue with path-based detection
+            except (subprocess.TimeoutExpired, Exception) as e:
+                logger.debug(f"DEBUG: SIM quick test failed: {e}")
+            
+            # If SIM is mentioned, try to get detailed SIM info
+            if 'sim path:' in modem_output:
+                logger.debug("DEBUG: Found SIM path in modem output")
+                # Extract SIM path and check detailed status
+                sim_match = re.search(r'sim path:\s*([^\s\n]+)', modem_output)
+                if sim_match:
+                    sim_path = sim_match.group(1)
+                    logger.debug(f"DEBUG: Extracted SIM path: {sim_path}")
+                    
+                    # Get detailed SIM status - handle errors properly
+                    try:
+                        sim_result = subprocess.run(['mmcli', '--sim', sim_path.split('/')[-1]], 
+                                                  capture_output=True, text=True, timeout=10)
+                        if sim_result.returncode == 0:
+                            sim_info = sim_result.stdout.lower()
+                            logger.debug(f"DEBUG: SIM detailed output: {sim_result.stdout}")
+                            
+                            # Check SIM state more carefully
+                            if 'state: ready' in sim_info:
+                                # Get operator info if available
+                                operator_match = re.search(r'operator name:\s*[\'"]?([^\'"\r\n]+)', sim_info)
+                                operator = operator_match.group(1).strip() if operator_match else "Unknown"
+                                return True, f"SIM ready (Operator: {operator})"
+                            elif 'state: locked' in sim_info:
+                                return False, "SIM card is locked (PIN/PUK required)"
+                            elif 'state:' in sim_info:
+                                # Extract the actual state
+                                state_match = re.search(r'state:\s*(\w+)', sim_info)
+                                if state_match:
+                                    state = state_match.group(1)
+                                    return False, f"SIM card state: {state}"
+                                else:
+                                    return False, "SIM card not ready"
+                            else:
+                                return False, "SIM card status unknown"
+                        else:
+                            # mmcli --sim command failed - this means SIM path exists but SIM is not accessible
+                            logger.debug(f"DEBUG: mmcli --sim failed with error: {sim_result.stderr}")
+                            # This could be because SIM is not present despite path existing
+                            return False, "No SIM card detected"
+                    except subprocess.TimeoutExpired:
+                        return False, "SIM status check timeout"
+                    except Exception as e:
+                        logger.debug(f"DEBUG: SIM status check exception: {e}")
+                        return False, "SIM status check error"
+                else:
+                    return False, "SIM card status unclear"
+            else:
+                # No SIM path found in modem output - definitely no SIM
+                return False, "No SIM card detected"
+                
+        except subprocess.TimeoutExpired:
+            logger.error("SIM status check timed out")
+            return False, "Timeout"
+        except Exception as e:
+            logger.error(f"Error checking SIM status: {e}")
+            return False, str(e)
+
     def check_connection_status(self):
         """Check current cellular connection status"""
         if not self.modem_id:
             if not self.find_modem():
                 return False, "No modem found"
+        
+        # First check SIM card status
+        sim_ok, sim_status = self.check_sim_card_status()
+        
+        # Track SIM status changes
+        if self.last_sim_status != sim_status:
+            if self.last_sim_status is not None:  # Not the first check
+                logger.info(f"SIM status changed: '{self.last_sim_status}' -> '{sim_status}'")
+            self.last_sim_status = sim_status
+        
+        if not sim_ok:
+            # Only treat as SIM error if it's a real SIM hardware issue
+            # Don't skip recovery for timeouts, parsing errors, etc.
+            sim_hardware_issues = [
+                "No SIM card detected", 
+                "SIM card is locked", 
+                "No SIM card", 
+                "sim missing"
+            ]
+            
+            is_hardware_issue = any(issue.lower() in sim_status.lower() for issue in sim_hardware_issues)
+            
+            if is_hardware_issue:
+                logger.warning(f"SIM card hardware issue: {sim_status}")
+                return False, f"SIM error: {sim_status}"
+            else:
+                # Temporary SIM check failure - continue with connection check
+                logger.debug(f"SIM status check issue (continuing): {sim_status}")
+                # Don't return here - continue to check connection normally
         
         try:
             # Get modem status from ModemManager
@@ -104,30 +236,30 @@ class ModemRecovery:
             
             modem_output = result.stdout.lower()
             
-            # Check ModemManager state
+            # Check ModemManager state only (don't interfere with NetworkManager/Ethernet)
             mm_connected = 'state: connected' in modem_output
             
-            # Also check NetworkManager for additional validation
-            nm_connected = False
-            try:
-                nm_result = subprocess.run(['nmcli', 'device', 'status'], 
-                                         capture_output=True, text=True, timeout=5)
-                if nm_result.returncode == 0:
-                    # Look for connected GSM/cellular devices
-                    for line in nm_result.stdout.split('\n'):
-                        if 'gsm' in line.lower() and 'connected' in line.lower():
-                            nm_connected = True
-                            break
-            except Exception as e:
-                logger.warning(f"NetworkManager check failed: {e}")
+            # For cellular connectivity, ModemManager state is sufficient
+            # We don't want to interfere with NetworkManager since Ethernet might be primary
+            is_connected = mm_connected
             
-            # Connection is good if both ModemManager and NetworkManager agree it's connected
-            is_connected = mm_connected and nm_connected
+            # Additional validation: check if we have an active bearer
+            bearer_active = False
+            try:
+                bearer_result = subprocess.run(['mmcli', '-m', self.modem_id, '--list-bearers'], 
+                                             capture_output=True, text=True, timeout=5)
+                if bearer_result.returncode == 0 and 'connected' in bearer_result.stdout.lower():
+                    bearer_active = True
+            except Exception as e:
+                logger.debug(f"Bearer check failed: {e}")
+            
+            # Connection is good if modem is connected and has active bearers
+            is_connected = mm_connected and bearer_active
             
             # Get additional status info
             status_info = {
                 'mm_connected': mm_connected,
-                'nm_connected': nm_connected,
+                'bearer_active': bearer_active,
                 'signal_strength': None,
                 'operator': None,
                 'network_type': None
@@ -161,46 +293,39 @@ class ModemRecovery:
             return False, str(e)
     
     def soft_reset_connection(self):
-        """Attempt soft reset via NetworkManager"""
-        logger.info("Attempting soft reset via NetworkManager...")
+        """Attempt soft reset via ModemManager (disconnect/reconnect)"""
+        logger.info("Attempting soft reset via ModemManager...")
+        
+        if not self.modem_id:
+            return False
+            
         try:
-            # Find cellular connection
-            result = subprocess.run(['nmcli', 'connection', 'show'], 
-                                  capture_output=True, text=True, timeout=10)
+            # Use ModemManager to disconnect and reconnect
+            # This only affects the modem, not NetworkManager connections
+            logger.info("Disconnecting modem via ModemManager...")
+            result = subprocess.run(['mmcli', '-m', self.modem_id, '--simple-disconnect'], 
+                                  capture_output=True, text=True, timeout=15)
+            
             if result.returncode != 0:
-                logger.error("Failed to list NetworkManager connections")
-                return False
+                logger.warning(f"Disconnect command failed (may already be disconnected): {result.stderr}")
+                # Continue anyway - modem might already be disconnected
             
-            # Look for GSM/cellular connection
-            cellular_connection = None
-            for line in result.stdout.split('\n'):
-                if 'gsm' in line.lower() or 'cellular' in line.lower():
-                    # Extract connection name (first field)
-                    parts = line.split()
-                    if parts:
-                        cellular_connection = parts[0]
-                        break
+            # Wait between disconnect and reconnect, but check for shutdown
+            for _ in range(5):
+                if shutdown_flag.is_set():
+                    logger.info("Shutdown requested during connection reset, aborting")
+                    return False
+                time.sleep(1)
             
-            if not cellular_connection:
-                logger.error("No cellular connection found in NetworkManager")
-                return False
-            
-            # Disconnect and reconnect
-            logger.info(f"Disconnecting cellular connection: {cellular_connection}")
-            subprocess.run(['nmcli', 'connection', 'down', cellular_connection], 
-                         capture_output=True, timeout=15)
-            
-            time.sleep(5)  # Wait between disconnect and reconnect
-            
-            logger.info(f"Reconnecting cellular connection: {cellular_connection}")
-            result = subprocess.run(['nmcli', 'connection', 'up', cellular_connection], 
+            logger.info("Reconnecting modem via ModemManager...")
+            result = subprocess.run(['mmcli', '-m', self.modem_id, '--simple-connect'], 
                                   capture_output=True, text=True, timeout=30)
             
             if result.returncode == 0:
                 logger.info("Soft reset completed successfully")
                 return True
             else:
-                logger.error(f"Failed to reconnect: {result.stderr}")
+                logger.error(f"Failed to reconnect modem: {result.stderr}")
                 return False
                 
         except subprocess.TimeoutExpired:
@@ -259,7 +384,12 @@ class ModemRecovery:
             subprocess.run(['mmcli', '-m', self.modem_id, '--disable'], 
                          capture_output=True, timeout=20)
             
-            time.sleep(5)  # Wait for disable to complete
+            # Wait for disable to complete, but check for shutdown
+            for _ in range(5):
+                if shutdown_flag.is_set():
+                    logger.info("Shutdown requested during modem reset, aborting")
+                    return False
+                time.sleep(1)
             
             # Enable modem
             logger.info("Enabling modem...")
@@ -268,10 +398,27 @@ class ModemRecovery:
             
             if result.returncode == 0:
                 logger.info("Full modem reset completed")
-                time.sleep(10)  # Wait for modem to stabilize
                 
-                # Attempt to reconnect
-                return self.soft_reset_connection()
+                # Wait for modem to stabilize, but check for shutdown
+                for _ in range(10):
+                    if shutdown_flag.is_set():
+                        logger.info("Shutdown requested during modem stabilization, aborting")
+                        return False
+                    time.sleep(1)
+                
+                # Attempt to reconnect (only if not shutting down)
+                if not shutdown_flag.is_set():
+                    logger.info("Attempting to reconnect after modem reset...")
+                    reconnect_result = subprocess.run(['mmcli', '-m', self.modem_id, '--simple-connect'], 
+                                                    capture_output=True, text=True, timeout=30)
+                    if reconnect_result.returncode == 0:
+                        logger.info("Modem reconnection successful")
+                        return True
+                    else:
+                        logger.warning(f"Modem reconnection failed: {reconnect_result.stderr}")
+                        return False
+                else:
+                    return False
             else:
                 logger.error(f"Failed to enable modem: {result.stderr}")
                 return False
@@ -321,14 +468,27 @@ class ModemRecovery:
                                         # Unbind
                                         with open(unbind_path, 'w') as f:
                                             f.write(device_name)
-                                        time.sleep(2)
+                                        
+                                        # Wait but check for shutdown
+                                        for _ in range(2):
+                                            if shutdown_flag.is_set():
+                                                logger.info("Shutdown requested during USB reset, aborting")
+                                                return False
+                                            time.sleep(1)
                                         
                                         # Bind
                                         with open(bind_path, 'w') as f:
                                             f.write(device_name)
                                         
                                         logger.info("USB reset completed")
-                                        time.sleep(10)  # Wait for device to reinitialize
+                                        
+                                        # Wait for device to reinitialize, but check for shutdown
+                                        for _ in range(10):
+                                            if shutdown_flag.is_set():
+                                                logger.info("Shutdown requested during device initialization, returning")
+                                                return True  # Return success since reset completed
+                                            time.sleep(1)
+                                        
                                         return True
                         except Exception as e:
                             logger.warning(f"USB reset failed: {e}")
@@ -365,6 +525,14 @@ def monitor_connection():
     
     logger.info("Starting modem recovery monitoring...")
     
+    # Initial SIM card check
+    sim_ok, sim_status = modem_recovery.check_sim_card_status()
+    if sim_ok:
+        logger.info(f"Initial SIM check: {sim_status}")
+    else:
+        logger.warning(f"Initial SIM check failed: {sim_status}")
+        logger.info(f"DEBUG: SIM status check returned - OK: {sim_ok}, Status: '{sim_status}'")
+    
     while not shutdown_flag.is_set():
         try:
             current_time = datetime.now()
@@ -372,8 +540,13 @@ def monitor_connection():
             # Check if we're in cooldown period after max recovery attempts
             if (last_recovery_time and recovery_attempts >= MAX_RECOVERY_ATTEMPTS and 
                 current_time - last_recovery_time < timedelta(seconds=RECOVERY_COOLDOWN)):
-                logger.info(f"In recovery cooldown, waiting {RECOVERY_COOLDOWN - (current_time - last_recovery_time).seconds} more seconds")
-                time.sleep(CHECK_INTERVAL)
+                remaining = RECOVERY_COOLDOWN - (current_time - last_recovery_time).seconds
+                logger.info(f"In recovery cooldown, waiting {remaining} more seconds")
+                # Make cooldown sleep interruptible
+                for _ in range(min(CHECK_INTERVAL, remaining)):
+                    if shutdown_flag.is_set():
+                        break
+                    time.sleep(1)
                 continue
             
             # Reset recovery attempts after cooldown
@@ -384,24 +557,74 @@ def monitor_connection():
             
             # Skip check if recovery is in progress
             if recovery_in_progress:
-                time.sleep(CHECK_INTERVAL)
+                # Make recovery wait interruptible
+                for _ in range(CHECK_INTERVAL):
+                    if shutdown_flag.is_set():
+                        break
+                    time.sleep(1)
                 continue
             
             # Check connection status
             is_connected, status_info = modem_recovery.check_connection_status()
             
+            # Debug logging
+            logger.debug(f"Connection check result: connected={is_connected}, info={status_info}")
+            
             if is_connected:
-                logger.debug(f"Connection OK - Signal: {status_info.get('signal_strength', 'N/A')}%, "
+                logger.debug(f"Cellular OK - Signal: {status_info.get('signal_strength', 'N/A')}%, "
                            f"Operator: {status_info.get('operator', 'N/A')}, "
-                           f"Tech: {status_info.get('network_type', 'N/A')}")
+                           f"Tech: {status_info.get('network_type', 'N/A')}, "
+                           f"Bearer: {status_info.get('bearer_active', False)}")
                 consecutive_failures = 0
                 recovery_attempts = 0  # Reset on successful connection
             else:
-                consecutive_failures += 1
-                logger.warning(f"Connection failed ({consecutive_failures}/{FAILURE_THRESHOLD}): {status_info}")
+                # Debug logging
+                logger.info(f"DEBUG: Connection failed - status_info type: {type(status_info)}, value: '{status_info}'")
                 
-                # Trigger recovery if threshold reached
-                if consecutive_failures >= FAILURE_THRESHOLD and recovery_attempts < MAX_RECOVERY_ATTEMPTS:
+                # Check if this is a real SIM hardware issue that recovery can't fix
+                is_sim_hardware_error = (isinstance(status_info, str) and 
+                                       "SIM error" in status_info and
+                                       any(issue in status_info.lower() for issue in [
+                                           "no sim card detected",
+                                           "sim card is locked", 
+                                           "no sim card",
+                                           "sim missing"
+                                       ]))
+                
+                logger.info(f"DEBUG: SIM hardware error check - is_sim_error: {is_sim_hardware_error}")
+                if isinstance(status_info, str) and "SIM error" in status_info:
+                    logger.info(f"DEBUG: Found SIM error, checking specific issues in: '{status_info.lower()}'")
+                    for issue in ["no sim card detected", "sim card is locked", "no sim card", "sim missing"]:
+                        if issue in status_info.lower():
+                            logger.info(f"DEBUG: Matched hardware issue: '{issue}'")
+                
+                if is_sim_hardware_error:
+                    # Don't count SIM hardware errors as connection failures for recovery
+                    logger.warning(f"SIM hardware issue detected: {status_info}")
+                    
+                    # Provide specific guidance based on the error type
+                    if "locked" in status_info.lower():
+                        logger.error("SIM CARD IS LOCKED - Action required:")
+                        logger.error("1. Check if SIM PIN is enabled on this SIM card")
+                        logger.error("2. Unlock SIM using: mmcli -i 0 --pin=XXXX (replace XXXX with PIN)")
+                        logger.error("3. Or disable SIM PIN using phone/modem management")
+                        logger.error("4. Verify SIM works in phone first before using in modem")
+                    elif "missing" in status_info.lower() or "no sim" in status_info.lower():
+                        logger.error("SIM CARD NOT DETECTED - Action required:")
+                        logger.error("1. Check SIM card is properly inserted")
+                        logger.error("2. Verify SIM card is not damaged")
+                        logger.error("3. Try reseating the SIM card")
+                    
+                    logger.info("Skipping recovery attempts until SIM issue is resolved")
+                    consecutive_failures = 0  # Reset failures to prevent recovery attempts
+                else:
+                    # This is a connection issue that recovery might fix
+                    consecutive_failures += 1
+                    logger.warning(f"Connection failed ({consecutive_failures}/{FAILURE_THRESHOLD}): {status_info}")
+                
+                # Only trigger recovery if it's not a SIM hardware issue and threshold reached
+                if (consecutive_failures >= FAILURE_THRESHOLD and recovery_attempts < MAX_RECOVERY_ATTEMPTS and 
+                    not is_sim_hardware_error):
                     recovery_in_progress = True
                     recovery_attempts += 1
                     last_recovery_time = current_time
@@ -415,15 +638,22 @@ def monitor_connection():
                             success = modem_recovery.perform_recovery(recovery_attempts)
                             if success:
                                 logger.info("Recovery completed successfully")
-                                time.sleep(RECOVERY_TIMEOUT)  # Wait to verify recovery
-                                # Check if connection is restored
-                                is_recovered, _ = modem_recovery.check_connection_status()
-                                if is_recovered:
-                                    logger.info("Connection restored after recovery")
-                                    global consecutive_failures
-                                    consecutive_failures = 0
-                                else:
-                                    logger.warning("Recovery completed but connection not restored")
+                                # Wait to verify recovery, but check for shutdown signal
+                                for _ in range(RECOVERY_TIMEOUT):
+                                    if shutdown_flag.is_set():
+                                        logger.info("Shutdown requested, aborting recovery verification")
+                                        return
+                                    time.sleep(1)
+                                
+                                # Check if connection is restored (only if not shutting down)
+                                if not shutdown_flag.is_set():
+                                    is_recovered, _ = modem_recovery.check_connection_status()
+                                    if is_recovered:
+                                        logger.info("Connection restored after recovery")
+                                        global consecutive_failures
+                                        consecutive_failures = 0
+                                    else:
+                                        logger.warning("Recovery completed but connection not restored")
                             else:
                                 logger.error("Recovery attempt failed")
                         except Exception as e:
@@ -436,17 +666,35 @@ def monitor_connection():
                 elif recovery_attempts >= MAX_RECOVERY_ATTEMPTS:
                     logger.error(f"Maximum recovery attempts ({MAX_RECOVERY_ATTEMPTS}) reached, entering cooldown")
             
-            # Wait for next check
-            time.sleep(CHECK_INTERVAL)
+            # Wait for next check, but make it interruptible for faster shutdown
+            for _ in range(CHECK_INTERVAL):
+                if shutdown_flag.is_set():
+                    break
+                time.sleep(1)
             
         except Exception as e:
             logger.error(f"Error in monitoring loop: {e}")
-            time.sleep(CHECK_INTERVAL)
+            # Even error recovery sleep should be interruptible
+            for _ in range(CHECK_INTERVAL):
+                if shutdown_flag.is_set():
+                    break
+                time.sleep(1)
 
 def signal_handler(signum, frame):
     """Handle shutdown signals gracefully"""
+    global recovery_in_progress
+    
     logger.info(f"Received signal {signum}, shutting down...")
     shutdown_flag.set()
+    
+    # If recovery is in progress, wait a short time then force shutdown
+    if recovery_in_progress:
+        logger.info("Recovery in progress, allowing 5 seconds for cleanup...")
+        import time
+        time.sleep(5)
+        if recovery_in_progress:
+            logger.warning("Forcing shutdown despite active recovery")
+            recovery_in_progress = False
 
 def main():
     """Main entry point"""
@@ -506,6 +754,21 @@ def main():
     except Exception as e:
         logger.error(f"Fatal error: {e}")
     finally:
+        # Ensure shutdown flag is set
+        shutdown_flag.set()
+        
+        # Give any active recovery threads a moment to finish
+        if recovery_in_progress:
+            logger.info("Waiting for recovery thread to finish...")
+            import time
+            for i in range(10):  # Wait up to 10 seconds
+                if not recovery_in_progress:
+                    break
+                time.sleep(1)
+            
+            if recovery_in_progress:
+                logger.warning("Recovery thread did not finish cleanly")
+        
         logger.info("Modem Recovery Daemon stopped")
 
 if __name__ == '__main__':
