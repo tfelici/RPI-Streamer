@@ -630,25 +630,18 @@ User=root
 Group=root
 WorkingDirectory=$HOME/flask_app
 ExecStart=/usr/bin/python3 $HOME/flask_app/modem_recovery_daemon.py --daemon
+ExecStop=/bin/kill -TERM \$MAINPID
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
 
-# Resource limits
-MemoryMax=64M
-CPUQuota=10%
-
-# Security settings
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/log /tmp
-PrivateTmp=true
-
 # Environment
 Environment=PYTHONPATH=$HOME/flask_app
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Security settings
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
