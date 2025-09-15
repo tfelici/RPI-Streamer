@@ -286,7 +286,7 @@ echo "📝 NetworkManager configuration files created (will be loaded on next bo
 
 echo "✅ ModemManager and NetworkManager configured for automatic connectivity with interface priority"
 echo "🌐 Network interface priority configuration:"
-echo "   1. � Ethernet (eth0): Priority 100, Route metric 100 (HIGHEST PRIORITY)"
+echo "   1. 🔌 Ethernet (eth0): Priority 100, Route metric 100 (HIGHEST PRIORITY)"
 echo "   2. 📡 Cellular (wwan*): Priority 10, Route metric 200 (BACKUP)"
 echo "📡 When network interfaces are available:"
 echo "   • Ethernet cable connected: All traffic routes via Ethernet"
@@ -328,7 +328,7 @@ if [[ "$@" != *"--daemon"* ]]; then
     sudo nmcli device disconnect wlan0 2>/dev/null || true
 
     echo "✅ WiFi interface prepared for hotspot mode via NetworkManager"
-    echo "� WiFi hotspot configuration available via web interface:"
+    echo "📶 WiFi hotspot configuration available via web interface:"
     echo "   • Access the RPI Streamer web interface after installation"
     echo "   • Navigate to Network Settings or WiFi Hotspot section"
     echo "   • Configure hotspot name, password, and IP settings"
@@ -611,6 +611,47 @@ NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
+loggerEOF
+
+# Create systemd service for modem recovery daemon
+printf "Creating systemd service for Modem Recovery Daemon...\n"
+sudo tee /etc/systemd/system/modem-recovery.service >/dev/null << EOF
+[Unit]
+Description=Modem Recovery Daemon for SIM7600G-H
+Documentation=https://github.com/tfelici/RPI-Streamer
+After=network.target ModemManager.service NetworkManager.service
+Wants=ModemManager.service NetworkManager.service
+PartOf=rpi-streamer.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=$HOME/flask_app
+ExecStart=/usr/bin/python3 $HOME/flask_app/modem_recovery_daemon.py --daemon
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Resource limits
+MemoryLimit=64M
+CPUQuota=10%
+
+# Security settings
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log /tmp
+PrivateTmp=true
+
+# Environment
+Environment=PYTHONPATH=$HOME/flask_app
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+[Install]
+WantedBy=multi-user.target
+Also=ModemManager.service NetworkManager.service
 EOF
 
 #make rpiconfig executable
@@ -785,14 +826,22 @@ sudo usermod -a -G dialout $USER
 
 echo "✅ GPS Daemon installed (will only run when GPS hardware is detected)"
 
-echo "🛰️ GPS System Info:"
+echo "�🛰️ GPS System Info:"
 echo "   🛰️ GPS Daemon: Runs only when GPS hardware is detected"
 echo "   🔌 Hardware Integration: GPS daemon handles enablement automatically"
-echo "   � Boot Detection: GPS daemon checks for dongles present at boot"
+echo "   🚀 Boot Detection: GPS daemon checks for dongles present at boot"
 echo "   ⚙️ Startup Manager: Configure GPS start mode in Flight Settings"
 echo "   📡 Multi-GNSS: GPS + GLONASS + Galileo + BeiDou constellation support"
 echo "   📋 Status: sudo systemctl status gps-daemon.service"
 echo "   🔧 Manual control: sudo systemctl start/stop gps-daemon.service"
+
+echo ""
+echo "📡 Modem Recovery System Info:"
+echo "   🔄 Automatic Recovery: Monitors SIM7600G-H connectivity every 30 seconds"
+echo "   🚨 Failure Detection: Triggers recovery after 3 consecutive failures"
+echo "   🔧 Recovery Methods: Soft reset → Bearer reset → Full reset → Hardware reset"
+echo "   📋 Status: sudo systemctl status modem-recovery.service"
+echo "   📊 Logs: sudo journalctl -u modem-recovery.service -f"
 
 #create a systemd service for this script
 printf "Creating systemd service for this script...\n"
@@ -821,6 +870,8 @@ sudo systemctl enable mediamtx
 sudo systemctl restart mediamtx
 sudo systemctl enable heartbeat-daemon
 sudo systemctl restart heartbeat-daemon
+sudo systemctl enable modem-recovery
+sudo systemctl restart modem-recovery
 sudo systemctl enable gps-startup
 sudo systemctl restart gps-startup
 
@@ -1178,6 +1229,7 @@ echo "🚀 Services installed and running:"
 echo "   ✅ Flask App (HTTP server on port 80)"
 echo "   ✅ MediaMTX (Streaming server)" 
 echo "   💓 Heartbeat Daemon (independent device monitoring)"
+echo "   📡 Modem Recovery Daemon (automatic SIM7600G-H recovery)"
 echo "   ⚙️ GPS Daemon (auto-starts and enables GPS with hardware)"
 echo "   ⚙️ GPS Startup Manager (configure via web interface)"
 if systemctl is-active --quiet reverse-ssh-tunnel.service; then
@@ -1205,12 +1257,12 @@ echo "   ping -I eth0 8.8.8.8                             # Test ethernet connec
 echo "   ping -I wwan0 8.8.8.8                            # Test cellular connectivity"
 echo "   tail -f /var/log/network-priority.log             # Monitor network priority events"
 echo ""
-echo "�️ GPS Testing Commands:"
+echo "🛰️ GPS Testing Commands:"
 echo "   python3 $HOME/flask_app/gps_client.py --status    # Check daemon status"
 echo "   python3 $HOME/flask_app/gps_client.py --location  # Get current location"
 echo "   sudo journalctl -u gps-daemon -f                  # View daemon logs"
 echo ""
-echo "�🔋 Optional UPS Management:"
+echo "🔋 Optional UPS Management:"
 echo "   Install UPS monitoring for battery backup systems:"
 echo "   curl -H \"Cache-Control: no-cache\" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/$BRANCH_NAME/install_ups_management.sh"
 echo "   bash install_ups_management.sh"
