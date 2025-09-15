@@ -37,7 +37,7 @@ shutdown_flag = threading.Event()
 
 def check_sim_card_status():
     """
-    Check SIM card status using mmcli
+    Check SIM card status using mmcli JSON output
     
     Returns:
         dict: Status information with keys:
@@ -46,9 +46,9 @@ def check_sim_card_status():
             - status: str with detailed status
     """
     try:
-        # Get modem status using mmcli -m 0 (assuming first modem)
+        # Get modem status using JSON output for reliable parsing
         result = subprocess.run(
-            ['mmcli', '-m', '0'], 
+            ['mmcli', '-m', '0', '--output-json'], 
             capture_output=True, text=True, timeout=10
         )
         
@@ -60,31 +60,77 @@ def check_sim_card_status():
                 'status': 'command_failed'
             }
         
-        output = result.stdout
-        logger.debug(f"Modem status output: {output}")
-        
-        # Simple SIM detection logic based on our findings:
-        # When no SIM: "state: failed" + "sim-missing" appears in output
-        output_lower = output.lower()
-        
-        if 'state: failed' in output_lower and 'sim-missing' in output_lower:
+        # Parse JSON output
+        import json
+        try:
+            modem_data = json.loads(result.stdout)
+            modem_generic = modem_data.get('modem', {}).get('generic', {})
+            modem_3gpp = modem_data.get('modem', {}).get('3gpp', {})
+            
+            # Get modem state and SIM info
+            modem_state = modem_generic.get('state', 'unknown')
+            sim_path = modem_generic.get('sim', '')
+            operator_name = modem_3gpp.get('operator-name', '')
+            imei = modem_3gpp.get('imei', '')
+            
+            logger.debug(f"SIM check - State: {modem_state}, SIM path: {sim_path}, "
+                        f"Operator: {operator_name}, IMEI: {imei}")
+            
+            # Determine SIM status based on JSON data
+            if modem_state == 'failed':
+                # Check if failure is SIM-related
+                state_failed_reason = modem_generic.get('state-failed-reason', '')
+                if 'sim' in state_failed_reason.lower() or not sim_path:
+                    return {
+                        'present': False,
+                        'error': f'SIM card not detected (reason: {state_failed_reason})',
+                        'status': 'missing'
+                    }
+                else:
+                    return {
+                        'present': True,
+                        'error': f'Modem failed but SIM present (reason: {state_failed_reason})',
+                        'status': 'modem_failed'
+                    }
+            
+            elif not sim_path or sim_path == '/':
+                # No SIM path indicates missing SIM
+                return {
+                    'present': False,
+                    'error': 'No SIM card path detected',
+                    'status': 'missing'
+                }
+            
+            elif operator_name and imei:
+                # Has operator and IMEI - SIM is definitely present and working
+                return {
+                    'present': True,
+                    'error': None,
+                    'status': f'present (operator: {operator_name})'
+                }
+            
+            elif sim_path and sim_path != '/':
+                # Has SIM path but maybe not fully initialized
+                return {
+                    'present': True,
+                    'error': None,
+                    'status': 'present (initializing)'
+                }
+            
+            else:
+                # Default: assume present if we got this far
+                return {
+                    'present': True,
+                    'error': None,
+                    'status': 'present'
+                }
+            
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            logger.error(f"Failed to parse SIM status JSON: {e}")
             return {
                 'present': False,
-                'error': 'SIM card not detected',
-                'status': 'missing'
-            }
-        elif 'sim-missing' in output_lower:
-            return {
-                'present': False,
-                'error': 'SIM missing error',
-                'status': 'missing'
-            }
-        else:
-            # If no clear "missing" indicators, assume SIM is present
-            return {
-                'present': True,
-                'error': None,
-                'status': 'present'
+                'error': f'JSON parse error: {e}',
+                'status': 'json_error'
             }
             
     except subprocess.TimeoutExpired:
@@ -168,9 +214,9 @@ def check_connection_status():
             - ping_time: float (ms) if successful
     """
     try:
-        # First check modem status
+        # Get modem status in JSON format for reliable parsing
         result = subprocess.run(
-            ['mmcli', '-m', '0'], 
+            ['mmcli', '-m', '0', '--output-json'], 
             capture_output=True, text=True, timeout=10
         )
         
@@ -182,24 +228,38 @@ def check_connection_status():
                 'ping_time': None
             }
         
-        output = result.stdout.lower()
+        # Parse JSON output
+        import json
+        try:
+            modem_data = json.loads(result.stdout)
+            modem_generic = modem_data.get('modem', {}).get('generic', {})
+            modem_3gpp = modem_data.get('modem', {}).get('3gpp', {})
+            
+            # Get the actual state and signal from JSON
+            modem_state = modem_generic.get('state', 'unknown')
+            signal_quality_info = modem_generic.get('signal-quality', {})
+            signal_quality = int(signal_quality_info.get('value', 0)) if signal_quality_info.get('value', '0').isdigit() else 0
+            signal_recent = signal_quality_info.get('recent', 'no') == 'yes'
+            
+            # Get additional useful info
+            operator_name = modem_3gpp.get('operator-name', 'Unknown')
+            access_tech = modem_generic.get('access-technologies', ['unknown'])
+            access_tech_str = access_tech[0] if access_tech else 'unknown'
+            
+            logger.debug(f"Modem state: {modem_state}, Signal: {signal_quality}% ({'recent' if signal_recent else 'cached'}), "
+                        f"Operator: {operator_name}, Tech: {access_tech_str}")
+            
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            logger.error(f"Failed to parse modem JSON: {e}")
+            return {
+                'connected': False,
+                'error': f'JSON parse error: {e}',
+                'modem_state': 'json_error',
+                'ping_time': None
+            }
         
-        # Determine modem state
-        modem_state = 'unknown'
-        modem_healthy = False
-        
-        if 'state: connected' in output:
-            modem_state = 'connected'
-            modem_healthy = True
-        elif 'state: registered' in output:
-            modem_state = 'registered'
-            modem_healthy = True  # Registered is healthy - network available
-        elif 'state: enabled' in output:
-            modem_state = 'enabled'
-        elif 'state: disabled' in output:
-            modem_state = 'disabled'
-        elif 'state: failed' in output:
-            modem_state = 'failed'
+        # Determine if modem state is healthy
+        modem_healthy = modem_state in ['connected', 'registered']
         
         # If modem appears healthy, test actual internet connectivity
         if modem_healthy:

@@ -644,7 +644,8 @@ Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 NoNewPrivileges=true
 
 [Install]
-WantedBy=multi-user.target
+# Modem recovery daemon is started/stopped by udev rules when hardware is detected
+# WantedBy=multi-user.target
 Also=ModemManager.service NetworkManager.service
 EOF
 
@@ -654,44 +655,44 @@ echo "✅ Made rpiconfig script executable"
 #create a symbolic link in /usr/local/bin so it's in PATH
 sudo ln -sf "$HOME/flask_app/rpiconfig.sh" "/usr/local/bin/rpiconfig"
 
-# Install udev rule for automatic GPS daemon startup when SIM7600G-H is inserted
-printf "🔌 Installing udev rule for SIM7600G-H auto-detection...\n"
+# Install udev rules for automatic daemon startup when SIM7600G-H is inserted
+printf "🔌 Installing udev rules for SIM7600G-H auto-detection...\n"
 
-sudo tee /etc/udev/rules.d/99-sim7600-gps.rules >/dev/null << 'EOFUDEV'
-# udev rule for SIM7600G-H GPS Daemon Management
-# This rule triggers when a SIM7600G-H modem is inserted or removed
+sudo tee /etc/udev/rules.d/99-sim7600-management.rules >/dev/null << 'EOFUDEV'
+# udev rules for SIM7600G-H GPS and Modem Recovery Daemon Management
+# These rules trigger when a SIM7600G-H modem is inserted or removed
 # Environment variables captured from actual device monitoring: ID_VENDOR_ID=1e0e, ID_MODEL_ID=9011, SUBSYSTEM=usb, DEVTYPE=usb_device
 
-# When SIM7600G-H is added, restart GPS daemon (ensures clean state)
+# When SIM7600G-H is added, start both GPS daemon and modem recovery daemon
 # Using PRODUCT environment variable for consistency with removal rule
 # PRODUCT format is "vendor/product/version" = "1e0e/9011/318"
-ACTION=="add", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9011/318", RUN+="/bin/systemctl restart gps-daemon.service"
-ACTION=="add", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9001/318", RUN+="/bin/systemctl restart gps-daemon.service"
+ACTION=="add", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9011/318", RUN+="/bin/systemctl restart gps-daemon.service", RUN+="/bin/systemctl restart modem-recovery.service"
+ACTION=="add", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9001/318", RUN+="/bin/systemctl restart gps-daemon.service", RUN+="/bin/systemctl restart modem-recovery.service"
 
-# When SIM7600G-H is removed, stop GPS daemon immediately
+# When SIM7600G-H is removed, stop both daemons immediately
 # Using PRODUCT environment variable for removal events since ATTR{} attributes are not available
 # PRODUCT format is "vendor/product/version" = "1e0e/9011/318"
-ACTION=="remove", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9011/318", RUN+="/bin/systemctl stop gps-daemon.service"
-ACTION=="remove", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9001/318", RUN+="/bin/systemctl stop gps-daemon.service"
+ACTION=="remove", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9011/318", RUN+="/bin/systemctl stop gps-daemon.service", RUN+="/bin/systemctl stop modem-recovery.service"
+ACTION=="remove", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9001/318", RUN+="/bin/systemctl stop gps-daemon.service", RUN+="/bin/systemctl stop modem-recovery.service"
 EOFUDEV
 
-# Set proper permissions for udev rule
-sudo chown root:root /etc/udev/rules.d/99-sim7600-gps.rules
-sudo chmod 644 /etc/udev/rules.d/99-sim7600-gps.rules
+# Set proper permissions for udev rules
+sudo chown root:root /etc/udev/rules.d/99-sim7600-management.rules
+sudo chmod 644 /etc/udev/rules.d/99-sim7600-management.rules
 
-# Create boot-time GPS detection service for dongles present at boot
-printf "🚀 Creating boot-time GPS detection service...\n"
-sudo tee /etc/systemd/system/gps-boot-detect.service >/dev/null << EOF
+# Create boot-time detection service for dongles present at boot
+printf "🚀 Creating boot-time hardware detection service...\n"
+sudo tee /etc/systemd/system/modem-boot-detect.service >/dev/null << EOF
 [Unit]
-Description=GPS Boot Detection for RPI Streamer
-After=multi-user.target ModemManager.service
-Wants=multi-user.target ModemManager.service
+Description=Modem Boot Detection for RPI Streamer
+After=multi-user.target ModemManager.service NetworkManager.service
+Wants=multi-user.target ModemManager.service NetworkManager.service
 
 [Service]
 Type=oneshot
 User=root
 Group=root
-# Poll for dongle readiness before starting GPS daemon
+# Poll for dongle readiness before starting both GPS and modem recovery daemons
 ExecStart=/bin/bash -c '
     if lsusb | grep -q -E "(1e0e:900[19]|2c7c:0[13][02][56])"; then
         echo "SIM7600G-H detected, polling for dongle readiness..."
@@ -705,8 +706,9 @@ ExecStart=/bin/bash -c '
                 # Test AT command responsiveness (quick test)
                 if timeout 3 bash -c "echo \"AT\" > /dev/ttyUSB3 2>/dev/null && sleep 1 && grep -q \"OK\" < /dev/ttyUSB3 2>/dev/null"; then
                     echo "✓ Dongle is ready and responding to AT commands"
-                    echo "Starting GPS daemon after successful dongle readiness check"
+                    echo "Starting GPS daemon and modem recovery daemon after successful dongle readiness check"
                     systemctl start gps-daemon.service
+                    systemctl start modem-recovery.service
                     exit 0
                 else
                     echo "Dongle not yet responding to AT commands, waiting... ($i/60)"
@@ -717,9 +719,10 @@ ExecStart=/bin/bash -c '
             sleep 2
         done
         
-        echo "⚠️ Timeout waiting for dongle readiness, starting GPS daemon anyway"
-        echo "GPS daemon will handle initialization internally"
+        echo "⚠️ Timeout waiting for dongle readiness, starting daemons anyway"
+        echo "Daemons will handle initialization internally"
         systemctl start gps-daemon.service
+        systemctl start modem-recovery.service
     else
         echo "No SIM7600G-H detected at boot"
     fi
@@ -731,13 +734,13 @@ WantedBy=multi-user.target
 EOF
 
 # Enable boot detection service
-sudo systemctl enable gps-boot-detect.service
+sudo systemctl enable modem-boot-detect.service
 
 # Reload udev rules
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 
-echo "✅ udev rule installed - GPS daemon will only run when SIM7600G-H is present"
+echo "✅ udev rules installed - GPS and Modem Recovery daemons will only run when SIM7600G-H is present"
 
 # Create the GPS startup service
 printf "Creating systemd service for GPS Startup Manager...\n"
@@ -834,7 +837,9 @@ echo "📡 Modem Recovery System Info:"
 echo "   🔄 Automatic Recovery: Monitors SIM7600G-H connectivity every 30 seconds"
 echo "   🚨 Failure Detection: Triggers recovery after 3 consecutive failures"
 echo "   🔧 Recovery Methods: Soft reset → Bearer reset → Full reset → Hardware reset"
-echo "   📋 Status: sudo systemctl status modem-recovery.service"
+echo "   � Hardware Integration: Only runs when SIM7600G-H modem is present"
+echo "   🚀 Boot Detection: Automatically starts if modem is connected at boot"
+echo "   �📋 Status: sudo systemctl status modem-recovery.service"
 echo "   📊 Logs: sudo journalctl -u modem-recovery.service -f"
 
 #create a systemd service for this script
@@ -864,8 +869,11 @@ sudo systemctl enable mediamtx
 sudo systemctl restart mediamtx
 sudo systemctl enable heartbeat-daemon
 sudo systemctl restart heartbeat-daemon
-sudo systemctl enable modem-recovery
-sudo systemctl restart modem-recovery
+
+# Note: modem-recovery service is NOT enabled at boot - it's controlled by udev rules
+# It will only run when SIM7600G-H hardware is detected
+echo "📡 Modem Recovery Service: Controlled by hardware detection (only runs when modem present)"
+
 sudo systemctl enable gps-startup
 sudo systemctl restart gps-startup
 
