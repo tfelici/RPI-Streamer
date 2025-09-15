@@ -628,8 +628,8 @@ PartOf=rpi-streamer.target
 Type=simple
 User=root
 Group=root
-WorkingDirectory=$HOME/flask_app
-ExecStart=/usr/bin/python3 $HOME/flask_app/modem_recovery_daemon.py --daemon
+WorkingDirectory=/home/$USER/flask_app
+ExecStart=/usr/bin/python3 /home/$USER/flask_app/modem_recovery_daemon.py --daemon
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -647,7 +647,7 @@ ReadWritePaths=/var/log /tmp
 PrivateTmp=true
 
 # Environment
-Environment=PYTHONPATH=$HOME/flask_app
+Environment=PYTHONPATH=/home/$USER/flask_app
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 [Install]
