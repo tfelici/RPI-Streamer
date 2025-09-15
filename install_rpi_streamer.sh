@@ -628,8 +628,8 @@ PartOf=rpi-streamer.target
 Type=simple
 User=root
 Group=root
-WorkingDirectory=/home/$USER/flask_app
-ExecStart=/usr/bin/python3 /home/$USER/flask_app/modem_recovery_daemon.py --daemon
+WorkingDirectory=$HOME/flask_app
+ExecStart=/usr/bin/python3 $HOME/flask_app/modem_recovery_daemon.py --daemon
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -647,7 +647,7 @@ ReadWritePaths=/var/log /tmp
 PrivateTmp=true
 
 # Environment
-Environment=PYTHONPATH=/home/$USER/flask_app
+Environment=PYTHONPATH=$HOME/flask_app
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 [Install]
@@ -792,15 +792,15 @@ Requires=network.target
 Type=simple
 User=root
 Group=root
-WorkingDirectory=/home/$USER/flask_app
+WorkingDirectory=$HOME/flask_app
 # GPS daemon handles initialization internally
-ExecStart=/usr/bin/python3 /home/$USER/flask_app/gps_daemon.py --daemon
+ExecStart=/usr/bin/python3 $HOME/flask_app/gps_daemon.py --daemon
 ExecStop=/bin/kill -TERM \$MAINPID
 Restart=no
 RestartSec=10
 
 # Environment
-Environment=PYTHONPATH=/home/$USER/flask_app
+Environment=PYTHONPATH=$HOME/flask_app
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Security settings
@@ -998,7 +998,7 @@ register_device_with_console() {
         fi
         
         # Create device info file for server management
-        cat > "/home/$USER/device-info.json" << EOF
+        cat > "$HOME/device-info.json" << EOF
 {
     "hardwareid": "$hardwareid",
     "hostname": "$(hostname)",
@@ -1013,7 +1013,7 @@ register_device_with_console() {
     "setup_status": "automated"
 }
 EOF
-        echo "📄 Device info saved to: /home/$USER/device-info.json"
+        echo "📄 Device info saved to: $HOME/device-info.json"
     else
         echo "⚠️  curl not available, skipping automatic registration"
         return 1
@@ -1149,7 +1149,7 @@ EOF
     echo "   Internal SSH Tunnel:  localhost:$tunnel_ssh_port"
     
     # Store configuration for later reference
-    cat > "/home/$USER/tunnel-config.txt" << EOF
+    cat > "$HOME/tunnel-config.txt" << EOF
 # RPI Streamer Reverse SSH Tunnel Configuration
 Server: $server_host:$server_port
 User: $server_user
@@ -1170,7 +1170,7 @@ ssh -L 8080:localhost:$tunnel_http_port $server_user@$server_host -p $server_por
 # AutoSSH will automatically maintain the connection and reconnect if needed
 EOF
     
-    echo "📄 Configuration saved to: /home/$USER/tunnel-config.txt"
+    echo "📄 Configuration saved to: $HOME/tunnel-config.txt"
 }
 
 # Function for interactive remote access menu
