@@ -2804,8 +2804,8 @@
                         
                         // Show/hide start/stop buttons based on running status
                         if (enableBtn && disableBtn && !status.error && status.status !== 'unavailable') {
-                            if (status.status === 'active') {
-                                // Service is running - show stop button
+                            if (status.status === 'active' || status.status === 'activating') {
+                                // Service is running or starting - show stop button
                                 enableBtn.style.display = 'none';
                                 disableBtn.style.display = 'inline-block';
                             } else {

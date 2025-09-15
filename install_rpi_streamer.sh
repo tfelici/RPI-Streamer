@@ -636,7 +636,7 @@ StandardOutput=journal
 StandardError=journal
 
 # Resource limits
-MemoryLimit=64M
+MemoryMax=64M
 CPUQuota=10%
 
 # Security settings
