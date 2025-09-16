@@ -384,6 +384,21 @@ class GPSDaemon:
                 # Wait a moment for GPS to fully stop
                 time.sleep(2)
                 
+                #first check if GALILEO is enabled
+                #response should be +CGNSSMODE: 15,1
+                self.log("Checking if Galileo is enabled...")
+                response, success = self.send_at_command(ser, "AT+CGNSSMODE?")
+                self.log(f"CGNSSMODE response: {response}")
+                if response and '+CGNSSMODE:' in response:
+                    codes = response.split(':')[1].strip()
+                    if '15,1' in codes:
+                        self.log("✓ Galileo already enabled")
+                    else:
+                        # Enable Galileo
+                        # It will require a reboot though, so it will work next time round!
+                        self.log("Enabling Galileo constellation...")
+                        response, success = self.send_at_command(ser, "AT+CGNSSMODE=15,1")
+                        self.log(f"Galileo enable response: {response}")
                 # Configure NMEA sentence types BEFORE enabling GPS
                 self.log("Configuring NMEA sentence types (enabling comprehensive sentence set)...")
                 response, success = self.send_at_command(ser, "AT+CGPSNMEA=198143")
