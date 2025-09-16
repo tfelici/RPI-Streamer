@@ -325,90 +325,101 @@ def get_connection_info():
         }
         
         try:
-            # Use mmcli to get modem information
-            # List available modems
-            result = subprocess.run(['mmcli', '-L'], capture_output=True, text=True, timeout=5)
+            # Use mmcli to get modem information with JSON output
+            result = subprocess.run(['mmcli', '-L', '--output-json'], capture_output=True, text=True, timeout=5)
             if result.returncode == 0 and result.stdout.strip():
-                # Parse modem list output to find modem index
-                modem_match = re.search(r'/org/freedesktop/ModemManager1/Modem/(\d+)', result.stdout)
-                if modem_match:
-                    modem_id = modem_match.group(1)
-                    dongle_status["device_present"] = True
-                    
-                    # Get detailed modem status
-                    modem_result = subprocess.run(['mmcli', '-m', modem_id], capture_output=True, text=True, timeout=5)
-                    if modem_result.returncode == 0:
-                        modem_output = modem_result.stdout
-                        
-                        # Parse connection state from ModemManager
-                        if 'state: connected' in modem_output.lower():
-                            dongle_status["connected"] = True
-                        
-                        # Also check NetworkManager for cellular connections
-                        if not dongle_status["connected"]:
+                try:
+                    modem_list_json = json.loads(result.stdout)
+                    modem_paths = modem_list_json.get('modem-list', [])
+                except Exception as e:
+                    dongle_status["error"] = f"Failed to parse mmcli -L JSON: {e}"
+                    modem_paths = []
+
+                if modem_paths:
+                    # Use first modem found
+                    modem_path = modem_paths[0]
+                    # Extract modem id from path
+                    modem_id_match = re.search(r'/Modem/(\d+)', modem_path)
+                    if modem_id_match:
+                        modem_id = modem_id_match.group(1)
+                        dongle_status["device_present"] = True
+
+                        # Get detailed modem status in JSON
+                        modem_result = subprocess.run(['mmcli', '-m', modem_id, '--output-json'], capture_output=True, text=True, timeout=5)
+                        if modem_result.returncode == 0:
                             try:
-                                nm_result = subprocess.run(['nmcli', 'device', 'status'], capture_output=True, text=True, timeout=5)
-                                if nm_result.returncode == 0:
-                                    # Check for connected GSM/cellular devices
-                                    for line in nm_result.stdout.split('\n'):
-                                        if 'gsm' in line.lower() and 'connected' in line.lower():
-                                            dongle_status["connected"] = True
-                                            break
-                            except:
-                                pass  # NetworkManager check failed, continue with ModemManager only
-                        
-                        # Parse signal strength
-                        signal_match = re.search(r'signal quality:\s*(\d+)%', modem_output)
-                        if signal_match:
-                            signal_percent = int(signal_match.group(1))
-                            dongle_status["signal_strength"] = f"{signal_percent}%"
-                        
-                        # Parse operator
-                        operator_match = re.search(r'operator name:\s*\'([^\']+)\'', modem_output)
-                        if not operator_match:
-                            # Try without quotes (format: "operator name: vodafone UK")
-                            operator_match = re.search(r'operator name:\s*([^\r\n]+)', modem_output)
-                        if operator_match:
-                            dongle_status["operator"] = operator_match.group(1).strip()
-                        
-                        # Parse network type
-                        if 'access tech: lte' in modem_output.lower():
-                            dongle_status["network_type"] = "LTE"
-                        elif 'access tech: umts' in modem_output.lower():
-                            dongle_status["network_type"] = "3G"
-                        elif 'access tech: gsm' in modem_output.lower():
-                            dongle_status["network_type"] = "2G"
-                    
-                    # Get IP address if connected
-                    if dongle_status["connected"]:
-                        # Try ModemManager bearer info
-                        bearer_result = subprocess.run(['mmcli', '-m', modem_id, '--list-bearers'], capture_output=True, text=True, timeout=5)
-                        if bearer_result.returncode == 0:
-                            bearer_match = re.search(r'/org/freedesktop/ModemManager1/Bearer/(\d+)', bearer_result.stdout)
-                            if bearer_match:
-                                bearer_id = bearer_match.group(1)
-                                bearer_info = subprocess.run(['mmcli', '-b', bearer_id], capture_output=True, text=True, timeout=5)
-                                if bearer_info.returncode == 0:
-                                    ip_match = re.search(r'address:\s*(\d+\.\d+\.\d+\.\d+)', bearer_info.stdout)
-                                    if ip_match:
-                                        dongle_status["ip_address"] = ip_match.group(1)
-                        
-                        # If no IP from ModemManager, check common cellular interfaces
-                        if not dongle_status.get("ip_address"):
-                            try:
-                                # Check ppp0 interface (common for cellular connections)
-                                ip_result = subprocess.run(['ip', 'addr', 'show', 'ppp0'], capture_output=True, text=True, timeout=3)
-                                if ip_result.returncode == 0:
-                                    ip_match = re.search(r'inet (\d+\.\d+\.\d+\.\d+)', ip_result.stdout)
-                                    if ip_match:
-                                        dongle_status["ip_address"] = ip_match.group(1)
-                            except:
-                                pass  # ppp0 interface check failed
+                                modem_json = json.loads(modem_result.stdout)
+                                # Check state
+                                state = modem_json.get('modem', {}).get('generic', {}).get('state', None)
+                                if state == 'connected':
+                                    dongle_status["connected"] = True
+                                elif state == 'registered':
+                                    dongle_status["connected"] = True
+                                elif state == 'enabled':
+                                    dongle_status["connected"] = False
+                                elif state == 'failed':
+                                    dongle_status["connected"] = False
+                                    # Check for SIM missing
+                                    reason = modem_json.get('modem', {}).get('generic', {}).get('state-failed-reason', '')
+                                    if reason == 'sim-missing':
+                                        dongle_status["sim_present"] = False
+                                    else:
+                                        dongle_status["sim_present"] = True
+                                else:
+                                    dongle_status["connected"] = False
+
+                                # Signal strength
+                                signal_quality = modem_json.get('modem', {}).get('generic', {}).get('signal-quality', {})
+                                if signal_quality:
+                                    value = signal_quality.get('value', None)
+                                    if value is not None:
+                                        dongle_status["signal_strength"] = f"{value}%"
+
+                                # Operator
+                                operator = modem_json.get('modem', {}).get('3gpp', {}).get('operator-name', None)
+                                if operator:
+                                    dongle_status["operator"] = operator
+
+                                # Network type
+                                if (dongle_status["connected"]):
+                                    access_techs = modem_json.get('modem', {}).get('generic', {}).get('current-capabilities', [])
+                                    if access_techs:
+                                        dongle_status["network_type"] = ','.join(access_techs)
+
+                                # IP address (try bearers)
+                                bearers = modem_json.get('modem', {}).get('generic', {}).get('bearers', [])
+                                for bearer_path in bearers:
+                                    bearer_id_match = re.search(r'/Bearer/(\d+)', bearer_path)
+                                    if bearer_id_match:
+                                        bearer_id = bearer_id_match.group(1)
+                                        bearer_info = subprocess.run(['mmcli', '-b', bearer_id, '--output-json'], capture_output=True, text=True, timeout=5)
+                                        if bearer_info.returncode == 0:
+                                            try:
+                                                bearer_json = json.loads(bearer_info.stdout)
+                                                ip_addr = bearer_json.get('bearer', {}).get('properties', {}).get('address', None)
+                                                if ip_addr:
+                                                    dongle_status["ip_address"] = ip_addr
+                                                    break
+                                            except Exception:
+                                                pass
+                                # If no IP from ModemManager, check common cellular interfaces
+                                if not dongle_status.get("ip_address"):
+                                    try:
+                                        ip_result = subprocess.run(['ip', 'addr', 'show', 'ppp0'], capture_output=True, text=True, timeout=3)
+                                        if ip_result.returncode == 0:
+                                            ip_match = re.search(r'inet (\d+\.\d+\.\d+\.\d+)', ip_result.stdout)
+                                            if ip_match:
+                                                dongle_status["ip_address"] = ip_match.group(1)
+                                    except:
+                                        pass
+                            except Exception as e:
+                                dongle_status["error"] = f"Failed to parse mmcli -m JSON: {e}"
+                    else:
+                        dongle_status["device_present"] = False
                 else:
                     dongle_status["device_present"] = False
             else:
                 dongle_status["device_present"] = False
-                
         except FileNotFoundError:
             dongle_status["error"] = "ModemManager (mmcli) not available"
         except subprocess.TimeoutExpired:
@@ -427,7 +438,10 @@ def get_connection_info():
                 status_text += f" - {dongle_status['signal_strength']}"
             connection_info["4g"] = status_text
         elif dongle_status.get("device_present"):
-            connection_info["4g"] = "Device present, not connected"
+            if (dongle_status['sim_present'] is False):
+                connection_info["4g"] = "Device present, No SIM card"
+            else:
+                connection_info["4g"] = "Device present, not connected"
         elif dongle_status.get("error"):
             connection_info["4g"] = "Error: " + dongle_status["error"]
         else:
