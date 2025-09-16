@@ -321,7 +321,8 @@ def get_connection_info():
             "operator": None,
             "network_type": None,
             "ip_address": None,
-            "device_present": False
+            "device_present": False,
+            "sim_present": True
         }
         
         try:
@@ -382,7 +383,7 @@ def get_connection_info():
 
                                 # Network type
                                 if (dongle_status["connected"]):
-                                    access_techs = modem_json.get('modem', {}).get('generic', {}).get('current-capabilities', [])
+                                    access_techs = modem_json.get('modem', {}).get('generic', {}).get('access-technologies', [])
                                     if access_techs:
                                         dongle_status["network_type"] = ','.join(access_techs)
 
