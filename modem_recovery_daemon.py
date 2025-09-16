@@ -377,6 +377,11 @@ def main_loop():
     logger.info("Starting modem recovery daemon")
     
     while not shutdown_flag.is_set():
+        #disable for now
+        logger.info("Modem recovery daemon is disabled for now.")
+        shutdown_flag.wait(CHECK_INTERVAL)
+        continue
+    
         try:
             # Check SIM card first
             sim_status = check_sim_card_status()
@@ -393,7 +398,7 @@ def main_loop():
             
             if conn_status['connected']:
                 ping_info = f" (ping: {conn_status['ping_time']:.1f}ms)" if conn_status['ping_time'] else ""
-                logger.info(f"Connection healthy - modem: {conn_status['modem_state']}{ping_info}")
+                logger.debug(f"Connection healthy - modem: {conn_status['modem_state']}{ping_info}")
                 consecutive_failures = 0
                 recovery_attempts = 0
             else:
@@ -432,8 +437,6 @@ def main_loop():
     logger.info("Modem recovery daemon stopped")
 
 def main():
-    logger.info("disabled for now")
-    sys.exit(0) # disable for now
     """Main entry point"""
     parser = argparse.ArgumentParser(description='Modem Recovery Daemon')
     parser.add_argument('--daemon', action='store_true', help='Run as daemon')
