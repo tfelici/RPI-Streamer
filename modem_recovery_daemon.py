@@ -393,7 +393,7 @@ def main_loop():
             
             if conn_status['connected']:
                 ping_info = f" (ping: {conn_status['ping_time']:.1f}ms)" if conn_status['ping_time'] else ""
-                logger.debug(f"Connection healthy - modem: {conn_status['modem_state']}{ping_info}")
+                logger.info(f"Connection healthy - modem: {conn_status['modem_state']}{ping_info}")
                 consecutive_failures = 0
                 recovery_attempts = 0
             else:
