@@ -1525,6 +1525,71 @@ def system_settings_factory_reset():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/system-settings-modem-reset', methods=['POST'])
+def system_settings_modem_reset():
+    try:
+        # Use mmcli to get modem information with JSON output (same as heartbeat_daemon)
+        result = subprocess.run(['mmcli', '-L', '--output-json'], 
+                              capture_output=True, text=True, timeout=10)
+        
+        if result.returncode != 0:
+            return jsonify({'success': False, 'error': 'Failed to list modems'})
+        
+        # Parse JSON response to find modem
+        modem_id = None
+        try:
+            if result.stdout.strip():
+                modem_list_json = json.loads(result.stdout)
+                modem_paths = modem_list_json.get('modem-list', [])
+                
+                if modem_paths:
+                    # Use first modem found
+                    modem_path = modem_paths[0]
+                    # Extract modem id from path like "/org/freedesktop/ModemManager1/Modem/0"
+                    modem_id_match = re.search(r'/Modem/(\d+)', modem_path)
+                    if modem_id_match:
+                        modem_id = modem_id_match.group(1)
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Failed to parse mmcli JSON: {e}'})
+        
+        if modem_id is None:
+            return jsonify({'success': False, 'error': 'No modem found by ModemManager'})
+        
+        # Reset the specific modem using sudo
+        reset_result = subprocess.run(['sudo', 'mmcli', '-m', modem_id, '--reset'], 
+                                    capture_output=True, text=True, timeout=30)
+        
+        if reset_result.returncode == 0:
+            return jsonify({'success': True, 'message': f'Modem {modem_id} reset successfully'})
+        else:
+            error_msg = reset_result.stderr.strip() if reset_result.stderr else 'mmcli reset command failed'
+            return jsonify({'success': False, 'error': f'mmcli reset failed: {error_msg}'})
+            
+    except subprocess.TimeoutExpired:
+        return jsonify({'success': False, 'error': 'Modem reset operation timed out'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Modem reset error: {str(e)}'})
+
+@app.route('/system-settings-modemmanager-restart', methods=['POST'])
+def system_settings_modemmanager_restart():
+    try:
+        # Restart ModemManager service
+        result = subprocess.run(['sudo', 'systemctl', 'restart', 'ModemManager'], 
+                              capture_output=True, text=True, timeout=30)
+        
+        if result.returncode == 0:
+            # Also trigger udev to re-detect devices
+            subprocess.run(['sudo', 'udevadm', 'trigger'], capture_output=True, timeout=10)
+            return jsonify({'success': True, 'message': 'ModemManager restarted successfully'})
+        else:
+            error_msg = result.stderr.strip() if result.stderr else 'systemctl restart failed'
+            return jsonify({'success': False, 'error': f'Failed to restart ModemManager: {error_msg}'})
+            
+    except subprocess.TimeoutExpired:
+        return jsonify({'success': False, 'error': 'ModemManager restart operation timed out'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'ModemManager restart error: {str(e)}'})
+
 @app.route('/system-settings-auto-update-status')
 def system_settings_auto_update_status():
     try:

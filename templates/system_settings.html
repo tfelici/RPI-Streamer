@@ -170,6 +170,17 @@
                     <div id="shutdown-result" class="status-message" style="display: none; margin-top: 0.5rem;"></div>
                 </div>
                 
+                <!-- Modem Controls -->
+                <div style="text-align: center;">
+                    <h4 style="margin: 0 0 0.5rem 0; color: #495057;">Modem Controls</h4>
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <button id="modem-reset-btn" class="btn btn-warning" style="padding: 0.5rem;">Reset Modem</button>
+                        <button id="modemmanager-restart-btn" class="btn btn-info" style="padding: 0.5rem;">Restart ModemManager</button>
+                    </div>
+                    <div id="modem-reset-result" class="status-message" style="display: none; margin-top: 0.5rem;"></div>
+                    <div id="modemmanager-restart-result" class="status-message" style="display: none; margin-top: 0.5rem;"></div>
+                </div>
+                
                 <!-- Factory Reset -->
                 <div style="text-align: center;">
                     <h4 style="margin: 0 0 0.5rem 0; color: #d32f2f;">Factory Reset</h4>
@@ -958,6 +969,68 @@
                 });
         };
         
+        // Modem Reset button
+        document.getElementById('modem-reset-btn').onclick = function() {
+            if (!confirm('Are you sure you want to reset the modem? This will power cycle the USB port.')) return;
+            
+            const resultDiv = document.getElementById('modem-reset-result');
+            const resetBtn = document.getElementById('modem-reset-btn');
+            
+            // Show updating message
+            resultDiv.textContent = 'Resetting modem...';
+            resultDiv.className = 'status-message';
+            resultDiv.style.display = 'block';
+            resetBtn.disabled = true;
+            
+            fetch('/system-settings-modem-reset', { method: 'POST' })
+                .then(r => r.json())
+                .then(function(data) {
+                    if (data.success) {
+                        resultDiv.textContent = data.message || 'Modem reset successful';
+                        resultDiv.className = 'status-message status-success';
+                    } else {
+                        resultDiv.textContent = data.error || 'Modem reset failed';
+                        resultDiv.className = 'status-message status-error';
+                    }
+                }).catch(error => {
+                    resultDiv.textContent = 'Error resetting modem: ' + error.message;
+                    resultDiv.className = 'status-message status-error';
+                }).finally(() => {
+                    resetBtn.disabled = false;
+                });
+        };
+        
+        // ModemManager Restart button
+        document.getElementById('modemmanager-restart-btn').onclick = function() {
+            if (!confirm('Are you sure you want to restart ModemManager? This will briefly interrupt modem connectivity.')) return;
+            
+            const resultDiv = document.getElementById('modemmanager-restart-result');
+            const restartBtn = document.getElementById('modemmanager-restart-btn');
+            
+            // Show updating message
+            resultDiv.textContent = 'Restarting ModemManager...';
+            resultDiv.className = 'status-message';
+            resultDiv.style.display = 'block';
+            restartBtn.disabled = true;
+            
+            fetch('/system-settings-modemmanager-restart', { method: 'POST' })
+                .then(r => r.json())
+                .then(function(data) {
+                    if (data.success) {
+                        resultDiv.textContent = data.message || 'ModemManager restarted successfully';
+                        resultDiv.className = 'status-message status-success';
+                    } else {
+                        resultDiv.textContent = data.error || 'ModemManager restart failed';
+                        resultDiv.className = 'status-message status-error';
+                    }
+                }).catch(error => {
+                    resultDiv.textContent = 'Error restarting ModemManager: ' + error.message;
+                    resultDiv.className = 'status-message status-error';
+                }).finally(() => {
+                    restartBtn.disabled = false;
+                });
+        };
+
         // Factory Reset button
         document.getElementById('factory-reset-btn').onclick = function() {
             if (!confirm('Are you sure you want to reset all settings to factory defaults? This cannot be undone!')) return;
