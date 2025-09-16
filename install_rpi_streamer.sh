@@ -611,7 +611,6 @@ NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
-loggerEOF
 EOF
 
 # Create systemd service for modem recovery daemon
