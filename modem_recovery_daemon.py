@@ -432,7 +432,8 @@ def main_loop():
     logger.info("Modem recovery daemon stopped")
 
 def main():
-    return # disable for now
+    logger.info("disabled for now")
+    sys.exit(0) # disable for now
     """Main entry point"""
     parser = argparse.ArgumentParser(description='Modem Recovery Daemon')
     parser.add_argument('--daemon', action='store_true', help='Run as daemon')
