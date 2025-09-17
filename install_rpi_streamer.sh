@@ -356,7 +356,7 @@ else
 fi
 
 
-#download the executables directory from the Streamer-Uploader repository
+#download the executables directory from the Streamer-Uploader & Streamer-Viewer repository
 #only download if the executables have changed or don't exist
 if [ ! -d "$HOME/executables" ]; then
     mkdir -p "$HOME/executables"
