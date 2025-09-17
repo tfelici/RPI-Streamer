@@ -382,7 +382,7 @@ check_and_download_executable() {
     printf "Checking %s executable...\n" "$platform"
     
     # Get remote file SHA from GitHub API
-    remote_sha=$(curl -s "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/$api_path" | jq -r ".sha")
+    remote_sha=$(curl -s $api_path | jq -r ".sha")
     
     if [ -z "$remote_sha" ] || [ "$remote_sha" = "null" ]; then
         echo "Warning: Could not fetch remote SHA for $platform executable. Remote file may not exist or API is unavailable."
@@ -434,14 +434,17 @@ printf "Checking StreamerUploader executables...\n"
 STREAMER_UPLOADER_BRANCH=$BRANCH_NAME
 printf "Using Streamer-Uploader $STREAMER_UPLOADER_BRANCH branch for executables...\n"
 
-# Check and download Windows executable
-check_and_download_executable "Windows" "Uploader-windows.exe" "windows/dist/StreamerUploader.exe" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/windows/dist/StreamerUploader.exe"
+# Check and download Windows executables
+check_and_download_executable "Windows" "Uploader-windows.exe" "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/windows/dist/StreamerUploader.exe" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/windows/dist/StreamerUploader.exe"
+check_and_download_executable "Windows" "Viewer-windows.exe" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/windows/dist/StreamerViewer.exe" "https://github.com/tfelici/Streamer-Viewer/raw/main/windows/dist/StreamerViewer.exe"
 
-# Check and download macOS executable
-check_and_download_executable "macOS" "Uploader-macos" "macos/dist/StreamerUploader" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/macos/dist/StreamerUploader"
+# Check and download macOS executables
+check_and_download_executable "macOS" "Uploader-macos" "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/macos/dist/StreamerUploader" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/macos/dist/StreamerUploader"
+check_and_download_executable "macOS" "Viewer-macos" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/macos/dist/StreamerViewer" "https://github.com/tfelici/Streamer-Viewer/raw/$STREAMER_UPLOADER_BRANCH/macos/dist/StreamerViewer"
 
-# Check and download Linux executable
-check_and_download_executable "Linux" "Uploader-linux" "linux/dist/StreamerUploader" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/linux/dist/StreamerUploader"
+# Check and download Linux executables
+check_and_download_executable "Linux" "Uploader-linux" "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/linux/dist/StreamerUploader" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/linux/dist/StreamerUploader"
+check_and_download_executable "Linux" "Viewer-linux" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/linux/dist/StreamerViewer" "https://github.com/tfelici/Streamer-Viewer/raw/$STREAMER_UPLOADER_BRANCH/linux/dist/StreamerViewer"
 
 printf "StreamerUploader executable check completed.\n"
 
