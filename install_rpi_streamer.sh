@@ -694,43 +694,13 @@ Wants=multi-user.target ModemManager.service NetworkManager.service
 Type=oneshot
 User=root
 Group=root
-# Poll for dongle readiness before starting both GPS and modem manager daemons
-ExecStart=/bin/bash -c '
-    if lsusb | grep -q -E "(1e0e:900[19]|2c7c:0[13][02][56])"; then
-        echo "SIM7600G-H detected, polling for dongle readiness..."
-        
-        # Poll for serial ports and AT command responsiveness
-        for i in {1..60}; do
-            # Check if serial ports exist
-            if [ -c /dev/ttyUSB1 ] && [ -c /dev/ttyUSB3 ]; then
-                echo "Serial ports available, testing AT command responsiveness..."
-                
-                # Test AT command responsiveness (quick test)
-                if timeout 3 bash -c "echo \"AT\" > /dev/ttyUSB3 2>/dev/null && sleep 1 && grep -q \"OK\" < /dev/ttyUSB3 2>/dev/null"; then
-                    echo "✓ Dongle is ready and responding to AT commands"
-                    echo "Starting GPS daemon and modem manager daemon after successful dongle readiness check"
-                    # Check if services are already running to avoid conflicts
-                    systemctl is-active --quiet gps-daemon.service || systemctl start gps-daemon.service
-                    systemctl is-active --quiet modem-manager.service || systemctl start modem-manager.service
-                    exit 0
-                else
-                    echo "Dongle not yet responding to AT commands, waiting... ($i/60)"
-                fi
-            else
-                echo "Waiting for serial ports to appear... ($i/60)"
-            fi
-            sleep 2
-        done
-        
-        echo "⚠️ Timeout waiting for dongle readiness, starting daemons anyway"
-        echo "Daemons will handle initialization internally"
-        # Check if services are already running to avoid conflicts
-        systemctl is-active --quiet gps-daemon.service || systemctl start gps-daemon.service
-        systemctl is-active --quiet modem-manager.service || systemctl start modem-manager.service
-    else
-        echo "No SIM7600G-H detected at boot"
-    fi
-'
+ExecStart=/bin/bash -c 'if lsusb | grep -q -E "(1e0e:900[19]|2c7c:0[13][02][56])"; then \
+    echo "SIM7600G-H detected at boot - starting services"; \
+    systemctl start gps-daemon.service; \
+    systemctl start modem-manager.service; \
+else \
+    echo "No SIM7600G-H detected at boot"; \
+fi'
 RemainAfterExit=yes
 
 [Install]
