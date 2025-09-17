@@ -1887,7 +1887,7 @@ def service_logs_sse(service):
         
         try:
             # Send initial logs first
-            initial_logs = get_service_logs(service, lines=50)
+            initial_logs = get_service_logs(service, lines=200)
             if initial_logs:
                 yield f"data: {json.dumps({'type': 'initial', 'lines': initial_logs})}\n\n"
             
@@ -1989,7 +1989,7 @@ def service_logs_sse(service):
     
     return Response(event_stream(), mimetype='text/event-stream')
 
-def get_process_logs(process, lines=50):
+def get_process_logs(process, lines=200):
     """
     Get recent logs for a Python process from its log file.
     Returns a list of log entries with timestamp and message.
@@ -2035,7 +2035,7 @@ def get_process_logs(process, lines=50):
     except Exception as e:
         return [{'line': f'Error: {str(e)}', 'timestamp': None}]
 
-def get_service_logs(service, lines=50):
+def get_service_logs(service, lines=200):
     """
     Get recent logs for a service or process.
     Returns a list of log entries with timestamp and message.
