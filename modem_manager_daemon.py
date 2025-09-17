@@ -23,7 +23,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger('modem_recovery')
+logger = logging.getLogger('modem_manager')
 
 # Configuration
 CHECK_INTERVAL = 30

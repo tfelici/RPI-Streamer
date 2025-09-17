@@ -154,22 +154,22 @@ tail -f /var/log/modem_manager.log
 
 ### Normal Operation
 ```
-2024-01-15 10:30:15 - modem_recovery - INFO - Connection OK - Signal: 75%, Operator: Vodafone UK, Tech: LTE
-2024-01-15 10:30:45 - modem_recovery - INFO - Connection OK - Signal: 73%, Operator: Vodafone UK, Tech: LTE
+2024-01-15 10:30:15 - modem_manager - INFO - Connection OK - Signal: 75%, Operator: Vodafone UK, Tech: LTE
+2024-01-15 10:30:45 - modem_manager - INFO - Connection OK - Signal: 73%, Operator: Vodafone UK, Tech: LTE
 ```
 
 ### Recovery Process
 ```
-2024-01-15 10:31:15 - modem_recovery - WARNING - Connection failed (1/3): {'mm_connected': False, 'nm_connected': False}
-2024-01-15 10:31:45 - modem_recovery - WARNING - Connection failed (2/3): {'mm_connected': False, 'nm_connected': False}
-2024-01-15 10:32:15 - modem_recovery - WARNING - Connection failed (3/3): {'mm_connected': False, 'nm_connected': False}
-2024-01-15 10:32:15 - modem_recovery - ERROR - Connection failure threshold reached, starting recovery attempt 1
-2024-01-15 10:32:15 - modem_recovery - INFO - Recovery attempt 1: Soft Reset
-2024-01-15 10:32:15 - modem_recovery - INFO - Disconnecting cellular connection: cellular
-2024-01-15 10:32:20 - modem_recovery - INFO - Reconnecting cellular connection: cellular
-2024-01-15 10:32:35 - modem_recovery - INFO - Soft reset completed successfully
-2024-01-15 10:32:35 - modem_recovery - INFO - Recovery completed successfully
-2024-01-15 10:34:35 - modem_recovery - INFO - Connection restored after recovery
+2024-01-15 10:31:15 - modem_manager - WARNING - Connection failed (1/3): {'mm_connected': False, 'nm_connected': False}
+2024-01-15 10:31:45 - modem_manager - WARNING - Connection failed (2/3): {'mm_connected': False, 'nm_connected': False}
+2024-01-15 10:32:15 - modem_manager - WARNING - Connection failed (3/3): {'mm_connected': False, 'nm_connected': False}
+2024-01-15 10:32:15 - modem_manager - ERROR - Connection failure threshold reached, starting recovery attempt 1
+2024-01-15 10:32:15 - modem_manager - INFO - Recovery attempt 1: Soft Reset
+2024-01-15 10:32:15 - modem_manager - INFO - Disconnecting cellular connection: cellular
+2024-01-15 10:32:20 - modem_manager - INFO - Reconnecting cellular connection: cellular
+2024-01-15 10:32:35 - modem_manager - INFO - Soft reset completed successfully
+2024-01-15 10:32:35 - modem_manager - INFO - Recovery completed successfully
+2024-01-15 10:34:35 - modem_manager - INFO - Connection restored after recovery
 ```
 
 ## Troubleshooting
@@ -189,10 +189,10 @@ nmcli device status
 Check permissions:
 ```bash
 # Ensure script is executable
-ls -la /home/pi/flask_app/modem_recovery_daemon.py
+ls -la /home/pi/flask_app/modem_manager_daemon.py
 
 # Check service file
-sudo systemctl cat modem-recovery
+sudo systemctl cat modem-manager
 ```
 
 ### Modem Not Detected
@@ -225,7 +225,7 @@ mmcli -m 0 --simple-connect
 The daemon uses minimal resources, but if issues occur:
 ```bash
 # Check process resources
-top -p $(pgrep -f modem_recovery_daemon)
+top -p $(pgrep -f modem_manager_daemon)
 
 # Adjust check interval (edit daemon script)
 CHECK_INTERVAL = 60  # Increase from 30 seconds
@@ -262,7 +262,7 @@ Modem recovery ensures continuous connectivity for:
 ## Advanced Configuration
 
 ### Custom Recovery Logic
-Edit `/home/pi/flask_app/modem_recovery_daemon.py`:
+Edit `/home/pi/flask_app/modem_manager_daemon.py`:
 
 ```python
 # Adjust timing parameters
@@ -274,7 +274,7 @@ RECOVERY_COOLDOWN = 300    # Wait 5 minutes after max attempts
 ```
 
 ### Custom Recovery Methods
-Add custom recovery functions to `/home/pi/flask_app/modem_recovery_daemon.py`:
+Add custom recovery functions to `/home/pi/flask_app/modem_manager_daemon.py`:
 
 ```python
 def custom_recovery_method(self):
@@ -350,7 +350,7 @@ A: Yes, the system works with any ModemManager-supported modem. The SIM7600G-H s
 A: No, the system only intervenes when connection failures are detected. Normal operation is unaffected.
 
 **Q: Can I adjust the recovery timing?**
-A: Yes, edit the configuration parameters in `/home/pi/flask_app/modem_recovery_daemon.py` and restart the service with `sudo systemctl restart modem-recovery`.
+A: Yes, edit the configuration parameters in `/home/pi/flask_app/modem_manager_daemon.py` and restart the service with `sudo systemctl restart modem-manager`.
 
 **Q: Is this installed automatically?**
 A: Yes, when you install RPI Streamer using the main installer (`install_rpi_streamer.sh`), the modem recovery system is automatically included and configured.
