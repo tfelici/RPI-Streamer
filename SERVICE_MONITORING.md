@@ -22,7 +22,7 @@ The Service Monitoring section provides real-time status updates and log monitor
 - Auto-scrolling log display with syntax highlighting
 - Pause/resume log streaming
 - Clear log buffer
-- Last 50 lines shown initially, then real-time updates
+- Last 200 lines shown initially, then real-time updates
 
 ## Implementation Details
 
