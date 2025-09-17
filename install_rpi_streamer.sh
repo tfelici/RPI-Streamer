@@ -630,10 +630,13 @@ Group=root
 WorkingDirectory=$HOME/flask_app
 ExecStart=/usr/bin/python3 $HOME/flask_app/modem_manager_daemon.py --daemon
 ExecStop=/bin/kill -TERM \$MAINPID
-Restart=always
+Restart=on-failure
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
+
+# Prevent multiple instances
+RemainAfterExit=no
 
 # Environment
 Environment=PYTHONPATH=$HOME/flask_app
@@ -645,7 +648,6 @@ NoNewPrivileges=true
 [Install]
 # Modem manager daemon is started/stopped by udev rules when hardware is detected
 # WantedBy=multi-user.target
-Also=ModemManager.service NetworkManager.service
 EOF
 
 #make rpiconfig executable
@@ -665,8 +667,9 @@ sudo tee /etc/udev/rules.d/99-sim7600-management.rules >/dev/null << 'EOFUDEV'
 # When SIM7600G-H is added, start both GPS daemon and modem manager daemon
 # Using PRODUCT environment variable for consistency with removal rule
 # PRODUCT format is "vendor/product/version" = "1e0e/9011/318"
-ACTION=="add", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9011/318", RUN+="/bin/systemctl restart gps-daemon.service", RUN+="/bin/systemctl restart modem-manager.service"
-ACTION=="add", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9001/318", RUN+="/bin/systemctl restart gps-daemon.service", RUN+="/bin/systemctl restart modem-manager.service"
+# Use 'start' instead of 'restart' to avoid conflicts with boot detection service
+ACTION=="add", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9011/318", RUN+="/bin/systemctl start gps-daemon.service", RUN+="/bin/systemctl start modem-manager.service"
+ACTION=="add", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9001/318", RUN+="/bin/systemctl start gps-daemon.service", RUN+="/bin/systemctl start modem-manager.service"
 
 # When SIM7600G-H is removed, stop both daemons immediately
 # Using PRODUCT environment variable for removal events since ATTR{} attributes are not available
@@ -706,8 +709,9 @@ ExecStart=/bin/bash -c '
                 if timeout 3 bash -c "echo \"AT\" > /dev/ttyUSB3 2>/dev/null && sleep 1 && grep -q \"OK\" < /dev/ttyUSB3 2>/dev/null"; then
                     echo "✓ Dongle is ready and responding to AT commands"
                     echo "Starting GPS daemon and modem manager daemon after successful dongle readiness check"
-                    systemctl start gps-daemon.service
-                    systemctl start modem-manager.service
+                    # Check if services are already running to avoid conflicts
+                    systemctl is-active --quiet gps-daemon.service || systemctl start gps-daemon.service
+                    systemctl is-active --quiet modem-manager.service || systemctl start modem-manager.service
                     exit 0
                 else
                     echo "Dongle not yet responding to AT commands, waiting... ($i/60)"
@@ -720,8 +724,9 @@ ExecStart=/bin/bash -c '
         
         echo "⚠️ Timeout waiting for dongle readiness, starting daemons anyway"
         echo "Daemons will handle initialization internally"
-        systemctl start gps-daemon.service
-        systemctl start modem-manager.service
+        # Check if services are already running to avoid conflicts
+        systemctl is-active --quiet gps-daemon.service || systemctl start gps-daemon.service
+        systemctl is-active --quiet modem-manager.service || systemctl start modem-manager.service
     else
         echo "No SIM7600G-H detected at boot"
     fi
