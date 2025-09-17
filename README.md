@@ -6,7 +6,7 @@ A comprehensive Flask-based web application and streaming server for Raspberry P
 
 Run the following commands in your home directory (do **not** use superuser/root):
 
-### Latest Development Version (Recommended)
+### Latest Development Version
 ```sh
 curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/develop/install_rpi_streamer.sh?$(date +%s)
 bash install_rpi_streamer.sh --develop
@@ -187,15 +187,15 @@ The RPI Streamer includes optional UPS (Uninterruptible Power Supply) monitoring
 
 Install UPS management **before** the main RPI Streamer installation:
 
-#### Stable Version (Recommended)
-```sh
-curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_ups_management.sh?$(date +%s)
-bash install_ups_management.sh
-```
-
 #### Latest Development Version
 ```sh
 curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/develop/install_ups_management.sh?$(date +%s)
+bash install_ups_management.sh
+```
+
+#### Stable Version
+```sh
+curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_ups_management.sh?$(date +%s)
 bash install_ups_management.sh
 ```
 
