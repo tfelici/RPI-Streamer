@@ -613,11 +613,11 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 EOF
 
-# Create systemd service for modem recovery daemon
-printf "Creating systemd service for Modem Recovery Daemon...\n"
-sudo tee /etc/systemd/system/modem-recovery.service >/dev/null << EOF
+# Create systemd service for modem manager daemon
+printf "Creating systemd service for Modem Manager Daemon...\n"
+sudo tee /etc/systemd/system/modem-manager.service >/dev/null << EOF
 [Unit]
-Description=Modem Recovery Daemon for SIM7600G-H
+Description=Modem Manager Daemon for SIM7600G-H
 Documentation=https://github.com/tfelici/RPI-Streamer
 After=network.target ModemManager.service NetworkManager.service
 Wants=ModemManager.service NetworkManager.service
@@ -628,7 +628,7 @@ Type=simple
 User=root
 Group=root
 WorkingDirectory=$HOME/flask_app
-ExecStart=/usr/bin/python3 $HOME/flask_app/modem_recovery_daemon.py --daemon
+ExecStart=/usr/bin/python3 $HOME/flask_app/modem_manager_daemon.py --daemon
 ExecStop=/bin/kill -TERM \$MAINPID
 Restart=always
 RestartSec=10
@@ -643,7 +643,7 @@ Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 NoNewPrivileges=true
 
 [Install]
-# Modem recovery daemon is started/stopped by udev rules when hardware is detected
+# Modem manager daemon is started/stopped by udev rules when hardware is detected
 # WantedBy=multi-user.target
 Also=ModemManager.service NetworkManager.service
 EOF
@@ -658,21 +658,21 @@ sudo ln -sf "$HOME/flask_app/rpiconfig.sh" "/usr/local/bin/rpiconfig"
 printf "🔌 Installing udev rules for SIM7600G-H auto-detection...\n"
 
 sudo tee /etc/udev/rules.d/99-sim7600-management.rules >/dev/null << 'EOFUDEV'
-# udev rules for SIM7600G-H GPS and Modem Recovery Daemon Management
+# udev rules for SIM7600G-H GPS and Modem Manager Daemon Management
 # These rules trigger when a SIM7600G-H modem is inserted or removed
 # Environment variables captured from actual device monitoring: ID_VENDOR_ID=1e0e, ID_MODEL_ID=9011, SUBSYSTEM=usb, DEVTYPE=usb_device
 
-# When SIM7600G-H is added, start both GPS daemon and modem recovery daemon
+# When SIM7600G-H is added, start both GPS daemon and modem manager daemon
 # Using PRODUCT environment variable for consistency with removal rule
 # PRODUCT format is "vendor/product/version" = "1e0e/9011/318"
-ACTION=="add", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9011/318", RUN+="/bin/systemctl restart gps-daemon.service", RUN+="/bin/systemctl restart modem-recovery.service"
-ACTION=="add", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9001/318", RUN+="/bin/systemctl restart gps-daemon.service", RUN+="/bin/systemctl restart modem-recovery.service"
+ACTION=="add", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9011/318", RUN+="/bin/systemctl restart gps-daemon.service", RUN+="/bin/systemctl restart modem-manager.service"
+ACTION=="add", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9001/318", RUN+="/bin/systemctl restart gps-daemon.service", RUN+="/bin/systemctl restart modem-manager.service"
 
 # When SIM7600G-H is removed, stop both daemons immediately
 # Using PRODUCT environment variable for removal events since ATTR{} attributes are not available
 # PRODUCT format is "vendor/product/version" = "1e0e/9011/318"
-ACTION=="remove", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9011/318", RUN+="/bin/systemctl stop gps-daemon.service", RUN+="/bin/systemctl stop modem-recovery.service"
-ACTION=="remove", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9001/318", RUN+="/bin/systemctl stop gps-daemon.service", RUN+="/bin/systemctl stop modem-recovery.service"
+ACTION=="remove", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9011/318", RUN+="/bin/systemctl stop gps-daemon.service", RUN+="/bin/systemctl stop modem-manager.service"
+ACTION=="remove", SUBSYSTEM=="usb", ENV{PRODUCT}=="1e0e/9001/318", RUN+="/bin/systemctl stop gps-daemon.service", RUN+="/bin/systemctl stop modem-manager.service"
 EOFUDEV
 
 # Set proper permissions for udev rules
@@ -691,7 +691,7 @@ Wants=multi-user.target ModemManager.service NetworkManager.service
 Type=oneshot
 User=root
 Group=root
-# Poll for dongle readiness before starting both GPS and modem recovery daemons
+# Poll for dongle readiness before starting both GPS and modem manager daemons
 ExecStart=/bin/bash -c '
     if lsusb | grep -q -E "(1e0e:900[19]|2c7c:0[13][02][56])"; then
         echo "SIM7600G-H detected, polling for dongle readiness..."
@@ -705,9 +705,9 @@ ExecStart=/bin/bash -c '
                 # Test AT command responsiveness (quick test)
                 if timeout 3 bash -c "echo \"AT\" > /dev/ttyUSB3 2>/dev/null && sleep 1 && grep -q \"OK\" < /dev/ttyUSB3 2>/dev/null"; then
                     echo "✓ Dongle is ready and responding to AT commands"
-                    echo "Starting GPS daemon and modem recovery daemon after successful dongle readiness check"
+                    echo "Starting GPS daemon and modem manager daemon after successful dongle readiness check"
                     systemctl start gps-daemon.service
-                    systemctl start modem-recovery.service
+                    systemctl start modem-manager.service
                     exit 0
                 else
                     echo "Dongle not yet responding to AT commands, waiting... ($i/60)"
@@ -721,7 +721,7 @@ ExecStart=/bin/bash -c '
         echo "⚠️ Timeout waiting for dongle readiness, starting daemons anyway"
         echo "Daemons will handle initialization internally"
         systemctl start gps-daemon.service
-        systemctl start modem-recovery.service
+        systemctl start modem-manager.service
     else
         echo "No SIM7600G-H detected at boot"
     fi
@@ -739,7 +739,7 @@ sudo systemctl enable modem-boot-detect.service
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 
-echo "✅ udev rules installed - GPS and Modem Recovery daemons will only run when SIM7600G-H is present"
+echo "✅ udev rules installed - GPS and Modem Manager daemons will only run when SIM7600G-H is present"
 
 # Create the GPS startup service
 printf "Creating systemd service for GPS Startup Manager...\n"
@@ -832,14 +832,15 @@ echo "   📋 Status: sudo systemctl status gps-daemon.service"
 echo "   🔧 Manual control: sudo systemctl start/stop gps-daemon.service"
 
 echo ""
-echo "📡 Modem Recovery System Info:"
+echo "📡 Modem Manager System Info:"
 echo "   🔄 Automatic Recovery: Monitors SIM7600G-H connectivity every 30 seconds"
+echo "   ⚙️  Initialization: Configures RNDIS mode and GPS on startup"
 echo "   🚨 Failure Detection: Triggers recovery after 3 consecutive failures"
 echo "   🔧 Recovery Methods: Soft reset → Bearer reset → Full reset → Hardware reset"
 echo "   � Hardware Integration: Only runs when SIM7600G-H modem is present"
 echo "   🚀 Boot Detection: Automatically starts if modem is connected at boot"
-echo "   �📋 Status: sudo systemctl status modem-recovery.service"
-echo "   📊 Logs: sudo journalctl -u modem-recovery.service -f"
+echo "   �📋 Status: sudo systemctl status modem-manager.service"
+echo "   📊 Logs: sudo journalctl -u modem-manager.service -f"
 
 #create a systemd service for this script
 printf "Creating systemd service for this script...\n"
@@ -869,9 +870,9 @@ sudo systemctl restart mediamtx
 sudo systemctl enable heartbeat-daemon
 sudo systemctl restart heartbeat-daemon
 
-# Note: modem-recovery service is NOT enabled at boot - it's controlled by udev rules
+# Note: modem-manager service is NOT enabled at boot - it's controlled by udev rules
 # It will only run when SIM7600G-H hardware is detected
-echo "📡 Modem Recovery Service: Controlled by hardware detection (only runs when modem present)"
+echo "📡 Modem Manager Service: Controlled by hardware detection (only runs when modem present)"
 
 sudo systemctl enable gps-startup
 sudo systemctl restart gps-startup
@@ -1230,7 +1231,7 @@ echo "🚀 Services installed and running:"
 echo "   ✅ Flask App (HTTP server on port 80)"
 echo "   ✅ MediaMTX (Streaming server)" 
 echo "   💓 Heartbeat Daemon (independent device monitoring)"
-echo "   📡 Modem Recovery Daemon (automatic SIM7600G-H recovery)"
+echo "   📡 Modem Manager Daemon (automatic SIM7600G-H management and recovery)"
 echo "   ⚙️ GPS Daemon (auto-starts and enables GPS with hardware)"
 echo "   ⚙️ GPS Startup Manager (configure via web interface)"
 if systemctl is-active --quiet reverse-ssh-tunnel.service; then

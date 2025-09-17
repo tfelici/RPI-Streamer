@@ -1867,7 +1867,7 @@ def ups_monitor_log():
         return f"Error reading UPS monitor log: {str(e)}", 500
 
 # Global list of monitored services
-MONITORED_SERVICES = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon', 'modem-recovery', 'ups-monitor']
+MONITORED_SERVICES = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon', 'modem-manager', 'ups-monitor']
 
 # List of Python processes to monitor (separate from systemd services)
 MONITORED_PROCESSES = ['relay-ffmpeg.py', 'relay-ffmpeg-record.py']

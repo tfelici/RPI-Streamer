@@ -3,7 +3,7 @@
 GPS Daemon for RPI Streamer
 Continuously parses NMEA data from SIM7600G-H modem and serves location data to multiple clients.
 Eliminates race conditions and provides real-time GPS data via Unix socket.
-Includes GPS dongle initialization procedure.
+GPS hardware initialization is handled by modem_manager_daemon.
 """
 
 import os
@@ -276,169 +276,9 @@ class GPSDaemon:
         self.log(f"✓ GPS dongle hardware detection complete (waited {total_wait:.1f}s)")
         return True
     
-    def send_at_command(self, serial_port, command, timeout=10):
-        """Send AT command and wait for complete response"""
-        try:
-            # Clear any pending data
-            serial_port.reset_input_buffer()
-            
-            # Send command
-            self.log(f"Sending AT command: {command}")
-            serial_port.write(f"{command}\r\n".encode('ascii'))
-            
-            # Poll for response
-            response_lines = []
-            start_time = time.time()
-            
-            while time.time() - start_time < timeout:
-                if serial_port.in_waiting > 0:
-                    line = serial_port.readline().decode('ascii', errors='ignore').strip()
-                    if line:
-                        response_lines.append(line)
-                        self.log(f"AT response line: {line}")
-                        
-                        # Check for completion indicators
-                        if line in ['OK', 'ERROR'] or line.startswith('+CME ERROR') or line.startswith('+CMS ERROR'):
-                            break
-                else:
-                    time.sleep(0.1)  # Small delay to avoid busy waiting
-            
-            response = '\n'.join(response_lines)
-            
-            if not response_lines:
-                self.log(f"✗ AT command timeout: {command}")
-                return None, False
-            
-            # Determine success
-            success = any(line == 'OK' for line in response_lines)
-            if success:
-                self.log(f"✓ AT command successful: {command}")
-            else:
-                self.log(f"✗ AT command failed: {command}")
-            
-            return response, success
-            
-        except Exception as e:
-            self.log(f"✗ Exception sending AT command {command}: {e}")
-            return None, False
 
-    def initialize_gps_dongle(self):
-        """Initialize GPS dongle by enabling GPS functionality"""
-        self.log("Starting GPS dongle initialization...")
-        
-        # Wait for dongle to be ready
-        if not self.wait_for_dongle_initialization():
-            self.log("GPS dongle initialization failed - hardware not ready")
-            return False
-        
-        # Step 1: Stop ModemManager to avoid conflicts
-        self.log("Stopping ModemManager...")
-        if not self.run_command("systemctl stop ModemManager", "Stopping ModemManager"):
-            self.log("Warning: Could not stop ModemManager")
-        
-        # Wait a moment for ModemManager to fully stop
-        time.sleep(2)
-        
-        # Step 2: Find the AT command port (usually /dev/ttyUSB2 or similar)
-        at_ports = ['/dev/ttyUSB2', '/dev/ttyUSB3', '/dev/ttyACM2', '/dev/ttyACM3']
-        at_port = None
-        
-        for port in at_ports:
-            if os.path.exists(port):
-                try:
-                    with serial.Serial(port, 115200, timeout=5) as ser:
-                        # Test basic AT communication with new function
-                        response, success = self.send_at_command(ser, "AT")
-                        if success:
-                            at_port = port
-                            self.log(f"✓ Found AT command port: {port}")
-                            break
-                except Exception as e:
-                    self.log(f"Could not test AT port {port}: {e}")
-                    continue
-        
-        if not at_port:
-            self.log("✗ Could not find AT command port")
-            # Re-enable ModemManager before returning
-            self.run_command("systemctl start ModemManager", "Re-enabling ModemManager")
-            return False
-        
-        # Step 3: Send GPS configuration commands
-        gps_enabled = False
-        try:
-            with serial.Serial(at_port, 115200, timeout=10) as ser:
-                # Test basic AT communication
-                self.log("Testing AT communication...")
-                response, success = self.send_at_command(ser, "AT")
-                if not success:
-                    self.log("✗ AT communication failed")
-                    raise Exception("AT communication failed")
-                
-                self.log("✓ AT communication successful")
-                
-                # First, disable GPS to ensure clean state
-                self.log("Disabling GPS for clean configuration...")
-                response, success = self.send_at_command(ser, "AT+CGPS=0")
-                self.log(f"GPS disable response: {response}")
-                
-                # Wait a moment for GPS to fully stop
-                time.sleep(2)
-                
-                #first check if GALILEO is enabled
-                #response should be +CGNSSMODE: 15,1
-                self.log("Checking if Galileo is enabled...")
-                response, success = self.send_at_command(ser, "AT+CGNSSMODE?")
-                self.log(f"CGNSSMODE response: {response}")
-                if response and '+CGNSSMODE:' in response:
-                    codes = response.split(':')[1].strip()
-                    if '15,1' in codes:
-                        self.log("✓ Galileo already enabled")
-                    else:
-                        # Enable Galileo
-                        # It will require a reboot though, so it will work next time round!
-                        self.log("Enabling Galileo constellation...")
-                        response, success = self.send_at_command(ser, "AT+CGNSSMODE=15,1")
-                        self.log(f"Galileo enable response: {response}")
-                # Configure NMEA sentence types BEFORE enabling GPS
-                self.log("Configuring NMEA sentence types (enabling comprehensive sentence set)...")
-                response, success = self.send_at_command(ser, "AT+CGPSNMEA=198143")
-                self.log(f"NMEA config response: {response}")
-                
-                # Set NMEA output rate to 1Hz BEFORE enabling GPS
-                self.log("Setting NMEA output rate...")
-                response, success = self.send_at_command(ser, "AT+CGPSNMEARATE=0")
-                self.log(f"NMEA rate response: {response}")
-                
-                # Now enable GPS with the configured settings
-                self.log("Enabling GPS with configured NMEA settings...")
-                response, success = self.send_at_command(ser, "AT+CGPS=1")
-                self.log(f"GPS enable response: {response}")
-                
-                # Verify GPS is enabled
-                self.log("Verifying final GPS status...")
-                response, success = self.send_at_command(ser, "AT+CGPS?")
-                self.log(f"Final GPS status: {response}")
-                
-                if response and '+CGPS: 1' in response:
-                    gps_enabled = True
-                    self.log("✓ GPS successfully enabled")
-                else:
-                    self.log("✗ GPS enable verification failed")
-                
-        except Exception as e:
-            self.log(f"✗ Error during GPS initialization: {e}")
-        
-        # Step 4: Re-enable ModemManager
-        self.log("Re-enabling ModemManager...")
-        if not self.run_command("systemctl start ModemManager", "Re-enabling ModemManager"):
-            self.log("Warning: Could not restart ModemManager")
-        
-        if gps_enabled:
-            self.log("✓ GPS dongle initialization completed successfully")
-            return True
-        else:
-            self.log("✗ GPS dongle initialization failed")
-            return False
+
+    
         
     def validate_nmea_checksum(self, line):
         """Validate NMEA sentence checksum"""
@@ -659,44 +499,74 @@ class GPSDaemon:
         return False
     
     def find_gps_device(self):
-        """Find and open GPS device (simplified - just check if device exists and can be opened)"""
-        self.log(f"Scanning for GPS NMEA data on {len(self.device_paths)} potential ports...")
-        
-        for i, device_path in enumerate(self.device_paths, 1):
-            self.log(f"[{i}/{len(self.device_paths)}] Inspecting port: {device_path}")
-            
-            if not os.path.exists(device_path):
-                self.log(f"[{i}/{len(self.device_paths)}] Port {device_path} does not exist - skipping")
-                continue
-                
-            try:
-                self.log(f"[{i}/{len(self.device_paths)}] Attempting to open {device_path} for GPS data...")
-                # Just try to open the device - don't read NMEA data here to avoid race conditions
-                ser = serial.Serial(device_path, self.baudrate, timeout=5)  # Increased timeout for NMEA reading
-                
-                # Simple test - just verify we can open the port
-                self.log(f"✓ [{i}/{len(self.device_paths)}] GPS device opened successfully: {device_path}")
-                self.current_device = device_path
-                return ser
-                    
-            except Exception as e:
-                self.log(f"✗ [{i}/{len(self.device_paths)}] Failed to open {device_path}: {e}")
-                continue
-        
-        # No GPS device found - check if any expected devices exist at all
-        expected_devices_exist = any(os.path.exists(path) for path in self.device_paths)
+        """Find and open GPS device with comprehensive port scanning and status reporting"""
+        # First, get a snapshot of all existing serial devices
         existing_ports = [path for path in self.device_paths if os.path.exists(path)]
         
-        self.log(f"GPS device scan complete - no working ports found")
-        self.log(f"Existing ports detected: {existing_ports if existing_ports else 'None'}")
-        self.log(f"Total ports scanned: {len(self.device_paths)}")
+        self.log(f"Scanning {len(self.device_paths)} potential GPS ports... ({len(existing_ports)} ports exist)")
         
-        if not expected_devices_exist:
-            self.log("No GPS hardware detected - no expected device paths exist")
+        if not existing_ports:
+            self.log("No serial ports detected - waiting for SIM7600G-H hardware to appear")
+            self.log(f"Expected ports: {', '.join(self.device_paths)}")
             return None
+        
+        self.log(f"Found existing ports: {existing_ports}")
+        
+        # Try to open each existing port
+        for i, device_path in enumerate(existing_ports, 1):
+            self.log(f"[{i}/{len(existing_ports)}] Testing GPS port: {device_path}")
+            
+            try:
+                # Attempt to open the serial port
+                ser = serial.Serial(device_path, self.baudrate, timeout=5)
+                
+                # Test if port is responsive (quick check)
+                try:
+                    # Try to read a line with a short timeout to see if data is flowing
+                    ser.timeout = 2  # Short timeout for connection test
+                    test_line = ser.readline().decode('ascii', errors='ignore').strip()
+                    
+                    # Even if no data, if we can open the port without error, consider it good
+                    self.log(f"✓ [{i}/{len(existing_ports)}] GPS port opened successfully: {device_path}")
+                    if test_line:
+                        self.log(f"   Sample data received: {test_line[:50]}...")
+                    else:
+                        self.log(f"   Port open but no immediate data (GPS may be starting up)")
+                    
+                    # Reset timeout to normal value for actual operation
+                    ser.timeout = 5
+                    self.current_device = device_path
+                    return ser
+                    
+                except Exception as read_e:
+                    # If we can't read, still return the connection if it opened successfully
+                    self.log(f"✓ [{i}/{len(existing_ports)}] Port {device_path} opened (read test failed: {read_e})")
+                    ser.timeout = 5  # Reset timeout
+                    self.current_device = device_path
+                    return ser
+                    
+            except Exception as e:
+                self.log(f"✗ [{i}/{len(existing_ports)}] Failed to open {device_path}: {e}")
+                continue
+        
+        # No working GPS device found
+        self.log(f"GPS scan complete - no accessible ports found")
+        self.log(f"Available ports: {existing_ports}")
+        self.log(f"Searched ports: {self.device_paths}")
+        
+        # Provide helpful diagnostic information
+        if existing_ports:
+            self.log("Serial ports exist but are not accessible - this may indicate:")
+            self.log("  • Ports are in use by another process")
+            self.log("  • Permission issues (check dialout group membership)")
+            self.log("  • Hardware initialization still in progress")
         else:
-            self.log("GPS devices exist but could not be opened")
-            return None
+            self.log("No serial ports detected - this may indicate:")
+            self.log("  • SIM7600G-H hardware not connected")
+            self.log("  • USB enumeration still in progress")
+            self.log("  • Hardware driver issues")
+        
+        return None
     
     def gps_worker(self):
         """Main GPS parsing worker thread - handles both real GPS and simulation"""
@@ -757,17 +627,33 @@ class GPSDaemon:
     def real_gps_worker(self):
         """Worker for real GPS hardware"""
         # GPS should already be initialized at this point
-        self.location_data['daemon_status'] = 'connecting'
+        self.location_data['daemon_status'] = 'scanning_for_device'
+        connection_attempts = 0
         
         while self.running:
             try:
-                # Try to find and open GPS device
+                connection_attempts += 1
+                
+                # Try to find and open GPS device with progressive retry
                 self.serial_connection = self.find_gps_device()
                 if not self.serial_connection:
-                    self.log("GPS device not available, retrying in 10 seconds...")
+                    # Use shorter intervals initially, then longer intervals
+                    if connection_attempts <= 6:  # First minute: 10-second intervals
+                        retry_interval = 10
+                        self.log(f"GPS device not available (attempt {connection_attempts}), retrying in {retry_interval} seconds...")
+                    elif connection_attempts <= 18:  # Next 2 minutes: 10-second intervals  
+                        retry_interval = 10
+                        self.log(f"GPS device not available (attempt {connection_attempts}), continuing search every {retry_interval} seconds...")
+                    else:  # After 3 minutes: 30-second intervals
+                        retry_interval = 30
+                        self.log(f"GPS device not available (attempt {connection_attempts}), long-term scanning every {retry_interval} seconds...")
+                    
                     self.location_data['daemon_status'] = 'no_device'
-                    time.sleep(10)
+                    time.sleep(retry_interval)
                     continue
+                
+                # Successfully connected - reset attempt counter
+                connection_attempts = 0
                 
                 self.location_data['daemon_status'] = 'connected'
                 self.log(f"Connected to GPS device: {self.current_device}")
@@ -947,18 +833,11 @@ class GPSDaemon:
         self.log("Server worker thread stopped")
     
     def start(self):
-        """Start the GPS daemon"""
-        self.log("Starting GPS Daemon")
-        
+        """Start the GPS daemon"""        
         if self.simulate:
-            self.log("Simulation mode - skipping GPS hardware initialization")
+            self.log("Starting GPS Daemon in simulation mode")
         else:
-            # Initialize GPS hardware once at startup
-            self.log("Initializing GPS hardware...")
-            if not self.initialize_gps_dongle():
-                self.log("Warning: GPS initialization failed - daemon will continue and retry connection")
-                # Don't fail completely - daemon will attempt to connect anyway
-        
+            self.log("Starting GPS Daemon in real GPS mode")        
         # Start GPS worker thread
         self.gps_thread = threading.Thread(target=self.gps_worker, daemon=True)
         self.gps_thread.start()

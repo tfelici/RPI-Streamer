@@ -1,8 +1,8 @@
-# SIM7600G-H Modem Recovery System
+# SIM7600G-H Modem Manager System
 
 ## Overview
 
-The Modem Recovery System automatically monitors and recovers from cellular connectivity issues with the SIM7600G-H dongle. This system addresses the common problem where cellular modems fail to recover after signal loss and require manual reset.
+The Modem Manager System automatically initializes, monitors, and recovers from cellular connectivity issues with the SIM7600G-H dongle. This system handles both initial modem configuration (RNDIS mode and GPS setup) and ongoing monitoring to address common problems where cellular modems fail to recover after signal loss.
 
 ## Problem Descript### Changelog
 
@@ -28,7 +28,7 @@ This creates reliability issues for applications that depend on continuous cellu
 
 ## Solution
 
-The Modem Recovery System provides:
+The Modem Manager System provides:
 
 - **Automatic Monitoring**: Continuously monitors cellular connection status
 - **Smart Detection**: Detects both ModemManager and NetworkManager connection states
@@ -40,7 +40,7 @@ The Modem Recovery System provides:
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  Modem Recovery │    │  ModemManager   │    │ NetworkManager  │
+│  Modem Manager  │    │  ModemManager   │    │ NetworkManager  │
 │     Daemon      │◄──►│    (mmcli)      │◄──►│    (nmcli)      │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
          │                       │                       │
@@ -96,7 +96,7 @@ Both must report "connected" for the connection to be considered healthy.
 ## Installation
 
 ### Automatic Installation (Recommended)
-The modem recovery system is **automatically installed** as part of the main RPI Streamer installation:
+The modem manager system is **automatically installed** as part of the main RPI Streamer installation:
 
 ```bash
 # Download and run the main installer
@@ -106,7 +106,7 @@ bash install_rpi_streamer.sh
 
 The installer automatically:
 1. ✅ Installs ModemManager and NetworkManager dependencies
-2. ✅ Creates the modem recovery daemon service
+2. ✅ Creates the modem manager daemon service
 3. ✅ Configures log rotation
 4. ✅ Enables and starts the service
 5. ✅ Tests modem detection
@@ -126,28 +126,28 @@ sudo systemctl start ModemManager NetworkManager
 ### Basic Commands
 ```bash
 # Check service status
-sudo systemctl status modem-recovery
+sudo systemctl status modem-manager
 
 # Start/stop service
-sudo systemctl start modem-recovery
-sudo systemctl stop modem-recovery
-sudo systemctl restart modem-recovery
+sudo systemctl start modem-manager
+sudo systemctl stop modem-manager
+sudo systemctl restart modem-manager
 
 # Enable/disable autostart
-sudo systemctl enable modem-recovery
-sudo systemctl disable modem-recovery
+sudo systemctl enable modem-manager
+sudo systemctl disable modem-manager
 ```
 
 ### Monitoring
 ```bash
 # Real-time logs
-sudo journalctl -u modem-recovery -f
+sudo journalctl -u modem-manager -f
 
 # Recent logs
-sudo journalctl -u modem-recovery -n 50
+sudo journalctl -u modem-manager -n 50
 
 # Daemon log file
-tail -f /var/log/modem_recovery.log
+tail -f /var/log/modem_manager.log
 ```
 
 ## Log Analysis
