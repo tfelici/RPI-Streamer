@@ -116,7 +116,7 @@ if [ -d .git ]; then
     else
         echo "✅ Already up to date on $BRANCH_NAME branch"
         echo "💡 No installation needed - system is current"
-        #exit 0
+        exit 0
     fi
 else
     echo "Repository not found, this is a new installation..."
