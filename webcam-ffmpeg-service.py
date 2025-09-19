@@ -131,10 +131,10 @@ def start(stream_name):
             print("Hardware encoder not supported or failed, falling back to x264enc")
             if crf_val not in (None, '', 0, '0'):
                 # Use CRF mode for x264enc
-                return f'x264enc tune=zerolatency quantizer={crf_val} speed-preset=ultrafast key-int-max={gop_val}'
+                return f'x264enc tune=zerolatency quantizer={crf_val} speed-preset=medium key-int-max={gop_val}'
             else:
                 # Use bitrate mode for x264enc
-                return f'x264enc tune=zerolatency bitrate={vbitrate_val} speed-preset=ultrafast key-int-max={gop_val}'
+                return f'x264enc tune=zerolatency bitrate={vbitrate_val} speed-preset=medium key-int-max={gop_val}'
 
         # Parse resolution
         width, height = map(int, str(resolution_val).split('x'))
@@ -278,7 +278,7 @@ def start(stream_name):
                 base_opts += ['-crf', str(crf_val)]
             base_opts += [
                 '-vcodec', vcodec,
-                '-preset', 'ultrafast',
+                '-preset', 'medium',
                 '-pix_fmt', 'yuv420p',
                 '-b:v', f'{vbitrate_val}k',
                 '-tune', 'zerolatency',
@@ -308,7 +308,7 @@ def start(stream_name):
             base_opts += [
                 '-shortest',
                 '-vcodec', vcodec,
-                '-preset', 'ultrafast',
+                '-preset', 'medium',
                 '-pix_fmt', 'yuv420p',
                 '-b:v', f'{vbitrate_val}k',
                 '-tune', 'zerolatency',
@@ -338,7 +338,7 @@ def start(stream_name):
             base_opts = [
                 '-shortest',
                 '-vcodec', vcodec,
-                '-preset', 'ultrafast',
+                '-preset', 'medium',
                 '-pix_fmt', 'yuv420p',
                 '-crf', str(static_crf),
                 '-b:v', f'{static_vbitrate}k',
@@ -370,7 +370,7 @@ def start(stream_name):
             base_opts = [
                 '-shortest',
                 '-vcodec', vcodec,
-                '-preset', 'ultrafast',
+                '-preset', 'medium',
                 '-pix_fmt', 'yuv420p',
                 '-crf', str(static_crf),
                 '-b:v', f'{static_vbitrate}k',
@@ -382,7 +382,8 @@ def start(stream_name):
                 '-b:a', static_abitrate,
             ]
         # Build video filter chain
-        video_filters = ['scale=trunc(iw/2)*2:trunc(ih/2)*2']
+        video_horizontal_res = int(resolution_val.split('x')[0])
+        video_filters = [f'scale={video_horizontal_res}:-2,hqdn3d=1.5:1.5:6:6'] # force scale to same width givein in resolution_val, maintain aspect ratio, apply denoise
         if stabilization:
             # Add deshake filter for real-time stabilization
             video_filters.insert(0, 'deshake=x=-1:y=-1:w=-1:h=-1:rx=16:ry=16')
