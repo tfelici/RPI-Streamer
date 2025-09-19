@@ -39,6 +39,29 @@ def main():
     # Get storage path for recordings
     record_dir, usb_mount = get_storage_path('recordings', stream_name)
     os.makedirs(record_dir, exist_ok=True)
+    #if the current space used is more than 90% of the total space, delete the oldest files until we are below 80%
+    statvfs = os.statvfs(record_dir)
+    total_space = statvfs.f_frsize * statvfs.f_blocks
+    free_space = statvfs.f_frsize * statvfs.f_bavail
+    used_space = total_space - free_space
+    used_percent = used_space / total_space * 100
+    print(f"Storage path: {record_dir}, Total space: {total_space/(1024*1024*1024):.2f} GB, Used space: {used_space/(1024*1024*1024):.2f} GB ({used_percent:.2f}%)")
+    if used_percent > 90:
+        print("Storage space used is above 90%, deleting oldest files...")
+        files = sorted([os.path.join(record_dir, f) for f in os.listdir(record_dir) if os.path.isfile(os.path.join(record_dir, f))], key=os.path.getctime)
+        while used_percent > 80 and files:
+            oldest_file = files.pop(0)
+            try:
+                file_size = os.path.getsize(oldest_file)
+                os.remove(oldest_file)
+                used_space -= file_size
+                used_percent = used_space / total_space * 100
+                print(f"Deleted {oldest_file}, new used space: {used_space/(1024*1024*1024):.2f} GB ({used_percent:.2f}%)")
+            except Exception as e:
+                print(f"Error deleting file {oldest_file}: {e}")
+                break
+        if used_percent > 90:
+            print("Warning: Unable to free enough space, recordings may fail.")
     
     while True:
         timestamp = int(time.time())
