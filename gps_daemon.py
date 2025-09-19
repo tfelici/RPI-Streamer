@@ -232,54 +232,7 @@ class GPSDaemon:
         except Exception as e:
             self.log(f"✗ Command exception: {e}")
             return False
-    
-    def wait_for_dongle_initialization(self, max_wait_time=60):
-        """Wait for GPS dongle to be fully initialized and responsive (hardware detection only)"""
-        self.log("Waiting for GPS dongle hardware detection...")
-        start_time = time.time()
-        
-        # Step 1: Wait for USB device to appear
-        usb_ready = False
-        while time.time() - start_time < max_wait_time and not usb_ready:
-            # Check for SIM7600G-H device by ID or common names
-            if self.run_command("lsusb | grep -i 'simcom\\|7600\\|1e0e:9011\\|simtech'", None):
-                usb_ready = True
-                self.log("✓ USB device detected")
-            else:
-                time.sleep(2)
-        
-        if not usb_ready:
-            self.log("✗ USB device not detected within timeout")
-            return False
-        
-        # Step 2: Wait for NMEA serial ports to appear (only check existence, don't access)
-        ports_ready = False
-        while time.time() - start_time < max_wait_time and not ports_ready:
-            existing_ports = [path for path in self.device_paths if os.path.exists(path)]
-            if existing_ports:
-                ports_ready = True
-                self.log(f"✓ NMEA ports available: {existing_ports}")
-            else:
-                time.sleep(2)
-        
-        if not ports_ready:
-            self.log("✗ NMEA ports not available within timeout")
-            return False
-        
-        # Step 3: Simple wait for device stabilization (no AT command testing during runtime)
-        # AT command testing only happens during initialization when ModemManager is stopped
-        stabilization_time = 5
-        self.log(f"Waiting {stabilization_time}s for device stabilization...")
-        time.sleep(stabilization_time)
-        
-        total_wait = time.time() - start_time
-        self.log(f"✓ GPS dongle hardware detection complete (waited {total_wait:.1f}s)")
-        return True
-    
-
-
-    
-        
+           
     def validate_nmea_checksum(self, line):
         """Validate NMEA sentence checksum"""
         if '*' not in line:
