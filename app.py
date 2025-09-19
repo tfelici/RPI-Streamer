@@ -1004,7 +1004,7 @@ def system_settings_wifi():
                 'wifi-sec.psk', password,
                 'connection.autoconnect', 'yes',
                 'connection.autoconnect-priority', '5',  # Lower than cellular (10) and ethernet (100)
-                'connection.metric', '300'  # Lower priority than ethernet (100) and cellular (200)
+                'metric', '300'  # Lower priority than ethernet (100) and cellular (200)
             ]
             subprocess.run(create_cmd, check=True)
               # Activate the connection
@@ -1121,7 +1121,7 @@ def configure_wifi_hotspot(ssid, password, channel=6, ip_address="192.168.4.1"):
                 'con-name', ssid,
                 'connection.autoconnect', 'yes',
                 'connection.autoconnect-priority', '10',#need to set this in order to autoconnect on reboot
-                'connection.metric', '400',  # Low priority - hotspot should not interfere with internet connections
+                'metric', '400',  # Low priority - hotspot should not interfere with internet connections
                 'wifi.mode', 'ap',
                 'wifi.ssid', ssid,
                 'wifi.band', wifi_band,
