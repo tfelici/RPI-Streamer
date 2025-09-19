@@ -189,6 +189,7 @@ id=ethernet-priority
 type=ethernet
 autoconnect=true
 autoconnect-priority=100
+metric=100
 interface-name=eth0
 
 [ethernet]
@@ -212,6 +213,7 @@ id=cellular-auto
 type=gsm
 autoconnect=true
 autoconnect-priority=10
+metric=200
 
 [gsm]
 # APN will be auto-detected by ModemManager for most carriers
@@ -228,6 +230,42 @@ ignore-auto-dns=true
 method=auto
 route-metric=200
 EOFCELLULAR
+
+# Create WiFi client connection with proper metric (if WiFi interface exists)
+if ip link show wlan0 >/dev/null 2>&1; then
+    echo "📝 Configuring WiFi client connection with proper metric..."
+    sudo tee /etc/NetworkManager/system-connections/wifi-client-priority.nmconnection >/dev/null << 'EOFWIFI'
+[connection]
+id=wifi-client-priority
+type=wifi
+autoconnect=false
+autoconnect-priority=5
+metric=300
+interface-name=wlan0
+
+[wifi]
+mode=infrastructure
+# SSID will be configured via web interface or manually
+
+[wifi-security]
+# Security settings will be configured when connecting to specific networks
+
+[ipv4]
+method=auto
+route-metric=300
+
+[ipv6]
+method=auto
+route-metric=300
+EOFWIFI
+
+    # Set proper permissions for WiFi connection file
+    sudo chmod 600 /etc/NetworkManager/system-connections/wifi-client-priority.nmconnection
+    sudo chown root:root /etc/NetworkManager/system-connections/wifi-client-priority.nmconnection
+    echo "✅ WiFi client priority template created (metric 300)"
+else
+    echo "📝 No WiFi interface detected - skipping WiFi client priority configuration"
+fi
 
 # Set proper permissions for NetworkManager connection files
 sudo chmod 600 /etc/NetworkManager/system-connections/ethernet-priority.nmconnection
@@ -286,13 +324,17 @@ echo "📝 NetworkManager configuration files created (will be loaded on next bo
 
 echo "✅ ModemManager and NetworkManager configured for automatic connectivity with interface priority"
 echo "🌐 Network interface priority configuration:"
-echo "   1. 🔌 Ethernet (eth0): Priority 100, Route metric 100 (HIGHEST PRIORITY)"
-echo "   2. 📡 Cellular (wwan*): Priority 10, Route metric 200 (BACKUP)"
+echo "   1. 🔌 Ethernet (eth0): Priority 100, Connection metric 100, Route metric 100 (HIGHEST PRIORITY)"
+echo "   2. 📡 Cellular (wwan*): Priority 10, Connection metric 200, Route metric 200 (BACKUP)"
+echo "   3. 📶 WiFi Client (wlan0): Priority 5, Connection metric 300, Route metric 300 (THIRD PRIORITY)"
+echo "   4. 📶 WiFi Hotspot: Connection metric 400 (local access only, no internet routing conflicts)"
 echo "📡 When network interfaces are available:"
-echo "   • Ethernet cable connected: All traffic routes via Ethernet"
-echo "   • Only cellular connected: Traffic routes via cellular"
-echo "   • Both connected: Ethernet takes priority, cellular as backup"
-echo "   • Ethernet disconnected: Automatic failover to cellular"
+echo "   • Ethernet cable connected: All traffic routes via Ethernet (metric 100)"
+echo "   • Only cellular connected: Traffic routes via cellular (metric 200)" 
+echo "   • Only WiFi client connected: Traffic routes via WiFi client (metric 300)"
+echo "   • WiFi Hotspot active: Provides local access without interfering with internet routing"
+echo "   • Multiple connections: Automatic priority-based routing (ethernet > cellular > wifi client > hotspot)"
+echo "   • Interface failover: Automatic failover to next priority when primary disconnects"
 echo "💾 Network priority events logged to: /var/log/network-priority.log"
 echo ""
 
