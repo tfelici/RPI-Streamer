@@ -3,49 +3,73 @@
 ## Problem Resolution
 With the modem in RNDIS mode (9011), all network interfaces are competing for routing priority. This causes the WiFi hotspot to stop accepting connections when the cellular modem connects.
 
-## Solution: Connection Metrics
-NetworkManager uses `connection.metric` to determine routing priority. Lower numbers = higher priority.
+## Solution: NetworkManager Priority System
+NetworkManager uses `autoconnect-priority` and `ipv4.route-metric` to determine connection and routing priority. Higher autoconnect-priority numbers = higher priority. Lower route-metric numbers = higher routing priority.
 
-## Priority Hierarchy (Metrics)
+## IPv6 Status: DISABLED
+IPv6 is disabled on all connections for simplicity, better cellular compatibility, and easier troubleshooting.
 
-### 1. Ethernet (Wired Connection) - Metric: 100
+## Priority Hierarchy (IPv4 Only)
+
+### 1. Ethernet (Wired Connection) - Priority: 100, Route Metric: 100
 - **Highest Priority** - Most reliable, unlimited bandwidth
 - Usually configured automatically by install_rpi_streamer.sh
 - Should be the primary route when connected
+- **IPv6**: Disabled
 
-### 2. Cellular Modem (RNDIS) - Metric: 200  
+### 2. Cellular Modem (RNDIS) - Priority: 10, Route Metric: 200  
 - **Backup Internet** - When ethernet unavailable
 - SIM7600G-H in mode 9011 (USB Ethernet/RNDIS)
 - Provides internet but may have data limits
 - **Configuration**: Automatic during installation
+- **IPv6**: Disabled
 
-### 3. WiFi Client Connection - Metric: 300
+### 3. WiFi Client Connection - Priority: 5, Route Metric: 300
 - **Tertiary Internet** - When no ethernet or cellular  
 - Connects to external WiFi networks
 - **Configuration**: Done in app.py system_settings_wifi()
+- **IPv6**: Disabled
 
-### 4. WiFi Hotspot (AP Mode) - Metric: 400
+### 4. WiFi Hotspot (AP Mode) - Priority: 10, Route Metric: 400
 - **Local Access Only** - Should NOT provide internet routing
 - Allows devices to connect to RPI for configuration
 - **Configuration**: Done in app.py configure_wifi_hotspot()
+- **IPv6**: Disabled
 
 ## Key Configuration Changes Made
 
-### 1. WiFi Hotspot (app.py - line ~1120)
+### 1. WiFi Hotspot (app.py - line ~1130)
 ```bash
-'connection.metric', '400'  # Low priority - hotspot should not interfere with internet
+'connection.autoconnect-priority', '10'  # Auto-connect priority for reboot
+'ipv4.route-metric', '400'              # Low priority - hotspot should not interfere with internet
+'ipv6.method', 'disabled'               # Disable IPv6 for simplicity and compatibility
 ```
 
 ### 2. WiFi Client (app.py - line ~1008)  
 ```bash
-'connection.metric', '300'  # Lower priority than ethernet (100) and cellular (200)
+'connection.autoconnect-priority', '5'   # Lower than cellular (10) and ethernet (100)
+'ipv4.route-metric', '300'              # Lower priority than ethernet (100) and cellular (200)
+'ipv6.method', 'disabled'               # Disable IPv6 for simplicity and compatibility
 ```
 
 ### 3. Cellular RNDIS (install_rpi_streamer.sh - automatic)
 ```bash
 # Configured automatically during installation:
 autoconnect-priority=10
+[ipv4]
 route-metric=200
+[ipv6]
+method=disabled
+```
+
+### 4. Ethernet (install_rpi_streamer.sh - automatic)
+```bash
+# Configured automatically during installation:
+autoconnect-priority=100
+[ipv4]
+route-metric=100
+[ipv6]
+method=disabled
 ```
 
 ## Verification Commands

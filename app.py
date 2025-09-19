@@ -1004,7 +1004,8 @@ def system_settings_wifi():
                 'wifi-sec.psk', password,
                 'connection.autoconnect', 'yes',
                 'connection.autoconnect-priority', '5',  # Lower than cellular (10) and ethernet (100)
-                'ipv4.route-metric', '300'  # Lower priority than ethernet (100) and cellular (200)
+                'ipv4.route-metric', '300',  # Lower priority than ethernet (100) and cellular (200)
+                'ipv6.method', 'disabled'  # Disable IPv6 for simplicity and compatibility
             ]
             subprocess.run(create_cmd, check=True)
               # Activate the connection
@@ -1129,6 +1130,7 @@ def configure_wifi_hotspot(ssid, password, channel=6, ip_address="192.168.4.1"):
                 'wifi-sec.psk', password,
                 'ipv4.method', 'shared',
                 'ipv4.address', f"{gateway}/24",
+                'ipv6.method', 'disabled',  # Disable IPv6 for simplicity and compatibility
                 '--',  # Separator for setting-specific properties
                 'connection.autoconnect-priority', '10',  # Auto-connect priority for reboot
                 'ipv4.route-metric', '400'  # Low priority - hotspot should not interfere with internet connections

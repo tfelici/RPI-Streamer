@@ -198,8 +198,7 @@ method=auto
 route-metric=100
 
 [ipv6]
-method=auto
-route-metric=100
+method=disabled
 EOFETHERNET
 
 # Create NetworkManager configuration for automatic cellular connection with DNS servers
@@ -225,8 +224,7 @@ dns=8.8.8.8;8.8.4.4;1.1.1.1;
 ignore-auto-dns=true
 
 [ipv6]
-method=auto
-route-metric=200
+method=disabled
 EOFCELLULAR
 
 # Create WiFi client connection with proper metric (if WiFi interface exists)
@@ -252,8 +250,7 @@ method=auto
 route-metric=300
 
 [ipv6]
-method=auto
-route-metric=300
+method=disabled
 EOFWIFI
 
     # Set proper permissions for WiFi connection file
@@ -320,7 +317,7 @@ sudo chmod 644 /var/log/network-priority.log
 echo "📝 NetworkManager configuration files created (will be loaded on next boot/restart)"
 
 echo "✅ ModemManager and NetworkManager configured for automatic connectivity with interface priority"
-echo "🌐 Network interface priority configuration:"
+echo "🌐 Network interface priority configuration (IPv4 only, IPv6 disabled):"
 echo "   1. 🔌 Ethernet (eth0): Priority 100, Route metric 100 (HIGHEST PRIORITY)"
 echo "   2. 📡 Cellular (wwan*): Priority 10, Route metric 200 (BACKUP)"
 echo "   3. 📶 WiFi Client (wlan0): Priority 5, Route metric 300 (THIRD PRIORITY)"
