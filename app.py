@@ -1004,7 +1004,7 @@ def system_settings_wifi():
                 'wifi-sec.psk', password,
                 'connection.autoconnect', 'yes',
                 'connection.autoconnect-priority', '5',  # Lower than cellular (10) and ethernet (100)
-                'metric', '300'  # Lower priority than ethernet (100) and cellular (200)
+                'ipv4.route-metric', '300'  # Lower priority than ethernet (100) and cellular (200)
             ]
             subprocess.run(create_cmd, check=True)
               # Activate the connection
@@ -1111,6 +1111,7 @@ def configure_wifi_hotspot(ssid, password, channel=6, ip_address="192.168.4.1"):
             if channel <= 14:
                 wifi_band = "bg"  # 2.4GHz band (channels 1-14)
             else:
+
                 wifi_band = "a"   # 5GHz band (channels 36+)
             
             # Create the hotspot connection
@@ -1119,9 +1120,7 @@ def configure_wifi_hotspot(ssid, password, channel=6, ip_address="192.168.4.1"):
                 'type', 'wifi',
                 'ifname', 'wlan0',
                 'con-name', ssid,
-                'connection.autoconnect', 'yes',
-                'connection.autoconnect-priority', '10',#need to set this in order to autoconnect on reboot
-                'metric', '400',  # Low priority - hotspot should not interfere with internet connections
+                'autoconnect', 'yes',
                 'wifi.mode', 'ap',
                 'wifi.ssid', ssid,
                 'wifi.band', wifi_band,
@@ -1129,7 +1128,10 @@ def configure_wifi_hotspot(ssid, password, channel=6, ip_address="192.168.4.1"):
                 'wifi-sec.key-mgmt', 'wpa-psk',
                 'wifi-sec.psk', password,
                 'ipv4.method', 'shared',
-                'ipv4.address', f"{gateway}/24"
+                'ipv4.address', f"{gateway}/24",
+                '--',  # Separator for setting-specific properties
+                'connection.autoconnect-priority', '10',  # Auto-connect priority for reboot
+                'ipv4.route-metric', '400'  # Low priority - hotspot should not interfere with internet connections
             ]
             
             result = subprocess.run(create_cmd, capture_output=True, text=True, check=True, timeout=30)

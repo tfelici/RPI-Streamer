@@ -189,7 +189,6 @@ id=ethernet-priority
 type=ethernet
 autoconnect=true
 autoconnect-priority=100
-metric=100
 interface-name=eth0
 
 [ethernet]
@@ -213,7 +212,6 @@ id=cellular-auto
 type=gsm
 autoconnect=true
 autoconnect-priority=10
-metric=200
 
 [gsm]
 # APN will be auto-detected by ModemManager for most carriers
@@ -240,7 +238,6 @@ id=wifi-client-priority
 type=wifi
 autoconnect=false
 autoconnect-priority=5
-metric=300
 interface-name=wlan0
 
 [wifi]
@@ -262,7 +259,7 @@ EOFWIFI
     # Set proper permissions for WiFi connection file
     sudo chmod 600 /etc/NetworkManager/system-connections/wifi-client-priority.nmconnection
     sudo chown root:root /etc/NetworkManager/system-connections/wifi-client-priority.nmconnection
-    echo "✅ WiFi client priority template created (metric 300)"
+    echo "✅ WiFi client priority template created (route metric 300)"
 else
     echo "📝 No WiFi interface detected - skipping WiFi client priority configuration"
 fi
@@ -324,14 +321,14 @@ echo "📝 NetworkManager configuration files created (will be loaded on next bo
 
 echo "✅ ModemManager and NetworkManager configured for automatic connectivity with interface priority"
 echo "🌐 Network interface priority configuration:"
-echo "   1. 🔌 Ethernet (eth0): Priority 100, Connection metric 100, Route metric 100 (HIGHEST PRIORITY)"
-echo "   2. 📡 Cellular (wwan*): Priority 10, Connection metric 200, Route metric 200 (BACKUP)"
-echo "   3. 📶 WiFi Client (wlan0): Priority 5, Connection metric 300, Route metric 300 (THIRD PRIORITY)"
-echo "   4. 📶 WiFi Hotspot: Connection metric 400 (local access only, no internet routing conflicts)"
+echo "   1. 🔌 Ethernet (eth0): Priority 100, Route metric 100 (HIGHEST PRIORITY)"
+echo "   2. 📡 Cellular (wwan*): Priority 10, Route metric 200 (BACKUP)"
+echo "   3. 📶 WiFi Client (wlan0): Priority 5, Route metric 300 (THIRD PRIORITY)"
+echo "   4. 📶 WiFi Hotspot: Route metric 400 (local access only, no internet routing conflicts)"
 echo "📡 When network interfaces are available:"
-echo "   • Ethernet cable connected: All traffic routes via Ethernet (metric 100)"
-echo "   • Only cellular connected: Traffic routes via cellular (metric 200)" 
-echo "   • Only WiFi client connected: Traffic routes via WiFi client (metric 300)"
+echo "   • Ethernet cable connected: All traffic routes via Ethernet (route metric 100)"
+echo "   • Only cellular connected: Traffic routes via cellular (route metric 200)" 
+echo "   • Only WiFi client connected: Traffic routes via WiFi client (route metric 300)"
 echo "   • WiFi Hotspot active: Provides local access without interfering with internet routing"
 echo "   • Multiple connections: Automatic priority-based routing (ethernet > cellular > wifi client > hotspot)"
 echo "   • Interface failover: Automatic failover to next priority when primary disconnects"

@@ -44,7 +44,6 @@ NetworkManager uses `connection.metric` to determine routing priority. Lower num
 ### 3. Cellular RNDIS (install_rpi_streamer.sh - automatic)
 ```bash
 # Configured automatically during installation:
-metric=200
 autoconnect-priority=10
 route-metric=200
 ```
