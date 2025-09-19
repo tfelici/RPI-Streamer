@@ -1115,7 +1115,7 @@ def configure_wifi_hotspot(ssid, password, channel=6, ip_address="192.168.4.1"):
 
                 wifi_band = "a"   # 5GHz band (channels 36+)
             
-            # Create the hotspot connection
+            # Create the hotspot connection with enhanced WPA2 security
             create_cmd = [
                 'sudo', 'nmcli', 'connection', 'add',
                 'type', 'wifi',
@@ -1127,13 +1127,15 @@ def configure_wifi_hotspot(ssid, password, channel=6, ip_address="192.168.4.1"):
                 'wifi.band', wifi_band,
                 'wifi.channel', str(channel),
                 'wifi-sec.key-mgmt', 'wpa-psk',
+                'wifi-sec.proto', 'rsn',  # Use RSN (WPA2) protocol
+                'wifi-sec.pairwise', 'ccmp',  # Use CCMP encryption for unicast
+                'wifi-sec.group', 'ccmp',  # Use CCMP encryption for multicast/broadcast
                 'wifi-sec.psk', password,
                 'ipv4.method', 'shared',
                 'ipv4.address', f"{gateway}/24",
-                'ipv6.method', 'disabled',  # Disable IPv6 for simplicity and compatibility
-                '--',  # Separator for setting-specific properties
                 'connection.autoconnect-priority', '10',  # Auto-connect priority for reboot
-                'ipv4.route-metric', '400'  # Low priority - hotspot should not interfere with internet connections
+                'ipv4.route-metric', '400',  # Low priority - hotspot should not interfere with internet connections
+                'ipv6.method', 'disabled'  # Disable IPv6 for simplicity and compatibility
             ]
             
             result = subprocess.run(create_cmd, capture_output=True, text=True, check=True, timeout=30)

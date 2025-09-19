@@ -153,13 +153,14 @@ nmcli connection show --active
 ## Advanced Configuration
 
 ### Manual NetworkManager Hotspot Configuration
-You can manually create a hotspot connection using nmcli:
+You can manually create a hotspot connection using nmcli with enhanced WPA2 security:
 ```bash
-# Create hotspot connection
+# Create hotspot connection with enhanced WPA2 security
 sudo nmcli connection add type wifi ifname wlan0 con-name Hotspot autoconnect no \
   wifi.mode ap wifi.ssid "RPI-Streamer" wifi.channel 6 \
-  ipv4.method shared ipv6.method ignore \
-  wifi-sec.key-mgmt wpa-psk wifi-sec.psk "your-password"
+  wifi-sec.key-mgmt wpa-psk wifi-sec.proto rsn \
+  wifi-sec.pairwise ccmp wifi-sec.group ccmp wifi-sec.psk "your-password" \
+  ipv4.method shared ipv6.method disabled
 
 # Activate the hotspot
 sudo nmcli connection up Hotspot
