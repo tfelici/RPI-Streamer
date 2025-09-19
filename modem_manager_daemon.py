@@ -71,7 +71,7 @@ def wait_for_dongle_initialization(max_wait_time=60):
     usb_ready = False
     while time.time() - start_time < max_wait_time and not usb_ready and not shutdown_flag.is_set():
         # Check for SIM7600G-H device by ID or common names
-        if run_command("lsusb | grep -i 'simcom\\|7600\\|1e0e:9011\\|simtech\\|qualcomm'", None):
+        if run_command("lsusb | grep -i 'simcom\\|7600\\|1e0e:9011\\|1e0e:9001\\|simtech\\|qualcomm'", None):
             usb_ready = True
             logger.info("✓ USB device detected")
         else:
