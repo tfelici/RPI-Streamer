@@ -198,8 +198,7 @@ method=auto
 route-metric=100
 
 [ipv6]
-method=auto
-route-metric=100
+method=disabled
 EOFETHERNET
 
 # Create NetworkManager configuration for automatic cellular connection with DNS servers
@@ -225,9 +224,42 @@ dns=8.8.8.8;8.8.4.4;1.1.1.1;
 ignore-auto-dns=true
 
 [ipv6]
-method=auto
-route-metric=200
+method=disabled
 EOFCELLULAR
+
+# Create WiFi client connection with proper metric (if WiFi interface exists)
+if ip link show wlan0 >/dev/null 2>&1; then
+    echo "📝 Configuring WiFi client connection with proper metric..."
+    sudo tee /etc/NetworkManager/system-connections/wifi-client-priority.nmconnection >/dev/null << 'EOFWIFI'
+[connection]
+id=wifi-client-priority
+type=wifi
+autoconnect=false
+autoconnect-priority=5
+interface-name=wlan0
+
+[wifi]
+mode=infrastructure
+# SSID will be configured via web interface or manually
+
+[wifi-security]
+# Security settings will be configured when connecting to specific networks
+
+[ipv4]
+method=auto
+route-metric=300
+
+[ipv6]
+method=disabled
+EOFWIFI
+
+    # Set proper permissions for WiFi connection file
+    sudo chmod 600 /etc/NetworkManager/system-connections/wifi-client-priority.nmconnection
+    sudo chown root:root /etc/NetworkManager/system-connections/wifi-client-priority.nmconnection
+    echo "✅ WiFi client priority template created (route metric 300)"
+else
+    echo "📝 No WiFi interface detected - skipping WiFi client priority configuration"
+fi
 
 # Set proper permissions for NetworkManager connection files
 sudo chmod 600 /etc/NetworkManager/system-connections/ethernet-priority.nmconnection

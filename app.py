@@ -1122,15 +1122,20 @@ def configure_wifi_hotspot(ssid, password, channel=6, ip_address="192.168.4.1"):
                 'ifname', 'wlan0',
                 'con-name', ssid,
                 'connection.autoconnect', 'yes',
-                'connection.autoconnect-priority', '10',#need to set this in order to autoconnect on reboot
+                'connection.autoconnect-priority', '10',  # Auto-connect priority for reboot
                 'wifi.mode', 'ap',
                 'wifi.ssid', ssid,
                 'wifi.band', wifi_band,
                 'wifi.channel', str(channel),
                 'wifi-sec.key-mgmt', 'wpa-psk',
+                'wifi-sec.proto', 'rsn',  # Use RSN (WPA2) protocol
+                'wifi-sec.pairwise', 'ccmp',  # Use CCMP encryption for unicast
+                'wifi-sec.group', 'ccmp',  # Use CCMP encryption for multicast/broadcast
                 'wifi-sec.psk', password,
                 'ipv4.method', 'shared',
-                'ipv4.address', f"{gateway}/24"
+                'ipv4.address', f"{gateway}/24",
+                'ipv4.route-metric', '400',  # Low priority - hotspot should not interfere with internet connections
+                'ipv6.method', 'disabled'  # Disable IPv6 for simplicity and compatibility
             ]
             
             result = subprocess.run(create_cmd, capture_output=True, text=True, check=True, timeout=30)

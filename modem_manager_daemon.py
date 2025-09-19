@@ -227,12 +227,12 @@ def configure_modem():
             logger.info(f"Current USB PID switch response: {response}")
             
             # Check if RNDIS mode is already enabled
-            if response and '9001' in response:
+            if response and '9011' in response:
                 logger.info("✓ RNDIS mode already enabled")
                 rndis_configured = True
             else:
-                logger.info("Setting RNDIS mode (9001,1,1)...")
-                response, success = send_at_command(ser, "AT+CUSBPIDSWITCH=9001,1,1")
+                logger.info("Setting RNDIS mode (9011,1,1)...")
+                response, success = send_at_command(ser, "AT+CUSBPIDSWITCH=9011,1,1")
                 logger.info(f"RNDIS mode set response: {response}")
                 if success:
                     rndis_configured = True
