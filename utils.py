@@ -325,6 +325,7 @@ def detect_usb_devices():
     Returns a list of device paths (e.g., ['/dev/sda1', '/dev/sdb1']).
     Uses multiple detection methods for better compatibility.
     """
+    return [] # disable for now
     usb_devices = []
     
     # Method 1: Use lsblk to find removable storage devices
