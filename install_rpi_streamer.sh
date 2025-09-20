@@ -637,7 +637,6 @@ User=root
 Group=root
 WorkingDirectory=$HOME/flask_app
 ExecStart=/usr/bin/python3 $HOME/flask_app/heartbeat_daemon.py --daemon
-ExecStop=/bin/kill -TERM \$MAINPID
 Restart=always
 RestartSec=10
 
@@ -668,7 +667,6 @@ User=root
 Group=root
 WorkingDirectory=$HOME/flask_app
 ExecStart=/usr/bin/python3 $HOME/flask_app/modem_manager_daemon.py --daemon
-ExecStop=/bin/kill -TERM \$MAINPID
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -804,7 +802,6 @@ Group=root
 WorkingDirectory=$HOME/flask_app
 # GPS daemon handles initialization internally
 ExecStart=/usr/bin/python3 $HOME/flask_app/gps_daemon.py --daemon
-ExecStop=/bin/kill -TERM \$MAINPID
 Restart=no
 RestartSec=10
 
