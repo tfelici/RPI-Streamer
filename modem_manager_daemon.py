@@ -229,7 +229,7 @@ def configure_modem():
             
             # Check if RNDIS mode is already enabled
             if response and '9001' in response:
-                logger.info("✓ RNDIS mode already enabled")
+                logger.info("✓ RNDIS mode already disabled (9001)")
                 rndis_configured = True
                 rndis_changed = False  # Already configured, no change made
             else:
