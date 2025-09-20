@@ -208,6 +208,7 @@ def configure_modem():
     
     # Step 3: Configure RNDIS mode and GPS
     rndis_configured = False
+    rndis_changed = False  # Track if we actually changed RNDIS mode
     gps_enabled = False
     
     try:
@@ -227,16 +228,20 @@ def configure_modem():
             logger.info(f"Current USB PID switch response: {response}")
             
             # Check if RNDIS mode is already enabled
-            if response and '9011' in response:
+            if response and '9001' in response:
                 logger.info("✓ RNDIS mode already enabled")
                 rndis_configured = True
+                rndis_changed = False  # Already configured, no change made
             else:
-                logger.info("Setting RNDIS mode (9011,1,1)...")
-                response, success = send_at_command(ser, "AT+CUSBPIDSWITCH=9011,1,1")
+                logger.info("Setting RNDIS mode (9001,1,1)...")
+                response, success = send_at_command(ser, "AT+CUSBPIDSWITCH=9001,1,1")
                 logger.info(f"RNDIS mode set response: {response}")
                 if success:
                     rndis_configured = True
+                    rndis_changed = True  # We just changed RNDIS mode
                     logger.info("✓ RNDIS mode configured - device will need to reconnect")
+                    #modem will now reboot/reconnect, so we return special value indicating RNDIS was changed
+                    return "rndis_changed"
                 else:
                     logger.error("✗ Failed to set RNDIS mode")
             
@@ -329,7 +334,7 @@ def configure_modem():
         else:
             status_msg += " - Modem not yet visible in ModemManager"
         logger.info(status_msg)
-        return True
+        return "rndis_changed" if rndis_changed else True
     elif rndis_configured:
         status_msg = "✓ RNDIS mode configured successfully (GPS configuration had issues)"
         if modem_reappeared:
@@ -337,7 +342,7 @@ def configure_modem():
         else:
             status_msg += " - Modem not yet visible in ModemManager"
         logger.info(status_msg)
-        return True
+        return "rndis_changed" if rndis_changed else True
     else:
         logger.error("✗ RNDIS mode and GPS configuration failed")
         return False
@@ -408,9 +413,19 @@ def main_loop():
     
     # Initialize RNDIS mode and GPS on startup (invoked by udev upon USB insertion)
     logger.info("Configuring RNDIS mode and GPS...")
-    if configure_modem():
-        logger.info("✓ RNDIS mode and GPS configuration successful")
-    else:
+    config_result = configure_modem()
+    
+    if config_result == "rndis_changed":
+        logger.info("✓ RNDIS mode was changed - waiting for shutdown signal from udev")
+        # RNDIS mode was actually changed - modem will reboot/reconnect
+        # Wait for udev rule to send shutdown signal, don't continue monitoring
+        while not shutdown_flag.is_set():
+            shutdown_flag.wait(CHECK_INTERVAL)
+        logger.info("Received shutdown signal - daemon terminating")
+        return
+    elif config_result:  # True - RNDIS was already configured
+        logger.info("✓ RNDIS mode and GPS configuration successful - RNDIS was already enabled, continuing monitoring")
+    else:  # False - configuration failed
         logger.warning("⚠️ RNDIS mode and GPS configuration failed - continuing with monitoring")
     
     while not shutdown_flag.is_set():
