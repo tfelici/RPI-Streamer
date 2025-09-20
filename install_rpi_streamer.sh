@@ -215,7 +215,7 @@ autoconnect-priority=10
 [gsm]
 # APN will be auto-detected by ModemManager for most carriers
 # You can specify a custom APN here if needed:
-# apn=your.carrier.apn
+apn=internet
 
 [ipv4]
 method=auto
