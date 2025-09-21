@@ -1164,3 +1164,111 @@ def get_wifi_mode_status():
         'signal_strength': signal_strength,
         'signal_percent': int(signal_percent) if signal_percent is not None else None
     }
+
+# =============================================================================
+# Modem/USB Power Management Functions
+# =============================================================================
+
+def detect_modem_usb_location():
+    """
+    Detect which USB hub and port the SIM7600G-H modem is connected to.
+    Returns (hub_location, port_number) tuple or (None, None) if not found.
+    
+    Searches for USB devices with Quectel vendor ID (2c7c) and known product IDs:
+    - 0125: SIM7600G-H in NON-RNDIS mode
+    - 0125: SIM7600G-H in RNDIS mode (same PID, different configuration)
+    """
+    try:
+        # Get uhubctl status to see all controllable USB hubs and their devices
+        result = subprocess.run(['sudo', 'uhubctl'], capture_output=True, text=True, timeout=15)
+        
+        if result.returncode != 0:
+            print(f"uhubctl command failed: {result.stderr}")
+            return None, None
+        
+        # Parse uhubctl output to find modem
+        # Example output:
+        # Current status for hub 3 [1d6b:0003 USB 3.00, USB 3.0 root hub, 4 ports]
+        #   Port 1: 0503 power
+        #   Port 2: 0503 power [2c7c:0125 Quectel Wireless Solutions Co., Ltd. EC25 LTE modem]
+        
+        current_hub = None
+        
+        for line in result.stdout.split('\n'):
+            line = line.strip()
+            
+            # Look for hub status lines
+            if line.startswith('Current status for hub'):
+                # Extract hub number from line like "Current status for hub 3 [1d6b:0003..."
+                hub_match = re.search(r'hub (\d+)', line)
+                if hub_match:
+                    current_hub = int(hub_match.group(1))
+                continue
+            
+            # Look for port lines with Quectel devices
+            if current_hub is not None and line.startswith('Port ') and '2c7c:' in line:
+                # Extract port number from line like "  Port 2: 0503 power [2c7c:0125 Quectel..."
+                port_match = re.search(r'Port (\d+):', line)
+                if port_match:
+                    port_number = int(port_match.group(1))
+                    
+                    # Verify it's a known SIM7600G-H product ID
+                    if '2c7c:0125' in line:  # SIM7600G-H
+                        print(f"Found SIM7600G-H modem at hub {current_hub}, port {port_number}")
+                        return current_hub, port_number
+                    
+                    # Also check for other possible Quectel modem PIDs
+                    quectel_pids = ['0125', '0306', '0512']  # Common Quectel modem PIDs
+                    for pid in quectel_pids:
+                        if f'2c7c:{pid}' in line:
+                            print(f"Found Quectel modem (PID {pid}) at hub {current_hub}, port {port_number}")
+                            return current_hub, port_number
+        
+        print("No Quectel modem found on any controllable USB port")
+        return None, None
+        
+    except subprocess.TimeoutExpired:
+        print("uhubctl command timed out")
+        return None, None
+    except Exception as e:
+        print(f"Error detecting modem USB location: {e}")
+        return None, None
+
+def power_cycle_modem_usb():
+    """
+    Power cycle the modem by detecting its USB location and using uhubctl.
+    Returns (success, message) tuple.
+    """
+    try:
+        # First, detect which USB hub and port the modem is connected to
+        hub_location, port_number = detect_modem_usb_location()
+        
+        if hub_location is None or port_number is None:
+            return False, 'Modem not found on any controllable USB port. Check if modem is connected and uhubctl is installed.'
+        
+        # Use uhubctl to power cycle the USB modem at detected location
+        # This physically resets the modem hardware and triggers udev re-detection
+        reset_result = subprocess.run(['sudo', 'uhubctl', '-a', 'off', '-p', str(port_number), '-l', str(hub_location)], 
+                                    capture_output=True, text=True, timeout=10)
+        
+        if reset_result.returncode != 0:
+            error_msg = reset_result.stderr.strip() if reset_result.stderr else 'uhubctl power off failed'
+            return False, f'Failed to power off modem: {error_msg}'
+        
+        # Wait 3 seconds for power to fully disconnect
+        time.sleep(3)
+        
+        # Power the port back on
+        power_on_result = subprocess.run(['sudo', 'uhubctl', '-a', 'on', '-p', str(port_number), '-l', str(hub_location)], 
+                                       capture_output=True, text=True, timeout=10)
+        
+        if power_on_result.returncode != 0:
+            error_msg = power_on_result.stderr.strip() if power_on_result.stderr else 'uhubctl power on failed'
+            return False, f'Failed to power on modem: {error_msg}'
+        
+        return True, f'Modem power cycled successfully (port {port_number}, hub {hub_location}). udev will re-detect the device.'
+            
+    except subprocess.TimeoutExpired:
+        return False, 'Modem power cycle operation timed out'
+    except Exception as e:
+        return False, f'Modem power cycle error: {str(e)}'

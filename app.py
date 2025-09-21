@@ -21,7 +21,7 @@ import fcntl
 from datetime import datetime
 from pathlib import Path
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR,HEARTBEAT_FILE, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, generate_gps_track_id, get_default_hotspot_ssid, get_hardwareid, get_app_version, get_active_recording_info, add_files_from_path, load_wifi_settings, save_wifi_settings, get_wifi_mode_status
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR,HEARTBEAT_FILE, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, generate_gps_track_id, get_default_hotspot_ssid, get_hardwareid, get_app_version, get_active_recording_info, add_files_from_path, load_wifi_settings, save_wifi_settings, get_wifi_mode_status, power_cycle_modem_usb, detect_modem_usb_location
 
 # Use pymediainfo for fast video duration extraction - now imported in utils.py
 
@@ -1536,47 +1536,10 @@ def system_settings_factory_reset():
 @app.route('/system-settings-modem-reset', methods=['POST'])
 def system_settings_modem_reset():
     try:
-        # Use mmcli to get modem information with JSON output (same as heartbeat_daemon)
-        result = subprocess.run(['mmcli', '-L', '--output-json'], 
-                              capture_output=True, text=True, timeout=10)
-        
-        if result.returncode != 0:
-            return jsonify({'success': False, 'error': 'Failed to list modems'})
-        
-        # Parse JSON response to find modem
-        modem_id = None
-        try:
-            if result.stdout.strip():
-                modem_list_json = json.loads(result.stdout)
-                modem_paths = modem_list_json.get('modem-list', [])
-                
-                if modem_paths:
-                    # Use first modem found
-                    modem_path = modem_paths[0]
-                    # Extract modem id from path like "/org/freedesktop/ModemManager1/Modem/0"
-                    modem_id_match = re.search(r'/Modem/(\d+)', modem_path)
-                    if modem_id_match:
-                        modem_id = modem_id_match.group(1)
-        except Exception as e:
-            return jsonify({'success': False, 'error': f'Failed to parse mmcli JSON: {e}'})
-        
-        if modem_id is None:
-            return jsonify({'success': False, 'error': 'No modem found by ModemManager'})
-        
-        # Reset the specific modem using sudo
-        reset_result = subprocess.run(['sudo', 'mmcli', '-m', modem_id, '--reset'], 
-                                    capture_output=True, text=True, timeout=30)
-        
-        if reset_result.returncode == 0:
-            return jsonify({'success': True, 'message': f'Modem {modem_id} reset successfully'})
-        else:
-            error_msg = reset_result.stderr.strip() if reset_result.stderr else 'mmcli reset command failed'
-            return jsonify({'success': False, 'error': f'mmcli reset failed: {error_msg}'})
-            
-    except subprocess.TimeoutExpired:
-        return jsonify({'success': False, 'error': 'Modem reset operation timed out'})
+        success, message = power_cycle_modem_usb()
+        return jsonify({'success': success, 'message' if success else 'error': message})
     except Exception as e:
-        return jsonify({'success': False, 'error': f'Modem reset error: {str(e)}'})
+        return jsonify({'success': False, 'error': f'Modem power cycle error: {str(e)}'})
 
 @app.route('/system-settings-modemmanager-restart', methods=['POST'])
 def system_settings_modemmanager_restart():

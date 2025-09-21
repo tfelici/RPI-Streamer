@@ -396,34 +396,61 @@ def check_usb_device_present():
 
 
 def restart_modem_manager_and_wait(timeout=60, poll_interval=3):
-    """Restart ModemManager and wait for modem to reappear"""
+    """Power cycle the modem via USB and wait for termination signal from udev"""
     try:
-        logger.info("Restarting ModemManager...")
-        restart_result = subprocess.run(['sudo', 'systemctl', 'restart', 'ModemManager'], 
-                                      capture_output=True, text=True, timeout=10)
+        # Import USB power cycling function from utils
+        import sys
+        import os
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from utils import power_cycle_modem_usb
         
-        if restart_result.returncode != 0:
-            logger.error(f"Failed to restart ModemManager: {restart_result.stderr}")
+        logger.info("Power cycling modem via USB...")
+        success, message = power_cycle_modem_usb()
+        
+        if not success:
+            logger.error(f"Failed to power cycle modem: {message}")
+            # Fallback to ModemManager restart if USB power cycling fails
+            logger.info("Falling back to ModemManager restart...")
+            restart_result = subprocess.run(['sudo', 'systemctl', 'restart', 'ModemManager'], 
+                                          capture_output=True, text=True, timeout=10)
+            if restart_result.returncode != 0:
+                logger.error(f"ModemManager restart also failed: {restart_result.stderr}")
+                return False
+            
+            # Wait for modem to reappear after ModemManager restart
+            logger.info(f"Waiting for modem to reappear after ModemManager restart (timeout: {timeout}s)...")
+            start_time = time.time()
+            
+            while time.time() - start_time < timeout:
+                if shutdown_flag.is_set():
+                    return False
+                    
+                if check_modem_present():
+                    logger.info("Modem reappeared in ModemManager after restart")
+                    return True
+                    
+                time.sleep(poll_interval)
+            
+            logger.warning(f"Modem did not reappear within {timeout} seconds after ModemManager restart")
+            return False
+        else:
+            logger.info(f"USB power cycle completed successfully: {message}")
+            logger.info("Modem powered back on - waiting for udev rule to detect reconnection and trigger daemon termination...")
+            
+            # Wait for termination signal from udev (modem will be detected by udev and trigger rule)
+            # The full power cycle is complete (off -> 3s wait -> on), so modem should now be reconnecting
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                if shutdown_flag.is_set():
+                    logger.info("Received termination signal from udev - daemon shutting down")
+                    return True
+                time.sleep(poll_interval)
+            
+            logger.warning(f"No termination signal received within {timeout} seconds after USB power cycle")
             return False
         
-        logger.info(f"Waiting for modem to reappear (timeout: {timeout}s)...")
-        start_time = time.time()
-        
-        while time.time() - start_time < timeout:
-            if shutdown_flag.is_set():
-                return False
-                
-            if check_modem_present():
-                logger.info("Modem reappeared in ModemManager")
-                return True
-                
-            time.sleep(poll_interval)
-        
-        logger.warning(f"Modem did not reappear within {timeout} seconds")
-        return False
-        
     except Exception as e:
-        logger.error(f"Error during ModemManager restart: {e}")
+        logger.error(f"Error during modem power cycle: {e}")
         return False
 
 
