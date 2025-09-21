@@ -3,10 +3,7 @@
 Simple Modem Recovery Daemon for SIM7600G-H
 
 Monitors cellular connectivity and automatically recovers from connection failures.
-
-Supports two modes:
-- RNDIS mode (9011): Configures modem for RNDIS networking, does not re-enable ModemManager, exits after configuration
-- NON-RNDIS mode (9001): Configures modem for traditional mode, re-enables ModemManager and continues monitoring
+Configures modem for NON-RNDIS mode (9001) with ModemManager coexistence and GPS functionality.
 """
 
 import os
@@ -21,6 +18,10 @@ import json
 import re
 import serial
 from datetime import datetime, timedelta
+
+# Import shared utilities
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from utils import send_at_command
 
 # Configure logging
 logging.basicConfig(
@@ -118,57 +119,11 @@ def wait_for_dongle_initialization(max_wait_time=60):
     return True
 
 
-def send_at_command(serial_port, command, timeout=10):
-    """Send AT command and wait for complete response"""
-    try:
-        # Clear any pending data
-        serial_port.reset_input_buffer()
-        
-        # Send command
-        logger.info(f"Sending AT command: {command}")
-        serial_port.write(f"{command}\r\n".encode('ascii'))
-        
-        # Poll for response
-        response_lines = []
-        start_time = time.time()
-        
-        while time.time() - start_time < timeout:
-            if serial_port.in_waiting > 0:
-                line = serial_port.readline().decode('ascii', errors='ignore').strip()
-                if line:
-                    response_lines.append(line)
-                    logger.info(f"AT response line: {line}")
-                    
-                    # Check for completion indicators
-                    if line in ['OK', 'ERROR'] or line.startswith('+CME ERROR') or line.startswith('+CMS ERROR'):
-                        break
-            else:
-                time.sleep(0.1)  # Small delay to avoid busy waiting
-        
-        response = '\n'.join(response_lines)
-        
-        if not response_lines:
-            logger.error(f"✗ AT command timeout: {command}")
-            return None, False
-        
-        # Determine success
-        success = any(line == 'OK' for line in response_lines)
-        if success:
-            logger.info(f"✓ AT command successful: {command}")
-        else:
-            logger.error(f"✗ AT command failed: {command}")
-        
-        return response, success
-        
-    except Exception as e:
-        logger.error(f"✗ Exception sending AT command {command}: {e}")
-        return None, False
 
-
-def configure_modem(mode):
-    """Configure modem for specified mode and GPS functionality"""
-    usb_pid = '9011' if mode == 'rndis' else '9001'
-    mode_name = 'RNDIS' if mode == 'rndis' else 'NON-RNDIS'
+def configure_modem():
+    """Configure modem for NON-RNDIS mode and GPS functionality"""
+    usb_pid = '9001'
+    mode_name = 'NON-RNDIS'
     logger.info(f"Starting {mode_name} mode configuration (USB PID: {usb_pid}) and GPS initialization...")
     
     # Check for shutdown request before starting
@@ -181,40 +136,59 @@ def configure_modem(mode):
         logger.error("Dongle initialization failed - hardware not ready")
         return False
     
-    # Step 1: Stop ModemManager to avoid conflicts
-    if not run_command("systemctl stop ModemManager", "Stopping ModemManager"):
-        logger.warning("Warning: Could not stop ModemManager")
+    # Step 1: ModemManager port management - MM hogs AT ports, need to temporarily stop it for configuration
+    logger.info("Temporarily stopping ModemManager for modem configuration (MM hogs AT ports)")
     
-    # Wait a moment for ModemManager to fully stop
-    time.sleep(2)
+    # Stop ModemManager to free up AT ports
+    mm_stop_result = subprocess.run(['sudo', 'systemctl', 'stop', 'ModemManager'], 
+                                   capture_output=True, text=True, timeout=10)
+    if mm_stop_result.returncode != 0:
+        logger.warning(f"Could not stop ModemManager: {mm_stop_result.stderr}")
+        logger.info("Continuing with configuration attempt despite ModemManager running")
+    else:
+        logger.info("✓ ModemManager stopped - AT ports should now be available")
+        time.sleep(3)  # Give time for ports to be released
     
-    # Step 2: Find the AT command port (usually /dev/ttyUSB2 or similar)
-    at_ports = ['/dev/ttyUSB2', '/dev/ttyUSB3', '/dev/ttyACM2', '/dev/ttyACM3']
+    # Step 2: Find the AT command port by testing all available USB/ACM ports
+    # Get list of all available serial ports
+    available_ports = []
+    for i in range(10):  # Check ttyUSB0-9 and ttyACM0-9
+        for prefix in ['/dev/ttyUSB', '/dev/ttyACM']:
+            port_path = f"{prefix}{i}"
+            if os.path.exists(port_path):
+                available_ports.append(port_path)
+    
+    logger.info(f"Available serial ports to test: {available_ports}")
     at_port = None
     
-    for port in at_ports:
-        if os.path.exists(port):
-            try:
-                with serial.Serial(port, 115200, timeout=5) as ser:
-                    # Test basic AT communication
-                    response, success = send_at_command(ser, "AT")
-                    if success:
-                        at_port = port
-                        logger.info(f"✓ Found AT command port: {port}")
-                        break
-            except Exception as e:
-                logger.error(f"Could not test AT port {port}: {e}")
-                continue
+    for port in available_ports:
+        try:
+            logger.info(f"Testing AT communication on {port}...")
+            with serial.Serial(port, 115200, timeout=5) as ser:
+                # Test basic AT communication
+                response, success = send_at_command(ser, "AT")
+                if success:
+                    at_port = port
+                    logger.info(f"✓ Found working AT command port: {port}")
+                    break
+                else:
+                    logger.debug(f"Port {port} exists but doesn't respond to AT commands")
+        except Exception as e:
+            logger.debug(f"Could not test AT port {port}: {e}")
+            continue
     
     if not at_port:
-        logger.error("✗ Could not find AT command port")
-        # Re-enable ModemManager before returning
-        run_command("systemctl start ModemManager", "Re-enabling ModemManager")
+        logger.error("✗ Could not find available AT command port even after stopping ModemManager")
+        
+        # Restart ModemManager since we couldn't use AT ports anyway
+        logger.info("Restarting ModemManager since AT configuration failed")
+        subprocess.run(['sudo', 'systemctl', 'start', 'ModemManager'], 
+                      capture_output=True, text=True, timeout=10)
         return False
-    
-    # Step 3: Configure RNDIS mode and GPS
-    rndis_configured = False
-    rndis_changed = False  # Track if we actually changed RNDIS mode
+
+    # Step 3: Configure NON-RNDIS mode and GPS
+    non_rndis_configured = False
+    non_rndis_changed = False  # Track if we actually changed NON-RNDIS mode
     gps_enabled = False
     
     try:
@@ -302,70 +276,45 @@ def configure_modem(mode):
                 
     except Exception as e:
         logger.error(f"✗ Error during RNDIS/GPS configuration: {e}")
+        return False
     
-    # Step 4: Handle ModemManager based on mode
-    if mode == 'rndis':
-        # In RNDIS mode, do NOT re-enable ModemManager
-        logger.info("RNDIS mode - NOT re-enabling ModemManager")
-        if rndis_configured and gps_enabled:
-            logger.info(f"✓ {mode_name} mode and GPS configuration completed successfully")
-            return "mode_changed" if rndis_changed else True
-        elif rndis_configured:
-            logger.info(f"✓ {mode_name} mode configured successfully (GPS configuration had issues)")
-            return "mode_changed" if rndis_changed else True
-        else:
-            logger.error(f"✗ {mode_name} mode and GPS configuration failed")
-            return False
+    # Step 4: Restart ModemManager after configuration and wait for modem detection
+    logger.info("Restarting ModemManager after configuration...")
+    mm_start_result = subprocess.run(['sudo', 'systemctl', 'start', 'ModemManager'], 
+                                    capture_output=True, text=True, timeout=10)
+    if mm_start_result.returncode != 0:
+        logger.error(f"Failed to restart ModemManager: {mm_start_result.stderr}")
     else:
-        # In NON-RNDIS mode, re-enable ModemManager and wait for modem to reappear
-        logger.info("Re-enabling ModemManager...")
-        if not run_command("systemctl start ModemManager", "Re-enabling ModemManager"):
-            logger.warning("Warning: Could not restart ModemManager")
-            if rndis_configured and gps_enabled:
-                logger.info(f"✓ {mode_name} mode and GPS configuration completed successfully (ModemManager restart failed)")
-                return True
-            elif rndis_configured:
-                logger.info(f"✓ {mode_name} mode configured successfully (GPS configuration had issues, ModemManager restart failed)")
-                return True
-            else:
-                logger.error(f"✗ {mode_name} mode and GPS configuration failed")
-                return False
-    
-        # Wait for modem to reappear in ModemManager after configuration
-        logger.info("Waiting for modem to reappear in ModemManager after configuration...")
-        modem_reappeared = False
-        wait_timeout = 60  # Wait up to 60 seconds
-        start_time = time.time()
+        logger.info("✓ ModemManager restarted successfully")
         
-        while time.time() - start_time < wait_timeout:
+        # Wait for ModemManager to detect the modem (up to 30 seconds)
+        logger.info("Waiting for ModemManager to detect the modem...")
+        modem_detected = False
+        detection_start = time.time()
+        detection_timeout = 30
+        
+        while time.time() - detection_start < detection_timeout and not shutdown_flag.is_set():
             if check_modem_present():
-                modem_reappeared = True
-                logger.info("✓ Modem reappeared in ModemManager")
+                modem_detected = True
+                detection_time = time.time() - detection_start
+                logger.info(f"✓ Modem detected by ModemManager after {detection_time:.1f}s")
                 break
-            time.sleep(3)  # Check every 3 seconds
-        
-        if not modem_reappeared:
-            logger.warning("⚠️ Modem did not reappear in ModemManager within timeout")
-        
-        if rndis_configured and gps_enabled:
-            status_msg = f"✓ {mode_name} mode and GPS configuration completed successfully"
-            if modem_reappeared:
-                status_msg += " - Modem ready in ModemManager"
-            else:
-                status_msg += " - Modem not yet visible in ModemManager"
-            logger.info(status_msg)
-            return "mode_changed" if rndis_changed else True
-        elif rndis_configured:
-            status_msg = f"✓ {mode_name} mode configured successfully (GPS configuration had issues)"
-            if modem_reappeared:
-                status_msg += " - Modem ready in ModemManager"
-            else:
-                status_msg += " - Modem not yet visible in ModemManager"
-            logger.info(status_msg)
-            return "mode_changed" if rndis_changed else True
-        else:
-            logger.error(f"✗ {mode_name} mode and GPS configuration failed")
-            return False
+            time.sleep(1)  # Check every second
+            
+        if not modem_detected:
+            logger.warning(f"⚠️ Modem not detected by ModemManager within {detection_timeout}s")
+        elif shutdown_flag.is_set():
+            logger.info("Shutdown requested during modem detection wait")
+    
+    if rndis_configured and gps_enabled:
+        logger.info(f"✓ {mode_name} mode and GPS configuration completed successfully")
+        return "mode_changed" if rndis_changed else True
+    elif rndis_configured:
+        logger.info(f"✓ {mode_name} mode configured successfully (GPS had issues)")
+        return "mode_changed" if rndis_changed else True
+    else:
+        logger.error(f"✗ {mode_name} mode and GPS configuration failed")
+        return False
 
 
 def check_modem_present():
@@ -395,22 +344,63 @@ def check_usb_device_present():
     return False
 
 
-def restart_modem_manager_and_wait(timeout=60, poll_interval=3):
-    """Power cycle the modem via USB and wait for termination signal from udev"""
+def check_internet_connectivity():
+    """Check if internet connectivity is available"""
     try:
-        # Import USB power cycling function from utils
-        import sys
-        import os
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from utils import power_cycle_modem_usb
+        # Try to ping Google's DNS and Cloudflare's DNS
+        for dns_server in ['8.8.8.8', '1.1.1.1']:
+            result = subprocess.run(['ping', '-c', '1', '-W', '3', dns_server], 
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                logger.debug(f"Internet connectivity confirmed via {dns_server}")
+                return True
         
-        logger.info("Power cycling modem via USB...")
-        success, message = power_cycle_modem_usb()
+        logger.debug("Internet connectivity test failed - no response from DNS servers")
+        return False
+    except Exception as e:
+        logger.error(f"Error checking internet connectivity: {e}")
+        return False
+
+
+def perform_modem_recovery(timeout=60, poll_interval=3):
+    """Reset the modem via AT command (with MM stopped) or fallback to ModemManager restart"""
+    try:
+        # Import modem reset function from utils
+        from utils import reset_modem_at_command
         
+        logger.info("Starting modem recovery - stopping ModemManager for AT command access...")
+        
+        # Stop ModemManager to free up AT ports (MM hogs the ports)
+        mm_stop_result = subprocess.run(['sudo', 'systemctl', 'stop', 'ModemManager'], 
+                                        capture_output=True, text=True, timeout=10)
+        success = False
+        message = "Unknown error"
+        
+        if mm_stop_result.returncode == 0:
+            logger.info("✓ ModemManager stopped for AT reset")
+            time.sleep(2)  # Give time for ports to be released
+            
+            # Try AT reset with MM stopped
+            success, message = reset_modem_at_command()
+            
+            # Restart ModemManager regardless of AT result
+            mm_start_result = subprocess.run(['sudo', 'systemctl', 'start', 'ModemManager'], 
+                                            capture_output=True, text=True, timeout=10)
+            if mm_start_result.returncode == 0:
+                logger.info("✓ ModemManager restarted after AT reset attempt")
+            else:
+                logger.error(f"Failed to restart ModemManager: {mm_start_result.stderr}")
+            
+            if success:
+                logger.info(f"✓ AT reset successful: {message}")
+            else:
+                logger.warning(f"AT reset failed: {message}")
+        else:
+            logger.error(f"Failed to stop ModemManager: {mm_stop_result.stderr}")
+            
         if not success:
-            logger.error(f"Failed to power cycle modem: {message}")
-            # Fallback to ModemManager restart if USB power cycling fails
-            logger.info("Falling back to ModemManager restart...")
+            # Fallback to ModemManager restart if AT command fails
+            logger.info("AT reset failed - falling back to ModemManager restart...")
             restart_result = subprocess.run(['sudo', 'systemctl', 'restart', 'ModemManager'], 
                                           capture_output=True, text=True, timeout=10)
             if restart_result.returncode != 0:
@@ -434,11 +424,10 @@ def restart_modem_manager_and_wait(timeout=60, poll_interval=3):
             logger.warning(f"Modem did not reappear within {timeout} seconds after ModemManager restart")
             return False
         else:
-            logger.info(f"USB power cycle completed successfully: {message}")
-            logger.info("Modem powered back on - waiting for udev rule to detect reconnection and trigger daemon termination...")
+            logger.info("Modem reset via AT command - waiting for udev rule to detect reconnection and trigger daemon termination...")
             
             # Wait for termination signal from udev (modem will be detected by udev and trigger rule)
-            # The full power cycle is complete (off -> 3s wait -> on), so modem should now be reconnecting
+            # The AT+CRESET command causes modem to restart, so it should now be reconnecting
             start_time = time.time()
             while time.time() - start_time < timeout:
                 if shutdown_flag.is_set():
@@ -446,46 +435,25 @@ def restart_modem_manager_and_wait(timeout=60, poll_interval=3):
                     return True
                 time.sleep(poll_interval)
             
-            logger.warning(f"No termination signal received within {timeout} seconds after USB power cycle")
+            logger.warning(f"No termination signal received within {timeout} seconds after modem reset")
             return False
         
     except Exception as e:
-        logger.error(f"Error during modem power cycle: {e}")
+        logger.error(f"Error during modem reset: {e}")
         return False
 
 
-def disable_modem_manager_service():
-    """Disable the modem-manager service for RNDIS mode"""
-    try:
-        logger.info("Disabling modem-manager service for RNDIS mode...")
-        
-        # Disable the service
-        disable_result = subprocess.run(['sudo', 'systemctl', 'disable', 'modem-manager'], 
-                                       capture_output=True, text=True, timeout=10)
-        
-        if disable_result.returncode == 0:
-            logger.info("✓ modem-manager service disabled successfully")
-        else:
-            logger.warning(f"Warning: Could not disable modem-manager service: {disable_result.stderr}")
-            
-        return disable_result.returncode == 0
-        
-    except Exception as e:
-        logger.error(f"Error disabling modem-manager service: {e}")
-        return False
 
-
-def main_loop(mode):
+def main_loop():
     """Main monitoring loop"""
     logger.info("Starting modem recovery daemon")
     
-    # Initialize mode and GPS on startup (invoked by udev upon USB insertion)
-    mode_name = 'RNDIS' if mode == 'rndis' else 'NON-RNDIS'
-    logger.info(f"Configuring {mode_name} mode and GPS...")
-    config_result = configure_modem(mode)
+    # Initialize NON-RNDIS mode and GPS on startup (invoked by udev upon USB insertion)
+    logger.info("Configuring NON-RNDIS mode and GPS...")
+    config_result = configure_modem()
     
     if config_result == "mode_changed":
-        logger.info(f"✓ {mode_name} mode was changed - waiting for shutdown signal from udev")
+        logger.info("✓ NON-RNDIS mode was changed - waiting for shutdown signal from udev")
         # Mode was actually changed - modem will reboot/reconnect
         # Wait for udev rule to send shutdown signal, don't continue monitoring
         while not shutdown_flag.is_set():
@@ -493,21 +461,9 @@ def main_loop(mode):
         logger.info("Received shutdown signal - daemon terminating")
         return
     elif config_result:  # True - mode was already configured
-        if mode == 'rndis':
-            logger.info(f"✓ {mode_name} mode and GPS configuration successful - exiting gracefully (no monitoring in RNDIS mode)")
-            # Disable modem-manager service before exiting (service will stop when daemon exits)
-            disable_modem_manager_service()
-            return
-        else:
-            logger.info(f"✓ {mode_name} mode and GPS configuration successful - mode was already enabled, continuing monitoring")
+        logger.info("✓ NON-RNDIS mode and GPS configuration successful - mode was already enabled, continuing monitoring")
     else:  # False - configuration failed
-        if mode == 'rndis':
-            logger.warning(f"⚠️ {mode_name} mode and GPS configuration failed - exiting gracefully (no monitoring in RNDIS mode)")
-            # Disable modem-manager service before exiting, even if configuration failed
-            disable_modem_manager_service()
-            return
-        else:
-            logger.warning(f"⚠️ {mode_name} mode and GPS configuration failed - continuing with monitoring")
+        logger.warning("⚠️ NON-RNDIS mode and GPS configuration failed - continuing with monitoring")
     
     while not shutdown_flag.is_set():
         try:
@@ -519,14 +475,22 @@ def main_loop(mode):
             else:
                 logger.warning("Modem not detected in ModemManager")
                 
-                # Check if USB device is still physically present
-                usb_present = check_usb_device_present()
+                # Check internet connectivity first - if internet is available, don't restart modem
+                internet_available = check_internet_connectivity()
                 
-                if usb_present:
-                    logger.info("USB device still present, attempting recovery")
-                    restart_modem_manager_and_wait()
+                if internet_available:
+                    logger.info("Internet connectivity is available - skipping modem recovery")
                 else:
-                    logger.error("USB device not present - hardware issue or device unplugged")
+                    logger.info("No internet connectivity detected - checking USB device presence")
+                    
+                    # Check if USB device is still physically present
+                    usb_present = check_usb_device_present()
+                    
+                    if usb_present:
+                        logger.info("USB device still present, attempting recovery")
+                        perform_modem_recovery()
+                    else:
+                        logger.error("USB device not present - hardware issue or device unplugged")
             
         except Exception as e:
             logger.error(f"Error in main loop: {e}")
@@ -538,10 +502,8 @@ def main_loop(mode):
 
 def main():
     """Main entry point"""
-    parser = argparse.ArgumentParser(description='Modem Recovery Daemon')
+    parser = argparse.ArgumentParser(description='Modem Recovery Daemon for NON-RNDIS mode')
     parser.add_argument('--daemon', action='store_true', help='Run as daemon')
-    parser.add_argument('--mode', choices=['rndis', 'non-rndis'], default='non-rndis', 
-                       help='Modem mode: rndis (9011) for RNDIS mode, non-rndis (9001) for NON-RNDIS mode')
     args = parser.parse_args()
     
     # Set up signal handlers
@@ -552,7 +514,7 @@ def main():
         logger.info("Running in daemon mode")
     
     try:
-        main_loop(args.mode)
+        main_loop()
     except Exception as e:
         logger.error(f"Fatal error: {e}")
         sys.exit(1)

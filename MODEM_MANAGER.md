@@ -2,12 +2,12 @@
 
 ## Overview
 
-The Modem Manager System automatically initializes, monitors, and recovers from cellular connectivity issues with the SIM7600G-H dongle. This system handles both initial modem configuration (RNDIS/NON-RNDIS mode switching and GPS setup) and ongoing monitoring to address common problems where cellular modems fail to recover after signal loss.
+The Modem Manager System automatically initializes, monitors, and recovers from cellular connectivity issues with the SIM7600G-H dongle. This system handles both initial modem configuration (NON-RNDIS mode and GPS setup) and intelligent monitoring that only performs recovery when internet connectivity is actually lost.
 
 ### Key Features
-- **Mode Switching**: Automatic RNDIS (9011) and NON-RNDIS (9001) mode configuration
-- **USB Power Cycling**: Hardware-level modem reset using `uhubctl` for robust recovery
-- **Automatic Detection**: Dynamic modem detection across different USB ports
+- **NON-RNDIS Mode**: Automatic NON-RNDIS (9001) mode configuration with ModemManager coexistence
+- **AT Command Reset**: Software-based modem reset using AT+CRESET command
+- **Internet Connectivity Check**: Smart recovery that only resets modem when internet is actually down
 - **GPS Configuration**: Comprehensive GPS and GNSS constellation setup
 - **Signal Handling**: Graceful daemon termination with udev integration
 
@@ -50,45 +50,46 @@ The Modem Manager System provides:
 
 ## Modem Mode Configuration
 
-### RNDIS vs NON-RNDIS Modes
+### NON-RNDIS Mode Operation
 
-The daemon supports two operational modes:
+The daemon operates exclusively in NON-RNDIS mode for traditional cellular modem operation:
 
-#### RNDIS Mode (USB PID 9011)
-- **Purpose**: Configures modem for RNDIS networking (direct USB ethernet)
-- **Behavior**: Configures modem and GPS, then exits gracefully
-- **ModemManager**: Disabled to prevent conflicts with RNDIS networking
-- **Usage**: `sudo python3 /home/pi/flask_app/modem_manager_daemon.py --mode rndis`
+#### NON-RNDIS Mode (USB PID 9001)
+- **Purpose**: Traditional cellular modem operation with ModemManager coexistence
+- **Behavior**: Configures modem and GPS, then continues monitoring connectivity with internet check
+- **ModemManager**: Works alongside ModemManager without conflicts
+- **Recovery**: Uses AT commands for modem reset instead of USB power cycling
+- **Usage**: `sudo python3 /home/pi/flask_app/modem_manager_daemon.py`
 
-#### NON-RNDIS Mode (USB PID 9001) - Default
-- **Purpose**: Traditional cellular modem operation with ModemManager
-- **Behavior**: Configures modem and GPS, then continues monitoring
-- **ModemManager**: Enabled and monitored for connection recovery
-- **Usage**: `sudo python3 /home/pi/flask_app/modem_manager_daemon.py --mode non-rndis`
-
-### Mode Switching Process
+### Configuration Process
 
 1. **AT Command Configuration**: Uses serial communication to send `AT+CUSBPIDSWITCH` commands
-2. **GPS Configuration**: Sets up Galileo constellation, NMEA sentences, and output rates
-3. **Service Management**: Enables/disables ModemManager based on selected mode
+2. **GPS Configuration**: Sets up Galileo constellation, NMEA sentences, and output rates  
+3. **ModemManager Coexistence**: Works directly with ModemManager running for optimal performance
 4. **Automatic Detection**: Finds AT command port dynamically across `/dev/ttyUSB*` and `/dev/ttyACM*`
 
 ## Recovery Methods
 
-The system uses multiple recovery approaches:
+The system uses intelligent recovery with internet connectivity awareness:
 
-### 1. USB Power Cycling (Hardware Reset)
-- **Primary Method**: Uses `uhubctl` to physically power cycle the USB port
-- **Detection**: Automatically detects modem location by Quectel vendor ID (2c7c)
-- **Process**: Power off → 3-second wait → Power on → udev re-detection
-- **Effectiveness**: Most reliable recovery method for hardware-level issues
+### 1. Internet Connectivity Check (Primary Gate)
+- **Smart Recovery**: Only attempts modem reset when internet is actually unavailable
+- **Method**: Pings Google DNS (8.8.8.8) and Cloudflare DNS (1.1.1.1)
+- **Prevention**: Avoids unnecessary modem resets when connectivity exists via other means
+- **Logging**: Clearly indicates when recovery is skipped due to working internet
 
-### 2. ModemManager Restart (Fallback)
-- **Fallback Method**: Used when USB power cycling is unavailable
+### 2. AT Command Reset (Primary Method)
+- **Software Reset**: Uses `AT+CRESET` command to reset modem via serial interface
+- **ModemManager Port Management**: Temporarily stops ModemManager to access AT command ports (MM hogs ports)
+- **Process**: Stop MM → Send AT+CRESET → Restart MM → Wait for udev signal → Daemon termination
+- **Effectiveness**: Clean software reset without hardware disruption
+
+### 3. ModemManager Restart (Fallback)
+- **Fallback Method**: Used when AT command reset fails
 - **Process**: Restarts ModemManager service and waits for modem reappearance
 - **Timing**: 30-60 seconds for full recovery
 
-### 3. Signal-Based Termination
+### 4. Signal-Based Termination
 - **Integration**: Daemon receives SIGTERM from udev rules when modem reconnects
 - **Graceful Shutdown**: Signal handler sets shutdown flag for clean termination
 - **Automation**: Enables automatic daemon lifecycle management
@@ -96,18 +97,20 @@ The system uses multiple recovery approaches:
 ## Configuration
 
 ### Detection Parameters
-- **Check Interval**: 30 seconds between connection checks
-- **Failure Threshold**: 3 consecutive failures trigger recovery
-- **Recovery Timeout**: 120 seconds to verify recovery success
-- **Max Attempts**: 3 recovery attempts before cooldown
-- **Cooldown Period**: 5 minutes after max attempts
+- **Check Interval**: 30 seconds between monitoring cycles
+- **Internet Check**: Pings DNS servers (8.8.8.8, 1.1.1.1) with 3-second timeout
+- **Recovery Trigger**: Only when both ModemManager detection fails AND internet connectivity fails
+- **Recovery Method**: AT+CRESET command with fallback to ModemManager restart
+- **Termination**: Daemon exits after successful AT reset, waiting for udev signal
 
 ### Connection Validation
-The system validates connectivity using both:
-- ModemManager state (`mmcli -m 0`)
-- NetworkManager connection status (`nmcli device status`)
+The system validates connectivity using multiple layers:
 
-Both must report "connected" for the connection to be considered healthy.
+1. **ModemManager Detection**: Checks if modem is visible in ModemManager (`mmcli -L`)
+2. **Internet Connectivity Check**: Pings DNS servers (8.8.8.8, 1.1.1.1) to verify actual internet access
+3. **USB Device Check**: Verifies physical USB device presence (`lsusb`)
+
+Recovery is only triggered when modem is missing from ModemManager AND internet connectivity fails.
 
 ## Installation
 
@@ -143,13 +146,11 @@ sudo systemctl start ModemManager NetworkManager
 
 ```bash
 # RNDIS Mode - Configure modem for RNDIS networking and exit
-sudo python3 /home/pi/flask_app/modem_manager_daemon.py --mode rndis
-
-# NON-RNDIS Mode - Configure modem and continue monitoring (default)
-sudo python3 /home/pi/flask_app/modem_manager_daemon.py --mode non-rndis
+# NON-RNDIS Mode - Configure modem and continue monitoring
+sudo python3 /home/pi/flask_app/modem_manager_daemon.py
 
 # Daemon mode (background process)
-sudo python3 /home/pi/flask_app/modem_manager_daemon.py --daemon --mode non-rndis
+sudo python3 /home/pi/flask_app/modem_manager_daemon.py --daemon
 ```
 
 ### Integration with udev Rules
@@ -159,18 +160,19 @@ The daemon is typically triggered by udev rules when the modem is detected:
 ```bash
 # Example udev rule (usually in /etc/udev/rules.d/)
 ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="2c7c", ATTR{idProduct}=="0125|0801", \
-  RUN+="/usr/bin/python3 /home/pi/flask_app/modem_manager_daemon.py --mode non-rndis"
+  RUN+="/usr/bin/python3 /home/pi/flask_app/modem_manager_daemon.py"
 ```
 
-### Automatic USB Detection
+### Automatic Modem Detection
 
-The system automatically detects modem location using:
+The system automatically detects modem status using:
 
 ```bash
 # Detection process
-uhubctl                           # List all USB hubs and ports
-grep -E "2c7c:"                  # Find Quectel devices by vendor ID
-# Returns hub location and port number for power cycling
+mmcli -L                          # Check ModemManager detection
+ping -c 1 8.8.8.8                # Test internet connectivity
+lsusb | grep -E "2c7c|1e0e"      # Find Quectel/SimTech devices by vendor ID
+# Only resets modem when both MM detection fails AND internet is down
 ```
 
 ## Service Management
@@ -190,20 +192,20 @@ sudo systemctl enable modem-manager
 sudo systemctl disable modem-manager
 ```
 
-### USB Power Cycling Prerequisites
+### AT Command Prerequisites
 
-Install `uhubctl` for hardware USB control:
+The system uses AT commands for modem reset, which requires:
 
 ```bash
-# Install uhubctl
-sudo apt update
-sudo apt install uhubctl
+# Verify serial device access
+ls -la /dev/ttyUSB* /dev/ttyACM*
 
-# Test USB hub detection
-uhubctl
+# Test basic AT communication (replace ttyUSB2 with your AT port)
+echo "AT" > /dev/ttyUSB2
 
-# Test modem detection
-uhubctl | grep -E "2c7c:"
+# Check for ModemManager coexistence
+sudo systemctl status ModemManager
+mmcli -L
 ```
 
 ### Monitoring
@@ -222,48 +224,145 @@ tail -f /var/log/modem_manager.log
 
 The system includes reusable functions in `utils.py`:
 
-### `detect_modem_usb_location()`
+### `send_at_command()`
 ```python
-# Automatically detects modem USB hub and port
-hub_location, port_number = detect_modem_usb_location()
-# Returns: (hub_location, port_number) or (None, None) if not found
+# Send AT command to modem via serial interface
+response, success = send_at_command(serial_port, "AT+COMMAND", timeout=10)
+# Returns: (response_string, True) or (error_message, False)
 ```
 
-### `power_cycle_modem_usb()`
+### `reset_modem_at_command()`
 ```python
-# Performs complete USB power cycle
-success, message = power_cycle_modem_usb()
+# Resets modem via AT+CRESET command
+success, message = reset_modem_at_command()
 # Returns: (True, success_message) or (False, error_message)
 ```
 
 These functions are used by:
 - **Modem Manager Daemon**: For recovery operations
 - **Web Interface**: For manual modem reset functionality
-- **Other Applications**: Any component needing modem power cycling
+- **Other Applications**: Any component needing modem reset
+
+## Web Interface Integration
+
+### Manual Modem Reset Endpoint
+
+The Flask web interface provides a `/system-settings-modem-reset` endpoint for manual modem resets:
+
+```python
+@app.route('/system-settings-modem-reset', methods=['POST'])
+def system_settings_modem_reset():
+    # Stops ModemManager to free AT command ports
+    # Executes AT+CRESET command
+    # Restarts ModemManager
+    # Returns JSON response with success/error status
+```
+
+**Key Implementation Details:**
+- **ModemManager Management**: Temporarily stops ModemManager to access AT ports (MM hogs the ports)
+- **Port Release**: Waits 2 seconds after stopping MM for ports to be released
+- **AT Command**: Uses `reset_modem_at_command()` for the actual reset
+- **Recovery**: Always attempts to restart ModemManager, even if AT reset fails
+- **Error Handling**: Emergency MM restart in exception cases
+
+**Response Format:**
+```json
+{
+  "success": true,
+  "message": "Reset command sent successfully. ModemManager restarted."
+}
+```
+
+**Error Response:**
+```json
+{
+  "success": false, 
+  "error": "AT reset failed: Could not access any AT command port. ModemManager was restarted."
+}
+```
+
+### Testing Web Interface Reset
+
+Use the provided test script to validate the web interface reset procedure:
+```bash
+sudo python3 test_web_reset.py
+```
+
+This test simulates the exact procedure used by the web interface and validates:
+- ModemManager stop/start functionality
+- AT command port access
+- Error handling and recovery
 
 ## Log Analysis
 
 ### Normal Operation
 ```
-2024-01-15 10:30:15 - modem_manager - INFO - Connection OK - Signal: 75%, Operator: Vodafone UK, Tech: LTE
-2024-01-15 10:30:45 - modem_manager - INFO - Connection OK - Signal: 73%, Operator: Vodafone UK, Tech: LTE
+2024-01-15 10:30:15 - modem_manager - INFO - Starting modem recovery daemon
+2024-01-15 10:30:16 - modem_manager - INFO - ✓ NON-RNDIS mode and GPS configuration successful - mode was already enabled, continuing monitoring
+2024-01-15 10:30:46 - modem_manager - DEBUG - Modem is present in ModemManager
+2024-01-15 10:31:16 - modem_manager - DEBUG - Modem is present in ModemManager
+```
+
+### Internet Available - Recovery Skipped
+```
+2024-01-15 10:31:46 - modem_manager - WARNING - Modem not detected in ModemManager
+2024-01-15 10:31:46 - modem_manager - DEBUG - Internet connectivity confirmed via 8.8.8.8
+2024-01-15 10:31:46 - modem_manager - INFO - Internet connectivity is available - skipping modem recovery
 ```
 
 ### Recovery Process
 ```
-2024-01-15 10:31:15 - modem_manager - WARNING - Connection failed (1/3): {'mm_connected': False, 'nm_connected': False}
-2024-01-15 10:31:45 - modem_manager - WARNING - Connection failed (2/3): {'mm_connected': False, 'nm_connected': False}
-2024-01-15 10:32:15 - modem_manager - WARNING - Connection failed (3/3): {'mm_connected': False, 'nm_connected': False}
-2024-01-15 10:32:15 - modem_manager - ERROR - Connection failure threshold reached, starting recovery attempt 1
-2024-01-15 10:32:15 - modem_manager - INFO - Recovery attempt 1: Soft Reset
-2024-01-15 10:32:15 - modem_manager - INFO - Disconnecting cellular connection: cellular
-2024-01-15 10:32:20 - modem_manager - INFO - Reconnecting cellular connection: cellular
-2024-01-15 10:32:35 - modem_manager - INFO - Soft reset completed successfully
-2024-01-15 10:32:35 - modem_manager - INFO - Recovery completed successfully
-2024-01-15 10:34:35 - modem_manager - INFO - Connection restored after recovery
+2024-01-15 10:32:15 - modem_manager - WARNING - Modem not detected in ModemManager
+2024-01-15 10:32:15 - modem_manager - DEBUG - Internet connectivity test failed - no response from DNS servers
+2024-01-15 10:32:15 - modem_manager - INFO - No internet connectivity detected - checking USB device presence
+2024-01-15 10:32:15 - modem_manager - INFO - USB device still present, attempting recovery
+2024-01-15 10:32:15 - modem_manager - INFO - Resetting modem via AT command...
+2024-01-15 10:32:16 - modem_manager - INFO - Modem reset completed successfully: Reset command sent successfully
+2024-01-15 10:32:16 - modem_manager - INFO - Modem reset via AT command - waiting for udev rule to detect reconnection and trigger daemon termination...
+2024-01-15 10:32:45 - modem_manager - INFO - Received termination signal from udev - daemon shutting down
 ```
 
 ## Troubleshooting
+
+### AT Command Port Issues
+
+**Problem**: `Could not find available AT command port even after stopping ModemManager`
+
+This typically occurs when the modem creates serial ports with different numbering than expected.
+
+**Diagnosis**:
+```bash
+# Check what serial ports exist
+ls -la /dev/ttyUSB* /dev/ttyACM*
+
+# Use the diagnostic script
+sudo python3 test_at_ports.py
+```
+
+**Common Port Patterns**:
+- **Standard**: `/dev/ttyUSB2`, `/dev/ttyUSB3` (AT command ports)
+- **Alternative**: `/dev/ttyUSB0`, `/dev/ttyUSB1`, `/dev/ttyUSB4`, `/dev/ttyUSB5`
+- **ACM Mode**: `/dev/ttyACM0`, `/dev/ttyACM1`, `/dev/ttyACM2`, `/dev/ttyACM3`
+
+**Solution**: The system now automatically detects and tests all available ports, but if issues persist:
+
+1. **Check ModemManager interference**:
+   ```bash
+   sudo systemctl stop ModemManager
+   sudo python3 test_at_ports.py  # Should show working ports
+   sudo systemctl start ModemManager
+   ```
+
+2. **Verify port permissions**:
+   ```bash
+   ls -la /dev/ttyUSB* /dev/ttyACM*
+   # Should show: crw-rw---- 1 root dialout
+   ```
+
+3. **Check for port conflicts**:
+   ```bash
+   sudo fuser /dev/ttyUSB* /dev/ttyACM*  # Shows processes using ports
+   ```
 
 ### Service Won't Start
 Check dependencies:
@@ -299,32 +398,56 @@ mmcli -m 0  # Replace 0 with your modem number
 ls -la /dev/ttyUSB*
 ls -la /dev/ttyACM*
 
-# Test USB power cycling detection
+# Test modem reset via AT commands
 sudo python3 -c "
 import sys
 sys.path.insert(0, '/home/pi/flask_app')
-from utils import detect_modem_usb_location
-print(detect_modem_usb_location())
+from utils import reset_modem_at_command
+print(reset_modem_at_command())
 "
 ```
 
-### USB Power Cycling Issues
+### Internet Connectivity Issues
 ```bash
-# Check uhubctl installation
-which uhubctl
-uhubctl --version
+# Test internet connectivity manually
+ping -c 1 8.8.8.8
+ping -c 1 1.1.1.1
 
-# Check USB hub support for power control
-sudo uhubctl
+# Test connectivity check function
+sudo python3 -c "
+import sys, subprocess
+try:
+    for dns in ['8.8.8.8', '1.1.1.1']:
+        result = subprocess.run(['ping', '-c', '1', '-W', '3', dns], 
+                              capture_output=True, text=True, timeout=10)
+        print(f'{dns}: {\"OK\" if result.returncode == 0 else \"FAIL\"}')
+except Exception as e:
+    print(f'Error: {e}')
+"
+```
 
-# Test manual power cycling
-sudo uhubctl -a off -p PORT_NUMBER -l HUB_LOCATION
-sleep 3
-sudo uhubctl -a on -p PORT_NUMBER -l HUB_LOCATION
+### Modem Reset Issues
+```bash
+# Check AT command interface
+ls -la /dev/ttyUSB* /dev/ttyACM*
 
-# Check for permission issues
-sudo dmesg | grep -i usb
-sudo journalctl -u modem-manager | grep -i "power cycle"
+# Test AT command communication
+sudo python3 -c "
+import serial, sys
+ports = ['/dev/ttyUSB2', '/dev/ttyUSB3', '/dev/ttyACM2']
+for port in ports:
+    try:
+        with serial.Serial(port, 115200, timeout=5) as ser:
+            ser.write(b'AT\r\n')
+            response = ser.readline()
+            print(f'{port}: {response.decode().strip()}')
+    except Exception as e:
+        print(f'{port}: Error - {e}')
+"
+
+# Check for ModemManager conflicts
+sudo systemctl status ModemManager
+sudo journalctl -u modem-manager | grep -i "AT command\|reset"
 ```
 
 ### Mode Switching Issues
@@ -405,11 +528,12 @@ Edit `/home/pi/flask_app/modem_manager_daemon.py`:
 
 ```python
 # Adjust timing parameters
-CHECK_INTERVAL = 30        # Check every 30 seconds
-FAILURE_THRESHOLD = 3      # Trigger after 3 failures
-RECOVERY_TIMEOUT = 120     # Wait 2 minutes for recovery
-MAX_RECOVERY_ATTEMPTS = 3  # Try 3 times before cooldown
-RECOVERY_COOLDOWN = 300    # Wait 5 minutes after max attempts
+CHECK_INTERVAL = 30        # Check every 30 seconds (modem presence and internet connectivity)
+
+# Internet connectivity check parameters (modify check_internet_connectivity function)
+DNS_SERVERS = ['8.8.8.8', '1.1.1.1']  # DNS servers to test
+PING_TIMEOUT = 3                       # Ping timeout in seconds
+CONNECTIVITY_TIMEOUT = 10              # Overall connectivity check timeout
 ```
 
 ### Custom Recovery Methods
@@ -473,9 +597,27 @@ The system can be integrated with monitoring tools:
 
 ## Changelog
 
-### v2.0 (Enhanced Mode Switching & USB Power Cycling)
-- **RNDIS/NON-RNDIS Mode Switching**: Added `--mode` parameter for USB PID configuration
-- **USB Power Cycling**: Hardware-level reset using `uhubctl` with automatic modem detection
+### v4.0 (Dynamic Port Detection & ModemManager Port Management)
+- **Dynamic AT Port Detection**: Automatically detects available AT command ports instead of hardcoded assumptions
+- **ModemManager Port Hogging Fix**: Confirmed MM blocks AT ports; implemented stop/start for reliable access
+- **Hardware Agnostic**: Works with different SIM7600G-H firmware versions that create different port numbers
+- **Enhanced Port Testing**: Tests all available `/dev/ttyUSB*` and `/dev/ttyACM*` ports for AT responsiveness
+- **Web Interface Fix**: Updated Flask endpoint to use ModemManager stop/start for reliable web resets
+- **Improved Recovery Logic**: Streamlined modem recovery with better fallback handling
+- **Diagnostic Tools**: Added comprehensive test scripts for port detection and reset validation
+
+### v3.0 (ModemManager Coexistence & Simplified Operation)
+- **ModemManager Coexistence**: Full coexistence with ModemManager for optimal performance
+- **SimTech Modem Support**: Added detection for SimTech vendor ID (1e0e) in addition to Quectel (2c7c)  
+- **Simplified Operation**: Removed RNDIS mode - focused on NON-RNDIS mode only
+- **Enhanced Detection**: Improved modem detection for both Quectel and SimTech variants
+- **Faster Configuration**: Eliminates unnecessary ModemManager stops/starts
+- **Conflict Detection**: Uses `fuser` to identify processes blocking AT ports
+
+### v2.0 (Enhanced Mode Switching & AT Command Reset)
+- **NON-RNDIS Mode Configuration**: Automatic NON-RNDIS (9001) mode setup with GPS
+- **AT Command Reset**: Software-based modem reset using AT+CRESET command  
+- **Internet Connectivity Check**: Smart recovery only when connectivity is actually lost
 - **Shared Utilities**: Created reusable functions in `utils.py` for cross-application use
 - **AT Command Integration**: Direct serial communication for modem configuration
 - **GPS Configuration**: Comprehensive GNSS setup with Galileo constellation support
@@ -520,14 +662,11 @@ A: Yes, the system monitors the underlying cellular connection. VPN connections 
 **Q: Do I need to install this separately?**
 A: No, the modem recovery system is now integrated into the main RPI Streamer installation. Simply run `install_rpi_streamer.sh` and it will be automatically configured.
 
-**Q: When should I use RNDIS mode vs NON-RNDIS mode?**
-A: Use **RNDIS mode** for direct USB ethernet networking (modem appears as network interface). Use **NON-RNDIS mode** for traditional cellular operation with ModemManager and NetworkManager. NON-RNDIS is recommended for most users.
+**Q: What happens if AT command reset fails?**
+A: The system automatically falls back to ModemManager restart. If the AT+CRESET command fails or the AT port is unavailable, the daemon will restart ModemManager service as a backup recovery method.
 
-**Q: What happens if USB power cycling fails?**
-A: The system automatically falls back to ModemManager restart. If `uhubctl` is not installed or the USB hub doesn't support power control, the daemon will use software-based recovery methods.
+**Q: Does the daemon work with ModemManager running?**
+A: Yes, the daemon is designed for full ModemManager coexistence. It works alongside ModemManager without conflicts, providing optimal performance and reliability.
 
-**Q: Can the daemon automatically switch between modes?**
-A: No, the mode must be specified when starting the daemon with `--mode rndis` or `--mode non-rndis`. The daemon will configure the modem for the specified mode and operate accordingly.
-
-**Q: Does USB power cycling affect other USB devices?**
-A: No, the power cycling is port-specific. Only the USB port where the modem is connected is power cycled, leaving other devices unaffected.
+**Q: When does the daemon actually reset the modem?**
+A: Only when both conditions are met: (1) modem is not detected in ModemManager AND (2) internet connectivity test fails. This prevents unnecessary resets when connectivity exists via other means.

@@ -21,7 +21,7 @@ import fcntl
 from datetime import datetime
 from pathlib import Path
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR,HEARTBEAT_FILE, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, generate_gps_track_id, get_default_hotspot_ssid, get_hardwareid, get_app_version, get_active_recording_info, add_files_from_path, load_wifi_settings, save_wifi_settings, get_wifi_mode_status, power_cycle_modem_usb, detect_modem_usb_location
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR,HEARTBEAT_FILE, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, generate_gps_track_id, get_default_hotspot_ssid, get_hardwareid, get_app_version, get_active_recording_info, add_files_from_path, load_wifi_settings, save_wifi_settings, get_wifi_mode_status, reset_modem_at_command
 
 # Use pymediainfo for fast video duration extraction - now imported in utils.py
 
@@ -1536,10 +1536,48 @@ def system_settings_factory_reset():
 @app.route('/system-settings-modem-reset', methods=['POST'])
 def system_settings_modem_reset():
     try:
-        success, message = power_cycle_modem_usb()
-        return jsonify({'success': success, 'message' if success else 'error': message})
+        # Stop ModemManager to free up AT ports (MM hogs the ports)
+        mm_stop_result = subprocess.run(['sudo', 'systemctl', 'stop', 'ModemManager'], 
+                                       capture_output=True, text=True, timeout=10)
+        mm_stopped = mm_stop_result.returncode == 0
+        
+        if mm_stopped:
+            # Give time for ports to be released
+            time.sleep(2)
+        
+        # Attempt AT command reset
+        success, message = reset_modem_at_command()
+        
+        # Always restart ModemManager regardless of AT reset result
+        mm_start_result = subprocess.run(['sudo', 'systemctl', 'start', 'ModemManager'], 
+                                        capture_output=True, text=True, timeout=10)
+        mm_restarted = mm_start_result.returncode == 0
+        
+        # Prepare response based on results
+        if success:
+            if mm_restarted:
+                response_message = f'{message} ModemManager restarted.'
+            else:
+                response_message = f'{message} Warning: Failed to restart ModemManager.'
+            return jsonify({'success': True, 'message': response_message})
+        else:
+            # AT reset failed
+            if mm_stopped and mm_restarted:
+                error_message = f'AT reset failed: {message} ModemManager was restarted.'
+            elif mm_stopped:
+                error_message = f'AT reset failed: {message} Warning: Failed to restart ModemManager.'
+            else:
+                error_message = f'AT reset failed: {message} Warning: Could not stop ModemManager.'
+            return jsonify({'success': False, 'error': error_message})
+            
     except Exception as e:
-        return jsonify({'success': False, 'error': f'Modem power cycle error: {str(e)}'})
+        # Emergency: try to restart ModemManager if something went wrong
+        try:
+            subprocess.run(['sudo', 'systemctl', 'start', 'ModemManager'], 
+                          capture_output=True, text=True, timeout=10)
+        except:
+            pass
+        return jsonify({'success': False, 'error': f'Modem reset error: {str(e)}'})
 
 @app.route('/system-settings-modemmanager-restart', methods=['POST'])
 def system_settings_modemmanager_restart():

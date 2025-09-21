@@ -7,6 +7,8 @@ import time
 import math
 import socket
 import glob
+import logging
+import serial
 from datetime import datetime
 from typing import Optional
 
@@ -1169,110 +1171,92 @@ def get_wifi_mode_status():
 # Modem/USB Power Management Functions
 # =============================================================================
 
-def detect_modem_usb_location():
-    """
-    Detect which USB hub and port the cellular modem is connected to.
-    Returns (hub_location, port_number) tuple or (None, None) if not found.
-    
-    Searches for USB devices with known cellular modem vendor/product IDs:
-    - 2c7c:0125: Quectel SIM7600G-H
-    - 1e0e:9001: SimTech SIM7600G-H (NON-RNDIS mode)
-    - 1e0e:9011: SimTech SIM7600G-H (RNDIS mode)
-    """
-    try:
-        # Get uhubctl status to see all controllable USB hubs and their devices
-        result = subprocess.run(['sudo', 'uhubctl'], capture_output=True, text=True, timeout=15)
-        
-        if result.returncode != 0:
-            print(f"uhubctl command failed: {result.stderr}")
-            return None, None
-        
-        # Parse uhubctl output to find modem
-        # Example output:
-        # Current status for hub 3 [1d6b:0003 USB 3.00, USB 3.0 root hub, 4 ports]
-        #   Port 1: 0503 power
-        #   Port 2: 0503 power [1e0e:9001 SimTech, Incorporated]
-        
-        current_hub = None
-        
-        # Known cellular modem identifiers
-        known_modems = {
-            '2c7c:0125': 'Quectel SIM7600G-H',
-            '1e0e:9001': 'SimTech SIM7600G-H (NON-RNDIS)',
-            '1e0e:9011': 'SimTech SIM7600G-H (RNDIS)',
-            '2c7c:0306': 'Quectel EC25',
-            '2c7c:0512': 'Quectel EC20'
-        }
-        
-        for line in result.stdout.split('\n'):
-            line = line.strip()
-            
-            # Look for hub status lines
-            if line.startswith('Current status for hub'):
-                # Extract hub number from line like "Current status for hub 3 [1d6b:0003..."
-                hub_match = re.search(r'hub (\d+)', line)
-                if hub_match:
-                    current_hub = int(hub_match.group(1))
-                continue
-            
-            # Look for port lines with cellular modems
-            if current_hub is not None and line.startswith('Port ') and '[' in line:
-                # Extract port number from line like "  Port 2: 0503 power [1e0e:9001 SimTech..."
-                port_match = re.search(r'Port (\d+):', line)
-                if port_match:
-                    port_number = int(port_match.group(1))
-                    
-                    # Check for known modem identifiers
-                    for modem_id, modem_name in known_modems.items():
-                        if modem_id in line:
-                            print(f"Found {modem_name} at hub {current_hub}, port {port_number}")
-                            return current_hub, port_number
-        
-        print("No supported cellular modem found on any controllable USB port")
-        return None, None
-        
-    except subprocess.TimeoutExpired:
-        print("uhubctl command timed out")
-        return None, None
-    except Exception as e:
-        print(f"Error detecting modem USB location: {e}")
-        return None, None
 
-def power_cycle_modem_usb():
+def send_at_command(serial_port, command, timeout=10):
+    """Send AT command and wait for complete response"""
+    logger = logging.getLogger('modem_at_command')
+    
+    try:
+        # Clear any pending data
+        serial_port.reset_input_buffer()
+        
+        # Send command
+        logger.info(f"Sending AT command: {command}")
+        serial_port.write(f"{command}\r\n".encode('ascii'))
+        
+        # Poll for response
+        response_lines = []
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            if serial_port.in_waiting > 0:
+                line = serial_port.readline().decode('ascii', errors='ignore').strip()
+                if line:
+                    response_lines.append(line)
+                    logger.info(f"AT response line: {line}")
+                    
+                    # Check for completion indicators
+                    if line in ['OK', 'ERROR'] or line.startswith('+CME ERROR') or line.startswith('+CMS ERROR'):
+                        break
+            else:
+                time.sleep(0.1)  # Small delay to avoid busy waiting
+        
+        response = '\n'.join(response_lines)
+        
+        if not response_lines:
+            logger.error(f"✗ AT command timeout: {command}")
+            return None, False
+        
+        # Determine success
+        success = any(line == 'OK' for line in response_lines)
+        if success:
+            logger.info(f"✓ AT command successful: {command}")
+        else:
+            logger.error(f"✗ AT command failed: {command}")
+        
+        return response, success
+        
+    except Exception as e:
+        logger.error(f"✗ Exception sending AT command {command}: {e}")
+        return None, False
+
+def reset_modem_at_command():
     """
-    Power cycle the modem by detecting its USB location and using uhubctl.
+    Reset the modem by sending AT+CRESET command to the AT port.
     Returns (success, message) tuple.
     """
-    try:
-        # First, detect which USB hub and port the modem is connected to
-        hub_location, port_number = detect_modem_usb_location()
-        
-        if hub_location is None or port_number is None:
-            return False, 'Modem not found on any controllable USB port. Check if modem is connected and uhubctl is installed.'
-        
-        # Use uhubctl to power cycle the USB modem at detected location
-        # This physically resets the modem hardware and triggers udev re-detection
-        reset_result = subprocess.run(['sudo', 'uhubctl', '-a', 'off', '-p', str(port_number), '-l', str(hub_location)], 
-                                    capture_output=True, text=True, timeout=10)
-        
-        if reset_result.returncode != 0:
-            error_msg = reset_result.stderr.strip() if reset_result.stderr else 'uhubctl power off failed'
-            return False, f'Failed to power off modem: {error_msg}'
-        
-        # Wait 3 seconds for power to fully disconnect
-        time.sleep(3)
-        
-        # Power the port back on
-        power_on_result = subprocess.run(['sudo', 'uhubctl', '-a', 'on', '-p', str(port_number), '-l', str(hub_location)], 
-                                       capture_output=True, text=True, timeout=10)
-        
-        if power_on_result.returncode != 0:
-            error_msg = power_on_result.stderr.strip() if power_on_result.stderr else 'uhubctl power on failed'
-            return False, f'Failed to power on modem: {error_msg}'
-        
-        return True, f'Modem power cycled successfully (port {port_number}, hub {hub_location}). udev will re-detect the device.'
-            
-    except subprocess.TimeoutExpired:
-        return False, 'Modem power cycle operation timed out'
-    except Exception as e:
-        return False, f'Modem power cycle error: {str(e)}'
+    import logging
+    logger = logging.getLogger('modem_reset')
+    
+    # Find all available serial ports to test
+    available_ports = []
+    for i in range(10):  # Check ttyUSB0-9 and ttyACM0-9
+        for prefix in ['/dev/ttyUSB', '/dev/ttyACM']:
+            port_path = f"{prefix}{i}"
+            if os.path.exists(port_path):
+                available_ports.append(port_path)
+    
+    logger.info(f"Testing AT reset on available ports: {available_ports}")
+    
+    for port in available_ports:
+        try:
+            # Open serial connection to test port
+            with serial.Serial(port, 115200, timeout=5) as ser:
+                # Try reset command directly (bypass AT test since reset works when other commands don't)
+                logger.info(f"Attempting direct reset command on {port}...")
+                
+                # Send AT+CRESET directly - this often works even when other AT commands are blocked
+                response, reset_success = send_at_command(ser, "AT+CRESET", timeout=5)
+                
+                # Note: AT+CRESET may not return OK since the modem resets immediately
+                # The fact that we could open the port and send the command is considered success
+                logger.info(f"Reset command sent on {port}, response: {response}")
+                return True, f'Reset command sent successfully on {port}. Modem will restart and reconnect.'
+                
+        except Exception as e:
+            logger.debug(f"Could not send reset command on {port}: {e}")
+            # Try next port if this one fails
+            continue
+    
+    # If we get here, no AT port was accessible
+    return False, 'Could not access any AT command port to send reset command. Ensure modem is connected and ports are available.'
