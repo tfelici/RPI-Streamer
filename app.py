@@ -2594,6 +2594,14 @@ def move_to_usb():
         if not usb_path:
             return jsonify({'error': 'USB storage not found or not accessible. Please ensure a USB drive is connected and properly mounted.'}), 400
         
+        # Check if the file is already on USB storage
+        # Get the absolute path to ensure proper comparison
+        abs_file_path = os.path.abspath(file_path)
+        abs_usb_path = os.path.abspath(usb_path)
+        
+        if abs_file_path.startswith(abs_usb_path):
+            return jsonify({'error': 'File is already stored on USB drive. Only local files can be moved to USB.'}), 400
+        
         # Copy settings and executables to USB if needed
         copy_result = copy_settings_and_executables_to_usb(usb_path)
         settings_copied = copy_result['settings_copied']
