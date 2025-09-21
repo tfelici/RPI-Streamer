@@ -1037,7 +1037,7 @@ def load_wifi_settings():
     wifi_defaults = {
         "hotspot_ssid": get_default_hotspot_ssid(),
         "hotspot_password": "rpistreamer123",
-        "hotspot_channel": 6,
+        "hotspot_channel": 36,  # 5GHz channel instead of 2.4GHz
         "hotspot_ip": "192.168.4.1",
         "manual_ssid": "",  # User's manual WiFi SSID
         "manual_password": ""  # User's manual WiFi password

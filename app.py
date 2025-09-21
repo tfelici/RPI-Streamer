@@ -1021,7 +1021,7 @@ def system_settings_wifi():
         return jsonify({'success': False, 'error': f'Failed to configure WiFi with NetworkManager: {e}'})
     return jsonify({'success': True})
 
-def configure_wifi_hotspot(ssid, password, channel=6, ip_address="192.168.4.1"):
+def configure_wifi_hotspot(ssid, password, channel=36, ip_address="192.168.4.1"):
     """Configure WiFi hotspot using NetworkManager"""
     try:
         print("🔧 Configuring WiFi hotspot via NetworkManager...")
