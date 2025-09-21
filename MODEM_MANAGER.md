@@ -68,6 +68,49 @@ The daemon operates exclusively in NON-RNDIS mode for traditional cellular modem
 3. **ModemManager Coexistence**: Works directly with ModemManager running for optimal performance
 4. **Automatic Detection**: Finds AT command port dynamically across `/dev/ttyUSB*` and `/dev/ttyACM*`
 
+### LTE-Only Network Mode
+
+For improved stability and performance, the system configures the modem for LTE-only operation:
+
+#### Benefits of LTE-Only Mode
+- **Faster Connections**: LTE provides superior data speeds and lower latency compared to 3G/2G
+- **Stable Operation**: Eliminates network switching between different cellular technologies
+- **Reduced Recovery Time**: Modem only searches for LTE towers, reducing connection establishment time
+- **Power Efficiency**: Less network scanning and mode switching reduces power consumption
+- **Consistent Performance**: Avoids degraded performance when falling back to slower 2G/3G networks
+
+#### NetworkManager Configuration
+The LTE-only mode is configured through NetworkManager in `/etc/NetworkManager/system-connections/cellular-auto.nmconnection`:
+
+```ini
+[gsm]
+apn=internet
+network-type=lte-only
+```
+
+This approach is more reliable than AT commands as NetworkManager handles the configuration automatically during connection establishment.
+
+#### Manual Testing
+```bash
+# Check current connection
+nmcli connection show cellular-auto
+
+# Modify network type if needed
+nmcli connection modify cellular-auto gsm.network-type lte-only
+
+# Revert to automatic if needed
+nmcli connection modify cellular-auto gsm.network-type auto
+
+# Restart connection to apply changes
+nmcli connection down cellular-auto
+nmcli connection up cellular-auto
+```
+
+#### Compatibility Notes
+- **Coverage Requirement**: Ensure adequate LTE coverage in deployment area
+- **Carrier Support**: Verify that your cellular carrier supports LTE data plans
+- **Fallback Option**: If LTE coverage is insufficient, change `network-type=auto` in the configuration
+
 ## Recovery Methods
 
 The system uses intelligent recovery with internet connectivity awareness:
@@ -483,6 +526,84 @@ mmcli -m 0 --simple-disconnect
 mmcli -m 0 --simple-connect
 ```
 
+### LTE Network Mode Issues
+
+**Problem**: Modem cannot connect after LTE-only mode is configured
+
+This can occur in areas with poor LTE coverage or with carriers that don't support LTE-only connections.
+
+**Diagnosis**:
+```bash
+# Check current network mode
+mmcli -m 0 --command="AT+CNMP?"
+
+# Check signal quality and available networks
+mmcli -m 0 --signal-get
+mmcli -m 0 --3gpp-scan
+
+# Check connection status  
+mmcli -m 0
+nmcli connection show cellular
+```
+
+**Solutions**:
+
+1. **Revert to auto-mode** (allows 2G/3G fallback):
+   ```bash
+   # Stop ModemManager temporarily
+   sudo systemctl stop ModemManager
+   
+   # Send AT command to enable auto network mode
+   sudo python3 -c "
+   import serial, time
+   ports = ['/dev/ttyUSB2', '/dev/ttyUSB3', '/dev/ttyACM2']
+   for port in ports:
+       try:
+           with serial.Serial(port, 115200, timeout=5) as ser:
+               ser.write(b'AT+CNMP=2\r\n')  # 2 = automatic mode
+               time.sleep(1)
+               response = ser.readline()
+               print(f'Auto-mode set on {port}: {response.decode().strip()}')
+               break
+       except: continue
+   "
+   
+   # Restart ModemManager
+   sudo systemctl start ModemManager
+   ```
+
+2. **Check LTE band compatibility**:
+   ```bash
+   # View supported LTE bands
+   mmcli -m 0 --command="AT+QCFG=\"band\""
+   
+   # Check carrier's LTE bands (consult carrier documentation)
+   ```
+
+3. **Verify carrier LTE support**:
+   - Ensure your data plan supports LTE
+   - Check if carrier requires specific APN for LTE connections
+   - Verify SIM card is LTE-capable
+
+**Prevention**: Test LTE-only mode in your deployment area before permanent installation.
+
+**Manual Testing**: You can test network modes using NetworkManager:
+```bash
+# Check current connection settings
+nmcli connection show cellular-auto | grep network-type
+
+# Temporarily change to auto mode for testing
+nmcli connection modify cellular-auto gsm.network-type auto
+nmcli connection down cellular-auto && nmcli connection up cellular-auto
+
+# Restore LTE-only mode
+nmcli connection modify cellular-auto gsm.network-type lte-only
+nmcli connection down cellular-auto && nmcli connection up cellular-auto
+
+# Check signal quality
+mmcli -m 0 --signal-get
+```
+
 ### High CPU Usage
 The daemon uses minimal resources, but if issues occur:
 ```bash
@@ -596,6 +717,13 @@ The system can be integrated with monitoring tools:
 - Integration with existing RPI Streamer alerts
 
 ## Changelog
+
+### v4.1 (LTE-Only Network Mode for Enhanced Stability)
+- **LTE-Only Configuration**: NetworkManager-based LTE-only mode setup (`network-type=lte-only`) for improved stability
+- **Reduced Network Switching**: Eliminates 2G/3G fallback to prevent connection instability
+- **Enhanced Connection Speed**: Forces modem to use fastest available cellular technology
+- **Power Optimization**: Reduces network scanning and mode switching for better efficiency
+- **Reliability**: Uses NetworkManager instead of AT commands for more consistent configuration
 
 ### v4.0 (Dynamic Port Detection & ModemManager Port Management)
 - **Dynamic AT Port Detection**: Automatically detects available AT command ports instead of hardcoded assumptions

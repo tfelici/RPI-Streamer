@@ -204,6 +204,7 @@ EOFETHERNET
 # Create NetworkManager configuration for automatic cellular connection with DNS servers
 # Note: Cellular providers often don't provide DNS servers or provide unreliable ones
 # Using public DNS servers (8.8.8.8, 8.8.4.4, 1.1.1.1) ensures reliable domain resolution
+# The modem will be configured for LTE-only mode during initialization for improved stability
 echo "📝 Configuring automatic cellular connection with DNS servers..."
 sudo tee /etc/NetworkManager/system-connections/cellular-auto.nmconnection >/dev/null << 'EOFCELLULAR'
 [connection]
@@ -216,6 +217,8 @@ autoconnect-priority=10
 # APN will be auto-detected by ModemManager for most carriers
 # You can specify a custom APN here if needed:
 apn=internet
+# Force LTE-only mode for improved stability (prevents 2G/3G fallback)
+network-type=lte-only
 
 [ipv4]
 method=auto
