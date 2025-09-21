@@ -64,9 +64,10 @@ The daemon operates exclusively in NON-RNDIS mode for traditional cellular modem
 ### Configuration Process
 
 1. **AT Command Configuration**: Uses serial communication to send `AT+CUSBPIDSWITCH` commands
-2. **GPS Configuration**: Sets up Galileo constellation, NMEA sentences, and output rates  
-3. **ModemManager Coexistence**: Works directly with ModemManager running for optimal performance
-4. **Automatic Detection**: Finds AT command port dynamically across `/dev/ttyUSB*` and `/dev/ttyACM*`
+2. **LTE-Only Network Mode**: Configures `AT+CNMP=38` for LTE-only operation to improve stability
+3. **GPS Configuration**: Sets up Galileo constellation, NMEA sentences, and output rates  
+4. **ModemManager Coexistence**: Works directly with ModemManager running for optimal performance
+5. **Automatic Detection**: Finds AT command port dynamically across `/dev/ttyUSB*` and `/dev/ttyACM*`
 
 ### LTE-Only Network Mode
 
@@ -79,37 +80,22 @@ For improved stability and performance, the system configures the modem for LTE-
 - **Power Efficiency**: Less network scanning and mode switching reduces power consumption
 - **Consistent Performance**: Avoids degraded performance when falling back to slower 2G/3G networks
 
-#### NetworkManager Configuration
-The LTE-only mode is configured through NetworkManager in `/etc/NetworkManager/system-connections/cellular-auto.nmconnection`:
-
-```ini
-[gsm]
-apn=internet
-network-type=lte-only
-```
-
-This approach is more reliable than AT commands as NetworkManager handles the configuration automatically during connection establishment.
-
-#### Manual Testing
+#### AT Command Implementation
 ```bash
-# Check current connection
-nmcli connection show cellular-auto
+# Check current network mode
+AT+CNMP?
 
-# Modify network type if needed
-nmcli connection modify cellular-auto gsm.network-type lte-only
+# Set LTE-only mode (38 = LTE only)
+AT+CNMP=38
 
-# Revert to automatic if needed
-nmcli connection modify cellular-auto gsm.network-type auto
-
-# Restart connection to apply changes
-nmcli connection down cellular-auto
-nmcli connection up cellular-auto
+# Verify configuration
+AT+CNMP?
 ```
 
 #### Compatibility Notes
 - **Coverage Requirement**: Ensure adequate LTE coverage in deployment area
 - **Carrier Support**: Verify that your cellular carrier supports LTE data plans
-- **Fallback Option**: If LTE coverage is insufficient, change `network-type=auto` in the configuration
+- **Fallback Option**: If LTE coverage is insufficient, the setting can be changed to auto-mode (`AT+CNMP=2`)
 
 ## Recovery Methods
 
@@ -587,18 +573,16 @@ nmcli connection show cellular
 
 **Prevention**: Test LTE-only mode in your deployment area before permanent installation.
 
-**Manual Testing**: You can test network modes using NetworkManager:
+**Manual Testing**: You can test network modes manually using AT commands:
 ```bash
-# Check current connection settings
-nmcli connection show cellular-auto | grep network-type
+# Check current network mode
+mmcli -m 0 --command="AT+CNMP?"
 
-# Temporarily change to auto mode for testing
-nmcli connection modify cellular-auto gsm.network-type auto
-nmcli connection down cellular-auto && nmcli connection up cellular-auto
+# Set LTE-only mode
+mmcli -m 0 --command="AT+CNMP=38"
 
-# Restore LTE-only mode
-nmcli connection modify cellular-auto gsm.network-type lte-only
-nmcli connection down cellular-auto && nmcli connection up cellular-auto
+# Revert to auto mode if needed
+mmcli -m 0 --command="AT+CNMP=2"
 
 # Check signal quality
 mmcli -m 0 --signal-get
@@ -719,11 +703,11 @@ The system can be integrated with monitoring tools:
 ## Changelog
 
 ### v4.1 (LTE-Only Network Mode for Enhanced Stability)
-- **LTE-Only Configuration**: NetworkManager-based LTE-only mode setup (`network-type=lte-only`) for improved stability
+- **LTE-Only Configuration**: Automatic LTE-only mode setup (`AT+CNMP=38`) for improved stability
 - **Reduced Network Switching**: Eliminates 2G/3G fallback to prevent connection instability
 - **Enhanced Connection Speed**: Forces modem to use fastest available cellular technology
 - **Power Optimization**: Reduces network scanning and mode switching for better efficiency
-- **Reliability**: Uses NetworkManager instead of AT commands for more consistent configuration
+- **Stability Improvements**: Prevents network mode changes that can cause connection drops
 
 ### v4.0 (Dynamic Port Detection & ModemManager Port Management)
 - **Dynamic AT Port Detection**: Automatically detects available AT command ports instead of hardcoded assumptions

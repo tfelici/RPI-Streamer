@@ -225,6 +225,30 @@ def configure_modem():
                 else:
                     logger.error(f"✗ Failed to set {mode_name} mode")
             
+            # Network Mode Configuration - Force LTE only for stability
+            logger.info("Configuring LTE-only network mode for improved stability...")
+            
+            # Check current network mode
+            response, success = send_at_command(ser, "AT+CNMP?")
+            logger.info(f"Current network mode: {response}")
+            
+            # Set to LTE only mode (38 = LTE only)
+            if response and '+CNMP: 38' not in response:
+                logger.info("Setting network mode to LTE only (AT+CNMP=38)...")
+                response, success = send_at_command(ser, "AT+CNMP=38")
+                logger.info(f"LTE-only mode response: {response}")
+                if success and (not response or 'OK' in str(response)):
+                    logger.info("✓ LTE-only mode configured successfully")
+                else:
+                    logger.warning("⚠ LTE-only mode setting may not have been applied")
+            else:
+                logger.info("✓ LTE-only mode already configured")
+            
+            # Verify the network mode setting
+            logger.info("Verifying network mode configuration...")
+            response, success = send_at_command(ser, "AT+CNMP?")
+            logger.info(f"Verified network mode: {response}")
+            
             # GPS Configuration (similar to GPS daemon)
             # First, disable GPS to ensure clean state
             logger.info("Disabling GPS for clean configuration...")
