@@ -3242,12 +3242,19 @@
                             });
                             const result = await resp.json();
                             
-                            if (resp.ok && !result.error) {
-                                li.style.color = 'green';
-                                li.textContent = `Moved ${filePath} to USB: ${result.destination || 'Success'}`;
-                                movedCount++;
-                                const checkboxDiv = checkboxes[i].closest('div');
-                                if (checkboxDiv) checkboxDiv.remove();
+                            if (resp.ok && result.success) {
+                                if (result.info) {
+                                    // Info message (file already on USB)
+                                    li.style.color = 'orange';
+                                    li.textContent = `${filePath}: ${result.info}`;
+                                } else {
+                                    // Success message (file moved)
+                                    li.style.color = 'green';
+                                    li.textContent = `${filePath}: ${result.message || 'Successfully moved to USB'}`;
+                                    movedCount++;
+                                    const checkboxDiv = checkboxes[i].closest('div');
+                                    if (checkboxDiv) checkboxDiv.remove();
+                                }
                             } else {
                                 li.style.color = 'red';
                                 li.textContent = `Error moving ${filePath}: ${result.error || resp.statusText}`;
