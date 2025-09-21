@@ -1171,12 +1171,13 @@ def get_wifi_mode_status():
 
 def detect_modem_usb_location():
     """
-    Detect which USB hub and port the SIM7600G-H modem is connected to.
+    Detect which USB hub and port the cellular modem is connected to.
     Returns (hub_location, port_number) tuple or (None, None) if not found.
     
-    Searches for USB devices with Quectel vendor ID (2c7c) and known product IDs:
-    - 0125: SIM7600G-H in NON-RNDIS mode
-    - 0125: SIM7600G-H in RNDIS mode (same PID, different configuration)
+    Searches for USB devices with known cellular modem vendor/product IDs:
+    - 2c7c:0125: Quectel SIM7600G-H
+    - 1e0e:9001: SimTech SIM7600G-H (NON-RNDIS mode)
+    - 1e0e:9011: SimTech SIM7600G-H (RNDIS mode)
     """
     try:
         # Get uhubctl status to see all controllable USB hubs and their devices
@@ -1190,9 +1191,18 @@ def detect_modem_usb_location():
         # Example output:
         # Current status for hub 3 [1d6b:0003 USB 3.00, USB 3.0 root hub, 4 ports]
         #   Port 1: 0503 power
-        #   Port 2: 0503 power [2c7c:0125 Quectel Wireless Solutions Co., Ltd. EC25 LTE modem]
+        #   Port 2: 0503 power [1e0e:9001 SimTech, Incorporated]
         
         current_hub = None
+        
+        # Known cellular modem identifiers
+        known_modems = {
+            '2c7c:0125': 'Quectel SIM7600G-H',
+            '1e0e:9001': 'SimTech SIM7600G-H (NON-RNDIS)',
+            '1e0e:9011': 'SimTech SIM7600G-H (RNDIS)',
+            '2c7c:0306': 'Quectel EC25',
+            '2c7c:0512': 'Quectel EC20'
+        }
         
         for line in result.stdout.split('\n'):
             line = line.strip()
@@ -1205,26 +1215,20 @@ def detect_modem_usb_location():
                     current_hub = int(hub_match.group(1))
                 continue
             
-            # Look for port lines with Quectel devices
-            if current_hub is not None and line.startswith('Port ') and '2c7c:' in line:
-                # Extract port number from line like "  Port 2: 0503 power [2c7c:0125 Quectel..."
+            # Look for port lines with cellular modems
+            if current_hub is not None and line.startswith('Port ') and '[' in line:
+                # Extract port number from line like "  Port 2: 0503 power [1e0e:9001 SimTech..."
                 port_match = re.search(r'Port (\d+):', line)
                 if port_match:
                     port_number = int(port_match.group(1))
                     
-                    # Verify it's a known SIM7600G-H product ID
-                    if '2c7c:0125' in line:  # SIM7600G-H
-                        print(f"Found SIM7600G-H modem at hub {current_hub}, port {port_number}")
-                        return current_hub, port_number
-                    
-                    # Also check for other possible Quectel modem PIDs
-                    quectel_pids = ['0125', '0306', '0512']  # Common Quectel modem PIDs
-                    for pid in quectel_pids:
-                        if f'2c7c:{pid}' in line:
-                            print(f"Found Quectel modem (PID {pid}) at hub {current_hub}, port {port_number}")
+                    # Check for known modem identifiers
+                    for modem_id, modem_name in known_modems.items():
+                        if modem_id in line:
+                            print(f"Found {modem_name} at hub {current_hub}, port {port_number}")
                             return current_hub, port_number
         
-        print("No Quectel modem found on any controllable USB port")
+        print("No supported cellular modem found on any controllable USB port")
         return None, None
         
     except subprocess.TimeoutExpired:
