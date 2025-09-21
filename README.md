@@ -83,7 +83,7 @@ Every installation automatically includes:
 - **Complete WiFi Management**: Modern network scanner with real-time network discovery and one-click connections
 - **WiFi Hotspot with Routing**: Full NAT routing via ethernet with automatic NetworkManager configuration
 - **GPS Daemon System**: Streamlined GPS daemon with integrated initialization, multi-client architecture, and simulation mode
-- **Cellular Modem Support**: Universal support for USB cellular modems via ModemManager
+- **Enhanced Cellular Modem Support**: RNDIS/NON-RNDIS mode switching with USB power cycling recovery
 - **MediaMTX Streaming Server**: Professional RTMP/WebRTC streaming capabilities
 - **Device Registration**: Automatic hardware console integration with centralized management
 - **System Diagnostics**: Centralized hardware monitoring via heartbeat daemon with UPS status, power metrics, and vcgencmd integration
@@ -340,8 +340,10 @@ bash install_rpi_streamer.sh --main                  # Update to stable main bra
 
 ### 4G Cellular Connectivity
 - **Universal Cellular Modem Support**: Compatible with most USB cellular modems via ModemManager
+- **RNDIS/NON-RNDIS Mode Switching**: Automatic USB PID configuration for RNDIS (9011) and traditional (9001) modes
+- **Hardware Recovery**: USB power cycling with automatic modem detection for robust connection recovery
 - **Multi-carrier support**: Works with most global cellular carriers with automatic APN detection
-- **Automatic reconnection**: Standard Linux services handle modem disconnection/reconnection
+- **Enhanced Recovery System**: Graduated recovery methods including hardware reset via `uhubctl`
 - **NetworkManager Integration**: Seamless integration with system network management
 
 ### GPS Tracking Hardware

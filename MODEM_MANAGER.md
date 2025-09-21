@@ -2,23 +2,18 @@
 
 ## Overview
 
-The Modem Manager System automatically initializes, monitors, and recovers from cellular connectivity issues with the SIM7600G-H dongle. This system handles both initial modem configuration (RNDIS mode and GPS setup) and ongoing monitoring to address common problems where cellular modems fail to recover after signal loss.
+The Modem Manager System automatically initializes, monitors, and recovers from cellular connectivity issues with the SIM7600G-H dongle. This system handles both initial modem configuration (RNDIS/NON-RNDIS mode switching and GPS setup) and ongoing monitoring to address common problems where cellular modems fail to recover after signal loss.
 
-## Problem Descript### Changelog
+### Key Features
+- **Mode Switching**: Automatic RNDIS (9011) and NON-RNDIS (9001) mode configuration
+- **USB Power Cycling**: Hardware-level modem reset using `uhubctl` for robust recovery
+- **Automatic Detection**: Dynamic modem detection across different USB ports
+- **GPS Configuration**: Comprehensive GPS and GNSS constellation setup
+- **Signal Handling**: Graceful daemon termination with udev integration
 
-### v1.1 (Current - Integrated Release)
-- **Integrated into main RPI Streamer installer**
-- Automatic installation with `install_rpi_streamer.sh`
-- Enhanced NetworkManager integration
-- Improved cellular connection configuration
-- Log rotation automatically configured
+## Problem Descript## Problem Description
 
-### v1.0 (Initial Release)
-- Basic connection monitoring
-- Four-level recovery system
-- SystemD integration
-- Comprehensive logging
-- SIM7600G-H specific optimizationshen using the SIM7600G-H dongle in mobile environments (like cars), the following issues commonly occur:
+When using the SIM7600G-H dongle in mobile environments (like cars), the following issues commonly occur:
 
 1. **Signal Loss**: When moving through areas with poor 4G coverage, the modem loses connection
 2. **Recovery Failure**: After returning to strong signal areas, the modem fails to automatically reconnect
@@ -53,29 +48,50 @@ The Modem Manager System provides:
 └─────────────────┘                            └─────────────────┘
 ```
 
+## Modem Mode Configuration
+
+### RNDIS vs NON-RNDIS Modes
+
+The daemon supports two operational modes:
+
+#### RNDIS Mode (USB PID 9011)
+- **Purpose**: Configures modem for RNDIS networking (direct USB ethernet)
+- **Behavior**: Configures modem and GPS, then exits gracefully
+- **ModemManager**: Disabled to prevent conflicts with RNDIS networking
+- **Usage**: `sudo python3 /home/pi/flask_app/modem_manager_daemon.py --mode rndis`
+
+#### NON-RNDIS Mode (USB PID 9001) - Default
+- **Purpose**: Traditional cellular modem operation with ModemManager
+- **Behavior**: Configures modem and GPS, then continues monitoring
+- **ModemManager**: Enabled and monitored for connection recovery
+- **Usage**: `sudo python3 /home/pi/flask_app/modem_manager_daemon.py --mode non-rndis`
+
+### Mode Switching Process
+
+1. **AT Command Configuration**: Uses serial communication to send `AT+CUSBPIDSWITCH` commands
+2. **GPS Configuration**: Sets up Galileo constellation, NMEA sentences, and output rates
+3. **Service Management**: Enables/disables ModemManager based on selected mode
+4. **Automatic Detection**: Finds AT command port dynamically across `/dev/ttyUSB*` and `/dev/ttyACM*`
+
 ## Recovery Methods
 
-The system uses a graduated approach with four recovery levels:
+The system uses multiple recovery approaches:
 
-### 1. Soft Reset (Level 1)
-- Disconnects and reconnects cellular connection via NetworkManager
-- Fastest recovery method (5-10 seconds)
-- Preserves modem state and configuration
+### 1. USB Power Cycling (Hardware Reset)
+- **Primary Method**: Uses `uhubctl` to physically power cycle the USB port
+- **Detection**: Automatically detects modem location by Quectel vendor ID (2c7c)
+- **Process**: Power off → 3-second wait → Power on → udev re-detection
+- **Effectiveness**: Most reliable recovery method for hardware-level issues
 
-### 2. Bearer Reset (Level 2)
-- Deletes and recreates ModemManager bearers
-- Reestablishes data connection context
-- Takes 15-30 seconds
+### 2. ModemManager Restart (Fallback)
+- **Fallback Method**: Used when USB power cycling is unavailable
+- **Process**: Restarts ModemManager service and waits for modem reappearance
+- **Timing**: 30-60 seconds for full recovery
 
-### 3. Full Modem Reset (Level 3)
-- Disables and re-enables the modem via ModemManager
-- Complete modem state reset
-- Takes 30-60 seconds
-
-### 4. Hardware Reset (Level 4)
-- USB bus reset (if supported)
-- Physical-level reset of modem hardware
-- Last resort method
+### 3. Signal-Based Termination
+- **Integration**: Daemon receives SIGTERM from udev rules when modem reconnects
+- **Graceful Shutdown**: Signal handler sets shutdown flag for clean termination
+- **Automation**: Enables automatic daemon lifecycle management
 
 ## Configuration
 
@@ -121,6 +137,42 @@ sudo systemctl enable ModemManager NetworkManager
 sudo systemctl start ModemManager NetworkManager
 ```
 
+## Usage
+
+### Command Line Options
+
+```bash
+# RNDIS Mode - Configure modem for RNDIS networking and exit
+sudo python3 /home/pi/flask_app/modem_manager_daemon.py --mode rndis
+
+# NON-RNDIS Mode - Configure modem and continue monitoring (default)
+sudo python3 /home/pi/flask_app/modem_manager_daemon.py --mode non-rndis
+
+# Daemon mode (background process)
+sudo python3 /home/pi/flask_app/modem_manager_daemon.py --daemon --mode non-rndis
+```
+
+### Integration with udev Rules
+
+The daemon is typically triggered by udev rules when the modem is detected:
+
+```bash
+# Example udev rule (usually in /etc/udev/rules.d/)
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="2c7c", ATTR{idProduct}=="0125|0801", \
+  RUN+="/usr/bin/python3 /home/pi/flask_app/modem_manager_daemon.py --mode non-rndis"
+```
+
+### Automatic USB Detection
+
+The system automatically detects modem location using:
+
+```bash
+# Detection process
+uhubctl                           # List all USB hubs and ports
+grep -E "2c7c:"                  # Find Quectel devices by vendor ID
+# Returns hub location and port number for power cycling
+```
+
 ## Service Management
 
 ### Basic Commands
@@ -138,6 +190,22 @@ sudo systemctl enable modem-manager
 sudo systemctl disable modem-manager
 ```
 
+### USB Power Cycling Prerequisites
+
+Install `uhubctl` for hardware USB control:
+
+```bash
+# Install uhubctl
+sudo apt update
+sudo apt install uhubctl
+
+# Test USB hub detection
+uhubctl
+
+# Test modem detection
+uhubctl | grep -E "2c7c:"
+```
+
 ### Monitoring
 ```bash
 # Real-time logs
@@ -149,6 +217,29 @@ sudo journalctl -u modem-manager -n 50
 # Daemon log file
 tail -f /var/log/modem_manager.log
 ```
+
+## Shared Utility Functions
+
+The system includes reusable functions in `utils.py`:
+
+### `detect_modem_usb_location()`
+```python
+# Automatically detects modem USB hub and port
+hub_location, port_number = detect_modem_usb_location()
+# Returns: (hub_location, port_number) or (None, None) if not found
+```
+
+### `power_cycle_modem_usb()`
+```python
+# Performs complete USB power cycle
+success, message = power_cycle_modem_usb()
+# Returns: (True, success_message) or (False, error_message)
+```
+
+These functions are used by:
+- **Modem Manager Daemon**: For recovery operations
+- **Web Interface**: For manual modem reset functionality
+- **Other Applications**: Any component needing modem power cycling
 
 ## Log Analysis
 
@@ -197,8 +288,8 @@ sudo systemctl cat modem-manager
 
 ### Modem Not Detected
 ```bash
-# Check USB devices
-lsusb | grep -i quectel
+# Check USB devices (look for Quectel/SimTech)
+lsusb | grep -E -i "quectel|simtech|2c7c"
 
 # Check ModemManager detection
 mmcli -L
@@ -206,6 +297,54 @@ mmcli -m 0  # Replace 0 with your modem number
 
 # Check device files
 ls -la /dev/ttyUSB*
+ls -la /dev/ttyACM*
+
+# Test USB power cycling detection
+sudo python3 -c "
+import sys
+sys.path.insert(0, '/home/pi/flask_app')
+from utils import detect_modem_usb_location
+print(detect_modem_usb_location())
+"
+```
+
+### USB Power Cycling Issues
+```bash
+# Check uhubctl installation
+which uhubctl
+uhubctl --version
+
+# Check USB hub support for power control
+sudo uhubctl
+
+# Test manual power cycling
+sudo uhubctl -a off -p PORT_NUMBER -l HUB_LOCATION
+sleep 3
+sudo uhubctl -a on -p PORT_NUMBER -l HUB_LOCATION
+
+# Check for permission issues
+sudo dmesg | grep -i usb
+sudo journalctl -u modem-manager | grep -i "power cycle"
+```
+
+### Mode Switching Issues
+```bash
+# Check current USB PID mode
+mmcli -m 0 --command="AT+CUSBPIDSWITCH?"
+
+# Test AT command port access
+sudo python3 -c "
+import serial
+ports = ['/dev/ttyUSB2', '/dev/ttyUSB3', '/dev/ttyACM2']
+for port in ports:
+    try:
+        with serial.Serial(port, 115200, timeout=5) as ser:
+            ser.write(b'AT\\r\\n')
+            response = ser.readline()
+            print(f'{port}: {response}')
+    except Exception as e:
+        print(f'{port}: {e}')
+"
 ```
 
 ### Recovery Not Working
@@ -334,6 +473,23 @@ The system can be integrated with monitoring tools:
 
 ## Changelog
 
+### v2.0 (Enhanced Mode Switching & USB Power Cycling)
+- **RNDIS/NON-RNDIS Mode Switching**: Added `--mode` parameter for USB PID configuration
+- **USB Power Cycling**: Hardware-level reset using `uhubctl` with automatic modem detection
+- **Shared Utilities**: Created reusable functions in `utils.py` for cross-application use
+- **AT Command Integration**: Direct serial communication for modem configuration
+- **GPS Configuration**: Comprehensive GNSS setup with Galileo constellation support
+- **Signal Handling**: Graceful daemon termination with udev integration
+- **Automatic Detection**: Dynamic modem location detection by vendor ID (2c7c)
+- **Service Management**: Mode-specific ModemManager enable/disable functionality
+
+### v1.1 (Integrated Release)
+- **Integrated into main RPI Streamer installer**
+- Automatic installation with `install_rpi_streamer.sh`
+- Enhanced NetworkManager integration
+- Improved cellular connection configuration
+- Log rotation automatically configured
+
 ### v1.0 (Initial Release)
 - Basic connection monitoring
 - Four-level recovery system
@@ -363,3 +519,15 @@ A: Yes, the system monitors the underlying cellular connection. VPN connections 
 
 **Q: Do I need to install this separately?**
 A: No, the modem recovery system is now integrated into the main RPI Streamer installation. Simply run `install_rpi_streamer.sh` and it will be automatically configured.
+
+**Q: When should I use RNDIS mode vs NON-RNDIS mode?**
+A: Use **RNDIS mode** for direct USB ethernet networking (modem appears as network interface). Use **NON-RNDIS mode** for traditional cellular operation with ModemManager and NetworkManager. NON-RNDIS is recommended for most users.
+
+**Q: What happens if USB power cycling fails?**
+A: The system automatically falls back to ModemManager restart. If `uhubctl` is not installed or the USB hub doesn't support power control, the daemon will use software-based recovery methods.
+
+**Q: Can the daemon automatically switch between modes?**
+A: No, the mode must be specified when starting the daemon with `--mode rndis` or `--mode non-rndis`. The daemon will configure the modem for the specified mode and operate accordingly.
+
+**Q: Does USB power cycling affect other USB devices?**
+A: No, the power cycling is port-specific. Only the USB port where the modem is connected is power cycled, leaving other devices unaffected.
