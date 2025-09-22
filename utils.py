@@ -1172,6 +1172,41 @@ def get_wifi_mode_status():
 # =============================================================================
 
 
+def find_working_at_port():
+    """
+    Find a working AT command port by testing all available serial ports.
+    Returns the port path if found, None otherwise.
+    """
+    logger = logging.getLogger('at_port_finder')
+    
+    # Get list of all available serial ports
+    available_ports = []
+    for i in range(10):  # Check ttyUSB0-9 and ttyACM0-9
+        for prefix in ['/dev/ttyUSB', '/dev/ttyACM']:
+            port_path = f"{prefix}{i}"
+            if os.path.exists(port_path):
+                available_ports.append(port_path)
+    
+    logger.info(f"Testing AT communication on available ports: {available_ports}")
+    
+    for port in available_ports:
+        try:
+            logger.info(f"Testing AT communication on {port}...")
+            with serial.Serial(port, 115200, timeout=5) as ser:
+                # Test basic AT communication
+                response, success = send_at_command(ser, "AT")
+                if success:
+                    logger.info(f"✓ Found working AT command port: {port}")
+                    return port
+                else:
+                    logger.debug(f"Port {port} exists but doesn't respond to AT commands")
+        except Exception as e:
+            logger.debug(f"Could not test AT port {port}: {e}")
+            continue
+    
+    logger.error("✗ Could not find any working AT command port")
+    return None
+
 def send_at_command(serial_port, command, timeout=10):
     """Send AT command and wait for complete response"""
     logger = logging.getLogger('modem_at_command')
@@ -1225,38 +1260,29 @@ def reset_modem_at_command():
     Reset the modem by sending AT+CRESET command to the AT port.
     Returns (success, message) tuple.
     """
-    import logging
     logger = logging.getLogger('modem_reset')
     
-    # Find all available serial ports to test
-    available_ports = []
-    for i in range(10):  # Check ttyUSB0-9 and ttyACM0-9
-        for prefix in ['/dev/ttyUSB', '/dev/ttyACM']:
-            port_path = f"{prefix}{i}"
-            if os.path.exists(port_path):
-                available_ports.append(port_path)
+    # Find a working AT command port
+    at_port = find_working_at_port()
     
-    logger.info(f"Testing AT reset on available ports: {available_ports}")
+    if not at_port:
+        return False, 'Could not find any working AT command port to send reset command. Ensure modem is connected and ports are available.'
     
-    for port in available_ports:
-        try:
-            # Open serial connection to test port
-            with serial.Serial(port, 115200, timeout=5) as ser:
-                # Try reset command directly (bypass AT test since reset works when other commands don't)
-                logger.info(f"Attempting direct reset command on {port}...")
+    try:
+        # Open serial connection to the working AT port
+        with serial.Serial(at_port, 115200, timeout=5) as ser:
+            # Send the reset command on this verified port
+            logger.info(f"Sending reset command on verified port {at_port}...")
+            response, reset_success = send_at_command(ser, "AT+CRESET", timeout=5)
+            
+            # Check if reset command was successful
+            if reset_success:
+                logger.info(f"✓ Reset command successful on {at_port}")
+                return True, f'Reset command sent successfully on {at_port}. Modem will restart and reconnect.'
+            else:
+                logger.warning(f"⚠ Reset command failed on working port {at_port}: {response}")
+                return False, f'Reset command failed on port {at_port}: {response}'
                 
-                # Send AT+CRESET directly - this often works even when other AT commands are blocked
-                response, reset_success = send_at_command(ser, "AT+CRESET", timeout=5)
-                
-                # Note: AT+CRESET may not return OK since the modem resets immediately
-                # The fact that we could open the port and send the command is considered success
-                logger.info(f"Reset command sent on {port}, response: {response}")
-                return True, f'Reset command sent successfully on {port}. Modem will restart and reconnect.'
-                
-        except Exception as e:
-            logger.debug(f"Could not send reset command on {port}: {e}")
-            # Try next port if this one fails
-            continue
-    
-    # If we get here, no AT port was accessible
-    return False, 'Could not access any AT command port to send reset command. Ensure modem is connected and ports are available.'
+    except Exception as e:
+        logger.error(f"Could not access AT port {at_port}: {e}")
+        return False, f'Could not access AT port {at_port}: {e}'

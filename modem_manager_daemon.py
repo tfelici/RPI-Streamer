@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 
 # Import shared utilities
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from utils import send_at_command
+from utils import send_at_command, find_working_at_port
 
 # Configure logging
 logging.basicConfig(
@@ -149,33 +149,9 @@ def configure_modem():
         logger.info("✓ ModemManager stopped - AT ports should now be available")
         time.sleep(3)  # Give time for ports to be released
     
-    # Step 2: Find the AT command port by testing all available USB/ACM ports
-    # Get list of all available serial ports
-    available_ports = []
-    for i in range(10):  # Check ttyUSB0-9 and ttyACM0-9
-        for prefix in ['/dev/ttyUSB', '/dev/ttyACM']:
-            port_path = f"{prefix}{i}"
-            if os.path.exists(port_path):
-                available_ports.append(port_path)
-    
-    logger.info(f"Available serial ports to test: {available_ports}")
-    at_port = None
-    
-    for port in available_ports:
-        try:
-            logger.info(f"Testing AT communication on {port}...")
-            with serial.Serial(port, 115200, timeout=5) as ser:
-                # Test basic AT communication
-                response, success = send_at_command(ser, "AT")
-                if success:
-                    at_port = port
-                    logger.info(f"✓ Found working AT command port: {port}")
-                    break
-                else:
-                    logger.debug(f"Port {port} exists but doesn't respond to AT commands")
-        except Exception as e:
-            logger.debug(f"Could not test AT port {port}: {e}")
-            continue
+    # Step 2: Find the AT command port using shared utility function
+    logger.info("Searching for working AT command port...")
+    at_port = find_working_at_port()
     
     if not at_port:
         logger.error("✗ Could not find available AT command port even after stopping ModemManager")
@@ -193,14 +169,8 @@ def configure_modem():
     
     try:
         with serial.Serial(at_port, 115200, timeout=10) as ser:
-            # Test basic AT communication
-            logger.info("Testing AT communication...")
-            response, success = send_at_command(ser, "AT")
-            if not success:
-                logger.error("✗ AT communication failed")
-                raise Exception("AT communication failed")
-            
-            logger.info("✓ AT communication successful")
+            # AT port is already verified by find_working_at_port(), proceed with configuration
+            logger.info(f"Using verified AT port {at_port} for modem configuration")
             
             # Check current USB PID switch setting
             logger.info(f"Checking current {mode_name} mode setting...")
