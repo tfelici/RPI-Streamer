@@ -1216,7 +1216,6 @@ def send_at_command(serial_port, command, timeout=10):
         serial_port.reset_input_buffer()
         
         # Send command
-        logger.info(f"Sending AT command: {command}")
         serial_port.write(f"{command}\r\n".encode('ascii'))
         
         # Poll for response
@@ -1228,7 +1227,6 @@ def send_at_command(serial_port, command, timeout=10):
                 line = serial_port.readline().decode('ascii', errors='ignore').strip()
                 if line:
                     response_lines.append(line)
-                    logger.info(f"AT response line: {line}")
                     
                     # Check for completion indicators
                     if line in ['OK', 'ERROR'] or line.startswith('+CME ERROR') or line.startswith('+CMS ERROR'):
@@ -1244,9 +1242,7 @@ def send_at_command(serial_port, command, timeout=10):
         
         # Determine success
         success = any(line == 'OK' for line in response_lines)
-        if success:
-            logger.info(f"✓ AT command successful: {command}")
-        else:
+        if not success:
             logger.error(f"✗ AT command failed: {command}")
         
         return response, success
