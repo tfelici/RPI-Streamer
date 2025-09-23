@@ -2700,8 +2700,8 @@
         }
         
         function updateServiceStatusUI(data) {
-            const services = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon', 'modem-manager', 'ups-monitor', 'relay-ffmpeg.py', 'relay-ffmpeg-record.py'];
-            const processes = ['relay-ffmpeg.py', 'relay-ffmpeg-record.py']; // Python processes (not systemd services)
+            const services = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon', 'modem-manager', 'ups-monitor', 'gps_tracker.py', 'relay-ffmpeg.py', 'relay-ffmpeg-record.py'];
+            const processes = ['gps_tracker.py', 'relay-ffmpeg.py', 'relay-ffmpeg-record.py']; // Python processes (not systemd services)
             
             services.forEach(service => {
                 const element = document.getElementById(`service-${service}`);
