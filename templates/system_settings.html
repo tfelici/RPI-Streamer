@@ -138,6 +138,59 @@
         </div>
         
         <div class="frame">
+            <!-- Cellular Settings -->
+            <h2>Cellular Settings</h2>
+            
+            <div style="margin-bottom: 1.5rem; padding: 1rem; background: #f8f9fa; border-radius: 0.5rem; border: 1px solid #dee2e6;">
+                <h3 style="margin-top: 0; margin-bottom: 1rem;">APN Configuration</h3>
+                <form id="cellular-settings-form">
+                    <div style="margin-bottom: 1rem;">
+                        <label for="cellular-apn" style="display: block; margin-bottom: 0.5rem; font-weight: bold;">Access Point Name (APN)</label>
+                        <input type="text" id="cellular-apn" name="cellular_apn" required style="width: 100%; max-width: 300px;">
+                        <p class="help-text" style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: var(--text-secondary);">
+                            Set the APN for your cellular carrier (e.g., "internet", "wap.vodafone.co.uk"). Contact your carrier if unsure.
+                        </p>
+                    </div>
+                    
+                    <div style="margin-bottom: 1rem;">
+                        <label for="cellular-username" style="display: block; margin-bottom: 0.5rem; font-weight: bold;">Username</label>
+                        <input type="text" id="cellular-username" name="cellular_username" style="width: 100%; max-width: 300px;">
+                        <p class="help-text" style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: var(--text-secondary);">
+                            Cellular username (often "wap" for Vodafone, or leave empty if not required).
+                        </p>
+                    </div>
+                    
+                    <div style="margin-bottom: 1rem;">
+                        <label for="cellular-password" style="display: block; margin-bottom: 0.5rem; font-weight: bold;">Password</label>
+                        <input type="password" id="cellular-password" name="cellular_password" style="width: 100%; max-width: 300px;">
+                        <p class="help-text" style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: var(--text-secondary);">
+                            Cellular password (often "wap" for Vodafone, or leave empty if not required).
+                        </p>
+                    </div>
+                    
+                    <div style="margin-bottom: 1rem;">
+                        <label for="cellular-mcc" style="display: block; margin-bottom: 0.5rem; font-weight: bold;">MCC (Mobile Country Code)</label>
+                        <input type="text" id="cellular-mcc" name="cellular_mcc" style="width: 100%; max-width: 300px;" placeholder="234">
+                        <p class="help-text" style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: var(--text-secondary);">
+                            3-digit mobile country code (e.g., "234" for UK). Leave empty for auto-detection.
+                        </p>
+                    </div>
+                    
+                    <div style="margin-bottom: 1rem;">
+                        <label for="cellular-mnc" style="display: block; margin-bottom: 0.5rem; font-weight: bold;">MNC (Mobile Network Code)</label>
+                        <input type="text" id="cellular-mnc" name="cellular_mnc" style="width: 100%; max-width: 300px;" placeholder="15">
+                        <p class="help-text" style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: var(--text-secondary);">
+                            2-3 digit mobile network code (e.g., "15" for Vodafone UK). Leave empty for auto-detection.
+                        </p>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">Save Cellular Settings</button>
+                    <div id="cellular-result" class="status-message" style="display: none;"></div>
+                </form>
+            </div>
+        </div>
+        
+        <div class="frame">
             <!-- System Controls -->
             <h2>System Controls</h2>
             
@@ -248,6 +301,11 @@
             }
             if (data.settings) {
                 document.getElementById('power-sleep-time').value = data.settings.power_monitor_sleep_time || '';
+                document.getElementById('cellular-apn').value = data.settings.cellular_apn || 'internet';
+                document.getElementById('cellular-username').value = data.settings.cellular_username || '';
+                document.getElementById('cellular-password').value = data.settings.cellular_password || '';
+                document.getElementById('cellular-mcc').value = data.settings.cellular_mcc || '';
+                document.getElementById('cellular-mnc').value = data.settings.cellular_mnc || '';
             }
         });
         
@@ -890,7 +948,46 @@
                 submitBtn.disabled = false;
             });
         };
-          // Reboot button
+
+        // Cellular settings form handler
+        document.getElementById('cellular-settings-form').onsubmit = function(e) {
+            e.preventDefault();
+            const resultDiv = document.getElementById('cellular-result');
+            const submitBtn = this.querySelector('button[type="submit"]');
+            
+            resultDiv.textContent = 'Saving cellular settings...';
+            resultDiv.className = 'status-message';
+            resultDiv.style.display = 'block';
+            submitBtn.disabled = true;
+            
+            const requestData = {
+                cellular_apn: document.getElementById('cellular-apn').value,
+                cellular_username: document.getElementById('cellular-username').value,
+                cellular_password: document.getElementById('cellular-password').value,
+                cellular_mcc: document.getElementById('cellular-mcc').value,
+                cellular_mnc: document.getElementById('cellular-mnc').value
+            };
+            
+            fetch('/flight-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData)
+            })
+            .then(r => r.json())
+            .then(data => {
+                resultDiv.textContent = data.message || (data.success ? 'Cellular settings saved successfully!' : data.error);
+                resultDiv.className = data.success ? 'status-message status-success' : 'status-message status-error';
+            })
+            .catch(error => {
+                resultDiv.textContent = 'Error saving cellular settings: ' + error.message;
+                resultDiv.className = 'status-message status-error';
+            })
+            .finally(() => {
+                submitBtn.disabled = false;
+            });
+        };
+
+        // Reboot button
         document.getElementById('reboot-btn').onclick = function() {
             if (!confirm('Are you sure you want to reboot the system?')) return;
             const resultDiv = document.getElementById('reboot-result');

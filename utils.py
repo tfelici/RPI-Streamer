@@ -81,7 +81,12 @@ DEFAULT_SETTINGS = {
     "gps_start_mode": "manual",
     "gps_stop_on_power_loss": False,
     "gps_stop_power_loss_minutes": 1,
-    "power_monitor_sleep_time": 60
+    "power_monitor_sleep_time": 60,
+    "cellular_apn": "internet",
+    "cellular_username": "",
+    "cellular_password": "",
+    "cellular_mcc": "",
+    "cellular_mnc": ""
 }
 
 def list_audio_inputs():

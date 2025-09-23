@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 
 # Import shared utilities
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from utils import send_at_command, find_working_at_port
+from utils import send_at_command, find_working_at_port, load_settings
 
 # Configure logging
 logging.basicConfig(
@@ -35,6 +35,36 @@ CHECK_INTERVAL = 30
 
 # Global state
 shutdown_flag = threading.Event()
+
+
+def update_networkmanager_apn():
+    """Ensure NetworkManager cellular connection exists - all settings now configured via AT commands"""
+    try:
+        logger.info("Verifying NetworkManager cellular connection exists...")
+        
+        # Just check if cellular-auto connection exists, create basic one if needed
+        check_cmd = 'nmcli connection show cellular-auto'
+        result = subprocess.run(check_cmd, shell=True, capture_output=True, text=True, timeout=10)
+        
+        if result.returncode != 0:
+            logger.info("Creating basic NetworkManager cellular connection...")
+            # Create basic cellular connection - all settings handled by AT commands
+            create_cmd = 'sudo nmcli connection add type gsm ifname "*" con-name cellular-auto'
+            create_result = subprocess.run(create_cmd, shell=True, capture_output=True, text=True, timeout=10)
+            
+            if create_result.returncode == 0:
+                logger.info("✓ Basic NetworkManager cellular connection created")
+                return True
+            else:
+                logger.error(f"✗ Failed to create cellular connection: {create_result.stderr}")
+                return False
+        else:
+            logger.info("✓ NetworkManager cellular connection already exists")
+            return True
+            
+    except Exception as e:
+        logger.error(f"Error checking NetworkManager cellular connection: {e}")
+        return False
 
 
 def signal_handler(signum, frame):
@@ -125,6 +155,9 @@ def configure_modem():
     usb_pid = '9001'
     mode_name = 'NON-RNDIS'
     logger.info(f"Starting {mode_name} mode configuration (USB PID: {usb_pid}) and GPS initialization...")
+    
+    # Update NetworkManager with APN from settings before AT configuration
+    update_networkmanager_apn()
     
     # Check for shutdown request before starting
     if shutdown_flag.is_set():
@@ -218,6 +251,79 @@ def configure_modem():
             logger.info("Verifying network mode configuration...")
             response, success = send_at_command(ser, "AT+CNMP?")
             logger.info(f"Verified network mode: {response}")
+            
+            # Cellular APN Configuration - Set APN, username, and password from settings
+            logger.info("Configuring cellular APN, username, and password...")
+            settings = load_settings()
+            apn = settings.get('cellular_apn', 'internet')
+            username = settings.get('cellular_username', '')
+            password = settings.get('cellular_password', '')
+            
+            # Check current PDP context 1 settings
+            response, success = send_at_command(ser, "AT+CGDCONT?")
+            logger.info(f"Current PDP contexts: {response}")
+            
+            # Configure PDP context 1 with APN
+            logger.info(f"Setting PDP context 1 APN to: {apn}")
+            response, success = send_at_command(ser, f'AT+CGDCONT=1,"IP","{apn}"')
+            logger.info(f"PDP context APN response: {response}")
+            if success and (not response or 'OK' in str(response)):
+                logger.info(f"✓ PDP context 1 APN set to: {apn}")
+            else:
+                logger.warning(f"⚠ Failed to set APN: {apn}")
+            
+            # Configure authentication if username and password are provided
+            if username and password:
+                logger.info(f"Setting authentication - Username: {username}, Password: {password}")
+                # AT+CGAUTH syntax: AT+CGAUTH=<cid>,<auth_type>,<password>,<username>
+                # auth_type: 0=none, 1=PAP, 2=CHAP, 3=PAP or CHAP
+                response, success = send_at_command(ser, f'AT+CGAUTH=1,3,"{password}","{username}"')
+                logger.info(f"Authentication response: {response}")
+                if success and (not response or 'OK' in str(response)):
+                    logger.info(f"✓ Authentication configured - Username: {username}")
+                else:
+                    logger.warning(f"⚠ Failed to configure authentication")
+            elif username or password:
+                logger.warning("⚠ Only username or password provided - both are required for authentication")
+            else:
+                logger.info("No authentication credentials provided - using APN only")
+            
+            # Network Selection Configuration - Set MCC/MNC if provided
+            mcc = settings.get('cellular_mcc', '')
+            mnc = settings.get('cellular_mnc', '')
+            
+            if mcc and mnc:
+                logger.info(f"Configuring manual network selection - MCC: {mcc}, MNC: {mnc}")
+                # AT+COPS=1,2,"MCCMNC" - Manual network selection by MCC/MNC
+                network_id = f"{mcc}{mnc}"
+                response, success = send_at_command(ser, f'AT+COPS=1,2,"{network_id}"')
+                logger.info(f"Network selection response: {response}")
+                if success and (not response or 'OK' in str(response)):
+                    logger.info(f"✓ Manual network selection configured - Network ID: {network_id}")
+                else:
+                    logger.warning(f"⚠ Failed to configure network selection: {network_id}")
+                    # Don't fail completely if network selection fails - modem may auto-select
+            else:
+                logger.info("Using automatic network selection (no MCC/MNC specified)")
+                # AT+COPS=0 - Automatic network selection
+                response, success = send_at_command(ser, "AT+COPS=0")
+                logger.info(f"Automatic network selection response: {response}")
+                if success:
+                    logger.info("✓ Automatic network selection enabled")
+                else:
+                    logger.warning("⚠ Failed to enable automatic network selection")
+            
+            # Verify network selection configuration
+            logger.info("Verifying network selection configuration...")
+            response, success = send_at_command(ser, "AT+COPS?")
+            logger.info(f"Current network selection: {response}")
+            
+            # Verify cellular configuration
+            logger.info("Verifying cellular configuration...")
+            response, success = send_at_command(ser, "AT+CGDCONT?")
+            logger.info(f"Verified PDP contexts: {response}")
+            response, success = send_at_command(ser, "AT+CGAUTH?")
+            logger.info(f"Verified authentication: {response}")
             
             # GPS Configuration (similar to GPS daemon)
             # First, disable GPS to ensure clean state

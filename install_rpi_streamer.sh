@@ -214,9 +214,10 @@ autoconnect=true
 autoconnect-priority=10
 
 [gsm]
-# APN will be auto-detected by ModemManager for most carriers
-# You can specify a custom APN here if needed:
-apn=internet
+# APN will be configured dynamically by modem manager daemon
+# based on cellular_apn setting in settings.json (default: "internet")
+# Uncomment and set manually only if automatic configuration fails:
+# apn=internet
 
 [ipv4]
 method=auto

@@ -236,24 +236,111 @@ def flight_settings_page():
 def flight_settings_save():
     settings = load_settings()
     
+    # Determine if request is JSON or form data
+    if request.is_json:
+        data = request.get_json()
+        get_value = lambda key, default='': data.get(key, default)
+        is_checked = lambda key: data.get(key, False) == True
+    else:
+        get_value = lambda key, default='': request.form.get(key, default)
+        is_checked = lambda key: request.form.get(key) == 'on'
+    
     # Update flight settings
-    settings['username'] = request.form.get('username', '').strip()
-    settings['vehicle'] = request.form.get('vehicle', '').strip()
-    settings['domain'] = request.form.get('domain', '').strip()
-    settings['gps_stream_link'] = request.form.get('gps_stream_link') == 'on'
+    if 'username' in (data if request.is_json else request.form):
+        settings['username'] = get_value('username').strip()
+    if 'vehicle' in (data if request.is_json else request.form):
+        settings['vehicle'] = get_value('vehicle').strip()
+    if 'domain' in (data if request.is_json else request.form):
+        settings['domain'] = get_value('domain').strip()
+    if 'gps_stream_link' in (data if request.is_json else request.form):
+        settings['gps_stream_link'] = is_checked('gps_stream_link')
+    
     old_gps_start_mode = settings['gps_start_mode']
-    settings['gps_start_mode'] = request.form.get('gps_start_mode', 'manual')
-    settings['gps_stop_on_power_loss'] = request.form.get('gps_stop_on_power_loss') == 'on'
+    if 'gps_start_mode' in (data if request.is_json else request.form):
+        settings['gps_start_mode'] = get_value('gps_start_mode', 'manual')
+    if 'gps_stop_on_power_loss' in (data if request.is_json else request.form):
+        settings['gps_stop_on_power_loss'] = is_checked('gps_stop_on_power_loss')
+    
+    # Handle cellular settings (APN, username, password, MCC, MNC)
+    cellular_changed = False
+    old_apn = settings.get('cellular_apn', 'internet')
+    old_username = settings.get('cellular_username', '')
+    old_password = settings.get('cellular_password', '')
+    old_mcc = settings.get('cellular_mcc', '')
+    old_mnc = settings.get('cellular_mnc', '')
+    
+    if 'cellular_apn' in (data if request.is_json else request.form):
+        new_apn = get_value('cellular_apn', 'internet').strip()
+        settings['cellular_apn'] = new_apn
+        if old_apn != new_apn:
+            cellular_changed = True
+    
+    if 'cellular_username' in (data if request.is_json else request.form):
+        new_username = get_value('cellular_username', '').strip()
+        settings['cellular_username'] = new_username
+        if old_username != new_username:
+            cellular_changed = True
+    
+    if 'cellular_password' in (data if request.is_json else request.form):
+        new_password = get_value('cellular_password', '').strip()
+        settings['cellular_password'] = new_password
+        if old_password != new_password:
+            cellular_changed = True
+    
+    if 'cellular_mcc' in (data if request.is_json else request.form):
+        new_mcc = get_value('cellular_mcc', '').strip()
+        settings['cellular_mcc'] = new_mcc
+        if old_mcc != new_mcc:
+            cellular_changed = True
+    
+    if 'cellular_mnc' in (data if request.is_json else request.form):
+        new_mnc = get_value('cellular_mnc', '').strip()
+        settings['cellular_mnc'] = new_mnc
+        if old_mnc != new_mnc:
+            cellular_changed = True
+        
+    # If any cellular setting changed, trigger NetworkManager connection update
+    if cellular_changed:
+        try:
+            # Update NetworkManager cellular connection with new settings
+            subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 'gsm.apn', settings['cellular_apn']], check=False)
+            subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 'gsm.username', settings['cellular_username']], check=False)
+            subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 'gsm.password', settings['cellular_password']], check=False)
+            
+            # Handle MCC and MNC if provided
+            if settings['cellular_mcc'] and settings['cellular_mnc']:
+                subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 'gsm.home-only', 'yes'], check=False)
+                subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 'gsm.network-id', f"{settings['cellular_mcc']}{settings['cellular_mnc']}"], check=False)
+            else:
+                # Allow automatic network selection if no MCC/MNC specified
+                subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 'gsm.home-only', 'no'], check=False)
+                subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', '--remove', 'gsm.network-id'], check=False)
+            
+            subprocess.run(['sudo', 'nmcli', 'connection', 'reload'], check=False)
+            print(f"Updated NetworkManager cellular settings - APN: '{settings['cellular_apn']}', Username: '{settings['cellular_username'] or '(empty)'}', MCC: '{settings['cellular_mcc'] or '(empty)'}', MNC: '{settings['cellular_mnc'] or '(empty)'}'")
+            
+            # Force the cellular connection to restart with the new settings
+            # First bring it down (if it's up), then bring it up
+            subprocess.run(['sudo', 'nmcli', 'connection', 'down', 'cellular-auto'], check=False, timeout=10)
+            # Give it a moment to disconnect
+            import time
+            time.sleep(2)
+            # Try to bring it back up with new settings (don't wait for completion)
+            subprocess.Popen(['sudo', 'nmcli', 'connection', 'up', 'cellular-auto'])
+            print(f"Restarting cellular connection with updated settings")
+        except Exception as e:
+            print(f"Warning: Could not update NetworkManager cellular settings: {e}")
     
     # Handle power loss timeout with validation
-    try:
-        power_loss_minutes = int(request.form.get('gps_stop_power_loss_minutes', DEFAULT_SETTINGS['gps_stop_power_loss_minutes']))
-        if 1 <= power_loss_minutes <= 60:
-            settings['gps_stop_power_loss_minutes'] = power_loss_minutes
-        else:
+    if 'gps_stop_power_loss_minutes' in (data if request.is_json else request.form):
+        try:
+            power_loss_minutes = int(get_value('gps_stop_power_loss_minutes', DEFAULT_SETTINGS['gps_stop_power_loss_minutes']))
+            if 1 <= power_loss_minutes <= 60:
+                settings['gps_stop_power_loss_minutes'] = power_loss_minutes
+            else:
+                settings['gps_stop_power_loss_minutes'] = DEFAULT_SETTINGS['gps_stop_power_loss_minutes']  # Default fallback
+        except (ValueError, TypeError):
             settings['gps_stop_power_loss_minutes'] = DEFAULT_SETTINGS['gps_stop_power_loss_minutes']  # Default fallback
-    except (ValueError, TypeError):
-        settings['gps_stop_power_loss_minutes'] = DEFAULT_SETTINGS['gps_stop_power_loss_minutes']  # Default fallback
     
     # Save settings
     save_settings(settings)
@@ -269,13 +356,17 @@ def flight_settings_save():
         except Exception as e:
             print(f"Warning: Could not restart GPS startup service: {e}")
     
-    return render_template(
-        'flight_settings.html',
-        active_tab='flight_settings',
-        settings=settings,
-        app_version=get_app_version(),
-        message='Flight settings saved successfully!'
-    )
+    # Return JSON response for JSON requests, HTML template for form requests
+    if request.is_json:
+        return jsonify({'success': True, 'message': 'Settings saved successfully!'})
+    else:
+        return render_template(
+            'flight_settings.html',
+            active_tab='flight_settings',
+            settings=settings,
+            app_version=get_app_version(),
+            message='Flight settings saved successfully!'
+        )
 
 @app.route('/audio-inputs') 
 def audio_inputs():
