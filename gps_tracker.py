@@ -19,7 +19,6 @@ import json
 import time
 import requests
 import argparse
-import logging
 import sys
 import threading
 import queue
@@ -31,28 +30,8 @@ from typing import Dict, List, Optional
 from utils import generate_gps_track_id, calculate_distance, cleanup_pidfile, load_settings, save_settings, get_hardwareid, STREAMER_DATA_DIR, copy_settings_and_executables_to_usb, find_usb_storage
 from gps_client import get_gnss_location
 
-# Configure logging with rotation to keep logs under 1MB
-from logging.handlers import RotatingFileHandler
-
-file_handler = RotatingFileHandler(
-    'gps_tracker.log',
-    maxBytes=1024*1024,  # 1MB max size
-    backupCount=3        # Keep 3 backup files
-)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        file_handler,
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-
-logger = logging.getLogger(__name__)
-
-# Log GPS functionality
-logger.info("GPS functionality available via GPS daemon client")
+# GPS functionality available via GPS daemon client
+print("GPS functionality available via GPS daemon client")
 
 # Status file for tracking GPS hardware state
 GPS_STATUS_FILE = "/tmp/gps-tracker-status.json"
@@ -71,7 +50,7 @@ def write_gps_status(hardware_status, status_message, last_gps_data=None):
             json.dump(status_data, f)
             
     except Exception as e:
-        logger.debug(f"Could not write GPS status file: {e}")
+        print(f"Could not write GPS status file: {e}")
 
 def cleanup_gps_status():
     """Remove GPS status file on exit"""
@@ -94,9 +73,9 @@ def initialize_flight_parameters(domain, hardwareid):
         try:
             retry_count += 1
             if retry_count > 1:
-                logger.info(f"Attempting to initialize flight parameters (attempt {retry_count})...")
+                print(f"Attempting to initialize flight parameters (attempt {retry_count})...")
             else:
-                logger.info("Initializing flight parameters...")
+                print("Initializing flight parameters...")
             
             response = requests.post(
                 f'https://{domain}/ajaxservices.php',
@@ -113,34 +92,34 @@ def initialize_flight_parameters(domain, hardwareid):
                     settings = load_settings()
                     if 'gyropedia_id' in resp_json:
                         settings['gyropedia_id'] = resp_json['gyropedia_id']
-                        logger.info(f"Updated gyropedia_id: {resp_json['gyropedia_id']}")
+                        print(f"Updated gyropedia_id: {resp_json['gyropedia_id']}")
                         # Save updated settings
                         save_settings(settings)
-                    logger.info(f"Successfully initialized flight parameters after {retry_count} attempt(s)")
+                    print(f"Successfully initialized flight parameters after {retry_count} attempt(s)")
                     return True, settings, None
                 except json.JSONDecodeError as e:
-                    logger.warning(f"Invalid JSON response from server: {e}")
+                    print(f"Invalid JSON response from server: {e}")
                     time.sleep(5)
                     continue
             else:
-                logger.warning(f'Failed to initialize flight parameters - HTTP {response.status_code}')
+                print(f'Failed to initialize flight parameters - HTTP {response.status_code}')
                 time.sleep(5)
                 continue
                 
         except requests.exceptions.ConnectionError as e:
-            logger.warning(f'No internet connection available: {e}')
+            print(f'No internet connection available: {e}')
             time.sleep(10)  # Longer wait for connection issues
             continue
         except requests.exceptions.Timeout as e:
-            logger.warning(f'Request timeout: {e}')
+            print(f'Request timeout: {e}')
             time.sleep(5)
             continue
         except requests.RequestException as e:
-            logger.warning(f'Network error initializing flight parameters: {e}')
+            print(f'Network error initializing flight parameters: {e}')
             time.sleep(5)
             continue
         except Exception as e:
-            logger.warning(f'Unexpected error initializing flight parameters: {e}')
+            print(f'Unexpected error initializing flight parameters: {e}')
             time.sleep(5)
             continue
 
@@ -183,16 +162,16 @@ def get_gyropedia_flights(gyropedia_id, vehicle=None, domain="gyropilots.org"):
                                 # Use first flight that matches the vehicle registration
                                 first_flight = matching_flights[0]
                                 flight_id = first_flight.get('flight_id')
-                                logger.info(f"Found planned Gyropedia flight for vehicle {vehicle}: {flight_id}")
+                                print(f"Found planned Gyropedia flight for vehicle {vehicle}: {flight_id}")
                                 return True, flight_id, None
                             else:
-                                logger.info(f"No planned flights found for vehicle registration {vehicle}, using first available planned flight")
+                                print(f"No planned flights found for vehicle registration {vehicle}, using first available planned flight")
                         
                         # Fallback: Use first planned flight (regardless of registration)
                         first_flight = planned_flights[0]
                         flight_id = first_flight.get('flight_id')
                         flight_reg = first_flight.get('reg', 'Unknown')
-                        logger.info(f"Found planned Gyropedia flight: {flight_id} (aircraft: {flight_reg})")
+                        print(f"Found planned Gyropedia flight: {flight_id} (aircraft: {flight_reg})")
                         return True, flight_id, None
                     else:
                         # No planned flights available
@@ -221,19 +200,19 @@ def update_gyropedia_flight(gyropedia_id, state, settings, track_id=None, vehicl
         
         # Check if Gyropedia integration is configured
         if not gyropedia_id or not username:
-            logger.info("Gyropedia integration not configured (missing gyropedia_id or username), skipping flight update")
+            print("Gyropedia integration not configured (missing gyropedia_id or username), skipping flight update")
             return True, None  # Not an error, just not configured
         
         # If no flight_id provided, get the first available flight from Gyropedia
         if not flight_id:
-            logger.info(f"Getting first available flight from {domain}...")
+            print(f"Getting first available flight from {domain}...")
             success, flight_id, error = get_gyropedia_flights(gyropedia_id, vehicle, domain)
             
             if not success or not flight_id:
-                logger.info(f"Could not get Gyropedia flight list: {error}")
+                print(f"Could not get Gyropedia flight list: {error}")
                 return True, None  # Don't fail the GPS tracking just because we can't get flight list
         
-        logger.info(f"Using Gyropedia flight: {flight_id}")
+        print(f"Using Gyropedia flight: {flight_id}")
         
         # Determine flight status based on state
         if not state:
@@ -271,24 +250,24 @@ def update_gyropedia_flight(gyropedia_id, state, settings, track_id=None, vehicl
             try:
                 parsed_data = response.json()
                 if 'error' in parsed_data and parsed_data['error']:
-                    logger.error(f"Gyropedia flight update error: {parsed_data['error']}")
+                    print(f"Gyropedia flight update error: {parsed_data['error']}")
                     return False, flight_id
                 
-                logger.info(f"Successfully updated Gyropedia flight {flight_id} to status '{status}'")
+                print(f"Successfully updated Gyropedia flight {flight_id} to status '{status}'")
                 return True, flight_id
                 
             except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse Gyropedia response: {e}")
+                print(f"Failed to parse Gyropedia response: {e}")
                 return False, flight_id
         else:
-            logger.error(f"Gyropedia flight update failed with HTTP {response.status_code}")
+            print(f"Gyropedia flight update failed with HTTP {response.status_code}")
             return False, flight_id
             
     except requests.RequestException as e:
-        logger.error(f"Network error updating Gyropedia flight: {e}")
+        print(f"Network error updating Gyropedia flight: {e}")
         return False, flight_id
     except Exception as e:
-        logger.error(f"Unexpected error updating Gyropedia flight: {e}")
+        print(f"Unexpected error updating Gyropedia flight: {e}")
         return False, flight_id
 
 
@@ -298,9 +277,9 @@ def save_gyropedia_flight_id(flight_id):
         flight_id_file = os.path.join(STREAMER_DATA_DIR, 'current_gyropedia_flight_id.txt')
         with open(flight_id_file, 'w') as f:
             f.write(str(flight_id))
-        logger.info(f"Saved gyropedia flight_id: {flight_id}")
+        print(f"Saved gyropedia flight_id: {flight_id}")
     except Exception as e:
-        logger.error(f"Error saving gyropedia flight_id: {e}")
+        print(f"Error saving gyropedia flight_id: {e}")
 
 
 class GPSTracker:
@@ -343,7 +322,7 @@ class GPSTracker:
         # Platform identifier
         self.platform = "RPI-Streamer-Python/1.0"
         
-        logger.info(f"GPS Tracker initialized for user: {username} on domain: {domain}")
+        print(f"GPS Tracker initialized for user: {username} on domain: {domain}")
 
     def _setup_track_storage(self) -> bool:
         """Set up track file storage (USB or local), similar to video recording storage"""
@@ -351,13 +330,13 @@ class GPSTracker:
         self.usb_mount = find_usb_storage()
         
         if self.usb_mount:
-            logger.info(f"Using USB storage at {self.usb_mount} for tracks")
+            print(f"Using USB storage at {self.usb_mount} for tracks")
             track_dir = os.path.join(self.usb_mount, 'streamerData', 'tracks')
             # Copy settings and executables to USB if using USB storage
             copy_result = copy_settings_and_executables_to_usb(self.usb_mount)
-            logger.info(f"USB settings copy result: {copy_result}")
+            print(f"USB settings copy result: {copy_result}")
         else:
-            logger.info(f"No USB storage found, using local disk for tracks")
+            print(f"No USB storage found, using local disk for tracks")
             track_dir = os.path.join(STREAMER_DATA_DIR, 'tracks')
         
         # Create tracks directory
@@ -378,10 +357,10 @@ class GPSTracker:
                 f.write("#\n")
                 # Write header row
                 f.write("timestamp\tlatitude\tlongitude\taltitude\taccuracy\taltitudeAccuracy\theading\tspeed\n")
-            logger.info(f"Track file initialized: {self.track_file_path}")
+            print(f"Track file initialized: {self.track_file_path}")
             return True
         except Exception as e:
-            logger.error(f"Failed to initialize track file: {e}")
+            print(f"Failed to initialize track file: {e}")
             return False
 
     def _save_coordinate_to_file(self, coordinate: Dict) -> bool:
@@ -416,13 +395,13 @@ class GPSTracker:
             return True
             
         except Exception as e:
-            logger.error(f"Failed to save coordinate to file: {e}")
+            print(f"Failed to save coordinate to file: {e}")
             return False
 
     def start_tracking(self) -> bool:
         """Start a new tracking session"""
         if self.tracking_active:
-            logger.warning("Tracking is already active")
+            print("Tracking is already active")
             return False
             
         if not self.track_id:
@@ -432,7 +411,7 @@ class GPSTracker:
         
         # Set up track file storage
         if not self._setup_track_storage():
-            logger.error("Failed to set up track storage")
+            print("Failed to set up track storage")
             self.tracking_active = False
             return False
         
@@ -441,7 +420,7 @@ class GPSTracker:
         self.last_recorded_time = None
         self.is_stationary = False
         
-        logger.info(f"Started tracking session with ID: {self.track_id}")
+        print(f"Started tracking session with ID: {self.track_id}")
         
         # Start the sync worker thread
         self.sync_thread = threading.Thread(target=self._sync_worker, daemon=True)
@@ -452,32 +431,32 @@ class GPSTracker:
     def stop_tracking(self) -> bool:
         """Stop the current tracking session"""
         if not self.tracking_active:
-            logger.warning("No active tracking session to stop")
+            print("No active tracking session to stop")
             return False
             
-        logger.info(f"Stopping tracking session: {self.track_id}")
+        print(f"Stopping tracking session: {self.track_id}")
         
         # Sync any remaining coordinates before stopping
         if self.coordinates_to_sync:
-            logger.info("Syncing remaining coordinates before stop...")
+            print("Syncing remaining coordinates before stop...")
             self._sync_coordinates_to_server()
         
         # Final sync to disk if using USB
         if self.usb_mount:
-            logger.info("Syncing final track data to USB drive...")
+            print("Syncing final track data to USB drive...")
             try:
                 import subprocess
                 subprocess.run(['sync'], check=True)
                 time.sleep(2)  # Give extra time for exFAT/USB
-                logger.info("Final track sync completed. It is now safe to remove the USB drive.")
+                print("Final track sync completed. It is now safe to remove the USB drive.")
             except Exception as e:
-                logger.warning(f"Final track sync failed: {e}")
+                print(f"Final track sync failed: {e}")
         
         # Send tracking ended signal
         self._send_tracking_ended()
         
         # GPS hardware continues running via daemon
-        logger.info("GPS continues running via daemon")
+        print("GPS continues running via daemon")
         
         self.tracking_active = False
         self.track_id = None
@@ -485,7 +464,7 @@ class GPSTracker:
         self.track_file_path = None
         self.usb_mount = None
         
-        logger.info("Tracking session stopped")
+        print("Tracking session stopped")
         return True
 
     def _should_record_location(self, latitude: float, longitude: float) -> bool:
@@ -497,7 +476,7 @@ class GPSTracker:
             self.last_position = (latitude, longitude)
             self.last_recorded_time = current_time
             self.is_stationary = False  # Assume we start moving
-            logger.debug("Recording first GPS position")
+            print("Recording first GPS position")
             return True
         
         # Calculate distance from last recorded position
@@ -512,7 +491,7 @@ class GPSTracker:
         # Check for state transitions
         if not self.is_stationary and not currently_moving:
             # Transition: Moving -> Stationary
-            logger.debug(f"Aircraft stopped: recording stationary position (moved {distance:.1f}m)")
+            print(f"Aircraft stopped: recording stationary position (moved {distance:.1f}m)")
             self.last_position = (latitude, longitude)
             self.last_recorded_time = current_time
             self.is_stationary = True
@@ -520,7 +499,7 @@ class GPSTracker:
             
         elif self.is_stationary and currently_moving:
             # Transition: Stationary -> Moving
-            logger.debug(f"Aircraft started moving: {distance:.1f}m from stationary position")
+            print(f"Aircraft started moving: {distance:.1f}m from stationary position")
             self.last_position = (latitude, longitude)
             self.last_recorded_time = current_time
             self.is_stationary = False
@@ -528,13 +507,13 @@ class GPSTracker:
             
         elif not self.is_stationary and currently_moving:
             # Continuing to move - record this position
-            logger.debug(f"Continued movement: {distance:.1f}m from last position")
+            print(f"Continued movement: {distance:.1f}m from last position")
             self.last_position = (latitude, longitude)
             self.last_recorded_time = current_time
             return True
         
         # Still stationary - don't record redundant positions
-        logger.debug(f"Still stationary: movement {distance:.1f}m < {self.movement_threshold}m threshold")
+        print(f"Still stationary: movement {distance:.1f}m < {self.movement_threshold}m threshold")
         return False
 
     def add_location(self, **kwargs) -> bool:
@@ -555,7 +534,7 @@ class GPSTracker:
             bool: True if location was added, False if tracking inactive or no movement detected
         """
         if not self.tracking_active:
-            logger.warning("Cannot add location - tracking is not active")
+            print("Cannot add location - tracking is not active")
             return False
         
         # Extract required parameters from kwargs
@@ -563,7 +542,7 @@ class GPSTracker:
         longitude = kwargs.get('longitude')
         
         if latitude is None or longitude is None:
-            logger.warning("Cannot add location - latitude and longitude are required")
+            print("Cannot add location - latitude and longitude are required")
             return False
         
         # Extract optional parameters
@@ -600,18 +579,18 @@ class GPSTracker:
         speed_info = f", speed={speed:.1f}m/s" if speed is not None and speed > 0 else ""
         alt_info = f", alt={altitude:.1f}m" if altitude is not None else ""
         acc_info = f", acc={accuracy:.1f}m" if accuracy is not None else ""
-        logger.info(f"Recorded location: lat={latitude:.6f}, lon={longitude:.6f}{alt_info}{speed_info}{acc_info}")
+        print(f"Recorded location: lat={latitude:.6f}, lon={longitude:.6f}{alt_info}{speed_info}{acc_info}")
         
         # Queue sync if we have too many coordinates
         if len(self.coordinates_to_sync) >= self.sync_threshold:
-            logger.info("Sync threshold reached, queuing immediate sync")
+            print("Sync threshold reached, queuing immediate sync")
             self.sync_queue.put('sync_now')
             
         return True
 
     def _sync_worker(self):
         """Background worker thread for coordinate synchronization"""
-        logger.info("Sync worker thread started")
+        print("Sync worker thread started")
         
         while self.tracking_active:
             try:
@@ -626,10 +605,10 @@ class GPSTracker:
                         self._sync_coordinates_to_server()
                         
             except Exception as e:
-                logger.error(f"Error in sync worker: {e}")
+                print(f"Error in sync worker: {e}")
                 time.sleep(1)  # Brief pause before retrying
                 
-        logger.info("Sync worker thread stopped")
+        print("Sync worker thread stopped")
 
     def _sync_coordinates_to_server(self) -> bool:
         """Sync coordinates to server (replicates syncTrackToServer function)"""
@@ -639,7 +618,7 @@ class GPSTracker:
         self.sync_active = True
         
         try:
-            logger.info(f"Syncing {len(self.coordinates_to_sync)} coordinates to server")
+            print(f"Syncing {len(self.coordinates_to_sync)} coordinates to server")
             
             # Prepare data for server - matching the mobile app format
             data = {
@@ -662,13 +641,13 @@ class GPSTracker:
                     parsed_data = response.json()
                     
                     if 'error' in parsed_data and parsed_data['error']:
-                        logger.error(f"Server error: {parsed_data['error']}")
+                        print(f"Server error: {parsed_data['error']}")
                         return False
                     
                     # Remove successfully synced coordinates
                     if 'timestamps' in parsed_data:
                         synced_timestamps = parsed_data['timestamps']
-                        logger.info(f"Server confirmed {len(synced_timestamps)} coordinates synced")
+                        print(f"Server confirmed {len(synced_timestamps)} coordinates synced")
                         
                         # Remove synced coordinates from local storage
                         self.coordinates_to_sync = [
@@ -676,24 +655,24 @@ class GPSTracker:
                             if coord['timestamp'] not in synced_timestamps
                         ]
                         
-                    logger.info(f"Sync successful. {len(self.coordinates_to_sync)} coordinates remaining")
+                    print(f"Sync successful. {len(self.coordinates_to_sync)} coordinates remaining")
                     return True
                     
                 except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse server response: {e}")
-                    logger.debug(f"Response content: {response.text}")
+                    print(f"Failed to parse server response: {e}")
+                    print(f"Response content: {response.text}")
                     return False
                     
             else:
-                logger.error(f"HTTP error {response.status_code}: {response.text}")
+                print(f"HTTP error {response.status_code}: {response.text}")
                 return False
                 
         except requests.exceptions.RequestException as e:
-            logger.error(f"Network error during sync: {e}")
+            print(f"Network error during sync: {e}")
             return False
             
         except Exception as e:
-            logger.error(f"Unexpected error during sync: {e}")
+            print(f"Unexpected error during sync: {e}")
             return False
             
         finally:
@@ -715,12 +694,12 @@ class GPSTracker:
             )
             
             if response.status_code == 200:
-                logger.info("Successfully sent tracking ended signal")
+                print("Successfully sent tracking ended signal")
             else:
-                logger.warning(f"Failed to send tracking ended signal: HTTP {response.status_code}")
+                print(f"Failed to send tracking ended signal: HTTP {response.status_code}")
                 
         except Exception as e:
-            logger.error(f"Error sending tracking ended signal: {e}")
+            print(f"Error sending tracking ended signal: {e}")
 
     def get_status(self) -> Dict:
         """Get current tracker status"""
@@ -737,10 +716,10 @@ class GPSTracker:
     def start_gps_tracking(self, update_interval: float = 2.0):
         """Start GPS coordinate collection with real hardware"""
         if not self.tracking_active:
-            logger.error("Tracking session not started. Call start_tracking() first.")
+            print("Tracking session not started. Call start_tracking() first.")
             return False
         
-        logger.info("Starting real GPS hardware tracking")
+        print("Starting real GPS hardware tracking")
         
         try:
             while self.tracking_active:
@@ -757,29 +736,29 @@ class GPSTracker:
                         speed = location_data.get('speed') or 0
                         speed_display = f", speed={speed:.1f}m/s" if speed > 0 else ""
                         alt_display = f", alt={location_data.get('altitude'):.1f}m" if location_data.get('altitude') is not None else ""
-                        logger.debug(f"GPS coordinates: lat={location_data['latitude']:.6f}, lon={location_data['longitude']:.6f}{alt_display}{speed_display}")
+                        print(f"GPS coordinates: lat={location_data['latitude']:.6f}, lon={location_data['longitude']:.6f}{alt_display}{speed_display}")
                         write_gps_status("active", f"GPS active - lat: {location_data['latitude']:.6f}, lon: {location_data['longitude']:.6f}", location_data)
                     elif success and location_data and location_data.get('fix_status') == 'no_fix':
-                        logger.debug("GPS data not available (no satellite fix)")
+                        print("GPS data not available (no satellite fix)")
                         write_gps_status("connected", "GPS hardware connected but no satellite fix")
                     else:
                         # Error case
                         error_msg = location_data.get('error', 'GPS function error') if location_data else 'GPS function failed'
-                        logger.warning(f"GPS error: {error_msg}")
+                        print(f"GPS error: {error_msg}")
                         write_gps_status("error", f"GPS error: {error_msg}")
                         
                 except Exception as e:
-                    logger.warning(f"Error getting GPS coordinates: {e}")
+                    print(f"Error getting GPS coordinates: {e}")
                     write_gps_status("error", f"GPS coordinate error: {e}")
                 
                 # Always sleep at the end of each cycle
                 time.sleep(update_interval)
                 
         except KeyboardInterrupt:
-            logger.info("Real GPS tracking interrupted")
+            print("Real GPS tracking interrupted")
         finally:
             # GPS hardware continues running via daemon
-            logger.info("GPS tracking session ended (GPS continues running via daemon)")
+            print("GPS tracking session ended (GPS continues running via daemon)")
         
         return True
 
@@ -799,9 +778,9 @@ def main():
     GPS_PIDFILE = "/tmp/gps-tracker.pid"
 
     def handle_exit(signum, frame):
-        logger.info(f"Received exit signal {signum}, cleaning up...")
-        cleanup_pidfile(GPS_PIDFILE, cleanup_gps_status, sync_usb=True, logger=logger)
-        logger.info("Exiting gracefully...")
+        print(f"Received exit signal {signum}, cleaning up...")
+        cleanup_pidfile(GPS_PIDFILE, cleanup_gps_status, sync_usb=True)
+        print("Exiting gracefully...")
         sys.exit(0)
 
     # Set up signal handlers for graceful cleanup
@@ -814,12 +793,12 @@ def main():
         success, settings, error_msg = initialize_flight_parameters(args.domain, hardwareid)
         # Function will loop until success, so we should always get success=True here
     except Exception as e:
-        logger.error(f"Error getting hardware ID: {e}")
+        print(f"Error getting hardware ID: {e}")
         sys.exit(1)
     
     # Generate track_id if not provided
     track_id = args.track_id if args.track_id else generate_gps_track_id()
-    logger.info(f"Using track ID: {track_id}")
+    print(f"Using track ID: {track_id}")
     
     # Handle Gyropedia integration automatically if configured
     gyropedia_id = settings.get('gyropedia_id', '').strip()
@@ -830,9 +809,9 @@ def main():
         if success and flight_id:
             save_gyropedia_flight_id(flight_id)
         else:
-            logger.warning("Could not get flight_id from Gyropedia, flight ending may not work properly")
+            print("Could not get flight_id from Gyropedia, flight ending may not work properly")
     else:
-        logger.info("Gyropedia integration not configured (no gyropedia_id found in settings)")
+        print("Gyropedia integration not configured (no gyropedia_id found in settings)")
     
     # Create GPS tracker instance
     tracker = GPSTracker(args.username, args.domain, track_id=track_id)
@@ -840,22 +819,22 @@ def main():
     try:
         # Start tracking
         if not tracker.start_tracking():
-            logger.error("Failed to start tracking")
+            print("Failed to start tracking")
             sys.exit(1)
         
         # Write active PID file immediately after successful tracking start
         try:
             with open(GPS_PIDFILE, 'w') as f:
                 f.write(f"{os.getpid()}:{args.username}:{args.domain}:{tracker.track_id}\n")
-            logger.info(f"Active PID file written: {GPS_PIDFILE} with PID {os.getpid()}, user {args.username}, domain {args.domain}, track ID {tracker.track_id}")
+            print(f"Active PID file written: {GPS_PIDFILE} with PID {os.getpid()}, user {args.username}, domain {args.domain}, track ID {tracker.track_id}")
         except Exception as e:
-            logger.warning(f"Could not write active PID file: {e}")
+            print(f"Could not write active PID file: {e}")
         
         # Start GPS coordinate collection with real hardware
         tracker.start_gps_tracking(args.interval)
                     
     except KeyboardInterrupt:
-        logger.info("Received interrupt signal")
+        print("Received interrupt signal")
         
     finally:
         # Handle Gyropedia integration on exit if configured
@@ -872,7 +851,7 @@ def main():
                         with open(flight_id_file, 'r') as f:
                             stored_flight_id = f.read().strip()
                 except Exception as e:
-                    logger.warning(f"Error loading gyropedia flight_id: {e}")
+                    print(f"Error loading gyropedia flight_id: {e}")
                 
                 # Update flight to landed status
                 update_gyropedia_flight(gyropedia_id, 'stop', settings, track_id, vehicle, stored_flight_id)
@@ -882,16 +861,16 @@ def main():
                     flight_id_file = os.path.join(STREAMER_DATA_DIR, 'current_gyropedia_flight_id.txt')
                     if os.path.exists(flight_id_file):
                         os.remove(flight_id_file)
-                        logger.info("Cleared stored gyropedia flight_id")
+                        print("Cleared stored gyropedia flight_id")
                 except Exception as e:
-                    logger.warning(f"Error clearing gyropedia flight_id: {e}")
+                    print(f"Error clearing gyropedia flight_id: {e}")
         except Exception as e:
-            logger.warning(f"Error handling Gyropedia integration on exit: {e}")
+            print(f"Error handling Gyropedia integration on exit: {e}")
         
         # Stop tracking
         tracker.stop_tracking()
-        cleanup_pidfile(GPS_PIDFILE, cleanup_gps_status, sync_usb=True, logger=logger)
-        logger.info("GPS Tracker stopped")
+        cleanup_pidfile(GPS_PIDFILE, cleanup_gps_status, sync_usb=True)
+        print("GPS Tracker stopped")
 
 
 if __name__ == '__main__':

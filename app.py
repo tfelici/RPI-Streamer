@@ -390,10 +390,12 @@ def start_flight():
     if not domain:
         return False, 'Flight server domain is not configured. Please set a domain for GPS tracking in the flight settings.', 400
     
-    # Start GPS tracker
+    # Start GPS tracker with log output (unbuffered)
     try:
-        subprocess.Popen(['python', 'gps_tracker.py', username, 
-                         '--domain', domain])
+        gps_log = open('/tmp/gps_tracker.log', 'w')
+        subprocess.Popen(['python', '-u', 'gps_tracker.py', username, 
+                         '--domain', domain], 
+                        stdout=gps_log, stderr=subprocess.STDOUT)
         print(f"Started GPS tracker process")
     except Exception as e:
         return False, f'Failed to start GPS tracker process: {e}', 500
@@ -1892,7 +1894,7 @@ def ups_monitor_log():
 MONITORED_SERVICES = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon', 'modem-manager', 'ups-monitor']
 
 # List of Python processes to monitor (separate from systemd services)
-MONITORED_PROCESSES = ['relay-ffmpeg.py', 'relay-ffmpeg-record.py']
+MONITORED_PROCESSES = ['relay-ffmpeg.py', 'relay-ffmpeg-record.py', 'gps_tracker.py']
 
 @app.route('/service-logs-sse/<service>')
 def service_logs_sse(service):
@@ -1919,7 +1921,8 @@ def service_logs_sse(service):
                 # For Python processes, follow their log files with tail -f
                 log_files = {
                     'relay-ffmpeg.py': '/tmp/relay-ffmpeg.log',
-                    'relay-ffmpeg-record.py': '/tmp/relay-ffmpeg-record.log'
+                    'relay-ffmpeg-record.py': '/tmp/relay-ffmpeg-record.log',
+                    'gps_tracker.py': '/tmp/gps_tracker.log'
                 }
                 
                 log_file = log_files.get(service)
@@ -2020,7 +2023,8 @@ def get_process_logs(process, lines=200):
         # Map process names to their log files
         log_files = {
             'relay-ffmpeg.py': '/tmp/relay-ffmpeg.log',
-            'relay-ffmpeg-record.py': '/tmp/relay-ffmpeg-record.log'
+            'relay-ffmpeg-record.py': '/tmp/relay-ffmpeg-record.log',
+            'gps_tracker.py': '/tmp/gps_tracker.log'
         }
         
         log_file = log_files.get(process)
@@ -2341,6 +2345,23 @@ def handle_process_control(process, action):
                         'service': process,
                         'action': action
                     }), status_code
+            elif process == 'gps_tracker.py':
+                # Use the existing GPS tracking start function
+                success, message, status_code = start_flight()
+                if success:
+                    return jsonify({
+                        'success': True, 
+                        'message': f'Process {process} started successfully',
+                        'service': process,
+                        'action': action
+                    })
+                else:
+                    return jsonify({
+                        'success': False, 
+                        'error': message,
+                        'service': process,
+                        'action': action
+                    }), status_code
             else:
                 # For other processes, we'd need specific start logic
                 return jsonify({
@@ -2355,6 +2376,23 @@ def handle_process_control(process, action):
             if process in ['relay-ffmpeg.py', 'relay-ffmpeg-record.py']:
                 # Use the existing streaming stop function
                 success, message, status_code = stop_streaming()
+                if success:
+                    return jsonify({
+                        'success': True, 
+                        'message': f'Process {process} stopped successfully',
+                        'service': process,
+                        'action': action
+                    })
+                else:
+                    return jsonify({
+                        'success': False, 
+                        'error': message,
+                        'service': process,
+                        'action': action
+                    }), status_code
+            elif process == 'gps_tracker.py':
+                # Use the existing GPS tracking stop function
+                success, message, status_code = stop_flight()
                 if success:
                     return jsonify({
                         'success': True, 
