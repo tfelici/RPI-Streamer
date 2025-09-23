@@ -490,11 +490,15 @@ def gps_status():
 def gps_tracks():
     """Get list of GPS tracks stored on disk"""
     try:
-        from utils import get_storage_path
+        # Check for USB storage first
+        usb_mount = find_usb_storage()
         
-        # Get tracks directory path
-        tracks_path, usb_mount = get_storage_path('tracks')
-        tracks_dir = tracks_path
+        if usb_mount:
+            print(f"Using USB storage at {usb_mount} for tracks")
+            tracks_dir = os.path.join(usb_mount, 'streamerData', 'tracks')
+        else:
+            print(f"No USB storage found, using local disk for tracks")
+            tracks_dir = os.path.join(STREAMER_DATA_DIR, 'tracks')
         
         tracks = []
         
@@ -577,15 +581,20 @@ def gps_tracks():
 def download_track(filename):
     """Download a GPS track file"""
     try:
-        from utils import get_storage_path
         from flask import send_file
         
         # Security: Only allow .tsv files and sanitize filename
         if not filename.endswith('.tsv') or '..' in filename or '/' in filename:
             return jsonify({'error': 'Invalid filename'}), 400
         
-        # Get tracks directory path
-        tracks_path, usb_mount = get_storage_path('tracks')
+        # Check for USB storage first
+        usb_mount = find_usb_storage()
+        
+        if usb_mount:
+            tracks_path = os.path.join(usb_mount, 'streamerData', 'tracks')
+        else:
+            tracks_path = os.path.join(STREAMER_DATA_DIR, 'tracks')
+            
         file_path = os.path.join(tracks_path, filename)
         
         if not os.path.exists(file_path):
@@ -600,8 +609,6 @@ def download_track(filename):
 def delete_track():
     """Delete a GPS track file"""
     try:
-        from utils import get_storage_path
-        
         data = request.get_json()
         filename = data.get('filename')
         
@@ -612,8 +619,14 @@ def delete_track():
         if not filename.endswith('.tsv') or '..' in filename or '/' in filename:
             return jsonify({'success': False, 'error': 'Invalid filename'}), 400
         
-        # Get tracks directory path
-        tracks_path, usb_mount = get_storage_path('tracks')
+        # Check for USB storage first
+        usb_mount = find_usb_storage()
+        
+        if usb_mount:
+            tracks_path = os.path.join(usb_mount, 'streamerData', 'tracks')
+        else:
+            tracks_path = os.path.join(STREAMER_DATA_DIR, 'tracks')
+            
         file_path = os.path.join(tracks_path, filename)
         
         if not os.path.exists(file_path):

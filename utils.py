@@ -582,41 +582,6 @@ def mount_usb_device(device_path, fstype):
     
     return None
 
-def get_storage_path(data_type: str, subfolder: Optional[str] = None) -> tuple:
-    """
-    Get storage path for different data types (recordings, tracks, etc.)
-    Returns (storage_path, usb_mount) where usb_mount is None if using local storage
-    
-    Args:
-        data_type: Type of data ('recordings', 'tracks', etc.)
-        subfolder: Optional subfolder within the data type directory
-    
-    Returns:
-        tuple: (full_path, usb_mount_path_or_none)
-    """
-    import subprocess
-    import time
-    
-    # Check for USB storage first
-    usb_mount = find_usb_storage()
-    
-    if usb_mount:
-        print(f"Using USB storage at {usb_mount} for {data_type}")
-        if subfolder:
-            storage_path = os.path.join(usb_mount, 'streamerData', data_type, subfolder)
-        else:
-            storage_path = os.path.join(usb_mount, 'streamerData', data_type)
-        
-        return storage_path, usb_mount
-    else:
-        print(f"No USB storage found, using local disk for {data_type}")
-        if subfolder:
-            storage_path = os.path.join(STREAMER_DATA_DIR, data_type, subfolder)
-        else:
-            storage_path = os.path.join(STREAMER_DATA_DIR, data_type)
-            
-        return storage_path, None
-
 
 def cleanup_pidfile(pidfile_path: str, cleanup_callback=None, sync_usb: bool = True, logger=None):
     """
