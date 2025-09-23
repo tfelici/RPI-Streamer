@@ -293,7 +293,7 @@ def configure_modem():
             mnc = settings.get('cellular_mnc', '')
             
             if mcc and mnc:
-                logger.info(f"Config    tion - MCC: {mcc}, MNC: {mnc}")
+                logger.info(f"Configuring manual network selection - MCC: {mcc}, MNC: {mnc}")
                 # AT+COPS=1,2,"MCCMNC" - Manual network selection by MCC/MNC
                 network_id = f"{mcc}{mnc}"
                 response, success = send_at_command(ser, f'AT+COPS=1,2,"{network_id}"')
