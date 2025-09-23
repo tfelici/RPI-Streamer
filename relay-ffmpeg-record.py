@@ -4,7 +4,7 @@ import subprocess
 import sys
 import time
 import signal
-from utils import get_storage_path, cleanup_pidfile
+from utils import get_storage_path, cleanup_pidfile, copy_settings_and_executables_to_usb
 
 def main():
     if len(sys.argv) < 2:
@@ -38,6 +38,12 @@ def main():
 
     # Get storage path for recordings
     record_dir, usb_mount = get_storage_path('recordings', stream_name)
+    
+    # Copy settings and executables to USB if using USB storage
+    if usb_mount:
+        copy_result = copy_settings_and_executables_to_usb(usb_mount)
+        print(f"USB settings copy result: {copy_result}")
+    
     os.makedirs(record_dir, exist_ok=True)
     #if the current space used is more than 90% of the total space, delete the oldest files until we are below 80%
     statvfs = os.statvfs(record_dir)

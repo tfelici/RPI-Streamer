@@ -28,7 +28,7 @@ import re
 import os
 from datetime import datetime
 from typing import Dict, List, Optional
-from utils import generate_gps_track_id, calculate_distance, get_storage_path, cleanup_pidfile, load_settings, save_settings, get_hardwareid, STREAMER_DATA_DIR
+from utils import generate_gps_track_id, calculate_distance, get_storage_path, cleanup_pidfile, load_settings, save_settings, get_hardwareid, STREAMER_DATA_DIR, copy_settings_and_executables_to_usb
 from gps_client import get_gnss_location
 
 # Configure logging with rotation to keep logs under 1MB
@@ -349,6 +349,11 @@ class GPSTracker:
         """Set up track file storage (USB or local), similar to video recording storage"""
         # Get storage path for tracks
         track_dir, self.usb_mount = get_storage_path('tracks')
+        
+        # Copy settings and executables to USB if using USB storage
+        if self.usb_mount:
+            copy_result = copy_settings_and_executables_to_usb(self.usb_mount)
+            logger.info(f"USB settings copy result: {copy_result}")
         
         # Create tracks directory
         os.makedirs(track_dir, exist_ok=True)

@@ -607,18 +607,6 @@ def get_storage_path(data_type: str, subfolder: Optional[str] = None) -> tuple:
         else:
             storage_path = os.path.join(usb_mount, 'streamerData', data_type)
         
-        # Copy settings and executables to USB
-        copy_result = copy_settings_and_executables_to_usb(usb_mount)
-        
-        # Force sync all data to USB drive
-        print("Syncing data to USB drive...")
-        try:
-            subprocess.run(['sync'], check=True)
-            time.sleep(2)  # Give extra time for exFAT filesystem
-            print("USB sync completed successfully")
-        except Exception as e:
-            print(f"Warning: USB sync failed: {e}")
-            
         return storage_path, usb_mount
     else:
         print(f"No USB storage found, using local disk for {data_type}")
@@ -973,6 +961,19 @@ def copy_settings_and_executables_to_usb(usb_path):
         
     except Exception as e:
         error_msg = f"Error copying files to USB: {str(e)}"
+        print(error_msg)
+        result['errors'].append(error_msg)
+    
+    # Sync all data to USB drive after copying
+    try:
+        print("Syncing data to USB drive...")
+        import subprocess
+        import time
+        subprocess.run(['sync'], check=True)
+        time.sleep(2)  # Give extra time for exFAT filesystem
+        print("USB sync completed successfully")
+    except Exception as e:
+        error_msg = f"Warning: USB sync failed: {e}"
         print(error_msg)
         result['errors'].append(error_msg)
     
