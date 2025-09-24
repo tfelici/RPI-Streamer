@@ -141,6 +141,15 @@
             <!-- Cellular Settings -->
             <h2>Cellular Settings</h2>
             
+            <!-- Cellular Status Display -->
+            <div id="cellular-status-section" style="margin-bottom: 1.5rem; padding: 1rem; background: #f8f9fa; border-radius: 0.5rem; border: 1px solid #dee2e6;">
+                <h3 style="margin-top: 0; margin-bottom: 1rem;">Connection Status</h3>
+                <div id="cellular-status-display">
+                    <div style="color: #6c757d; font-style: italic;">Loading cellular status...</div>
+                </div>
+                <button id="refresh-cellular-status" class="btn btn-secondary" style="margin-top: 0.5rem; padding: 0.25rem 0.75rem; font-size: 0.9rem;">Refresh Status</button>
+            </div>
+            
             <div style="margin-bottom: 1.5rem; padding: 1rem; background: #f8f9fa; border-radius: 0.5rem; border: 1px solid #dee2e6;">
                 <h3 style="margin-top: 0; margin-bottom: 1rem;">APN Configuration</h3>
                 <form id="cellular-settings-form">
@@ -289,7 +298,7 @@
         let currentWifiSSID = null;
         let currentWifiConnected = false;
         
-        // Load current auth settings, WiFi status, and power settings
+        // Load current auth settings, WiFi status, cellular settings, and power settings
         fetch('/system-settings-data').then(r => r.json()).then(data => {
             if (data.auth) {
                 document.getElementById('auth-username').value = data.auth.username || '';
@@ -301,16 +310,21 @@
             }
             if (data.settings) {
                 document.getElementById('power-sleep-time').value = data.settings.power_monitor_sleep_time || '';
-                document.getElementById('cellular-apn').value = data.settings.cellular_apn || 'internet';
-                document.getElementById('cellular-username').value = data.settings.cellular_username || '';
-                document.getElementById('cellular-password').value = data.settings.cellular_password || '';
-                document.getElementById('cellular-mcc').value = data.settings.cellular_mcc || '';
-                document.getElementById('cellular-mnc').value = data.settings.cellular_mnc || '';
+            }
+            if (data.cellular) {
+                document.getElementById('cellular-apn').value = data.cellular.cellular_apn || 'internet';
+                document.getElementById('cellular-username').value = data.cellular.cellular_username || '';
+                document.getElementById('cellular-password').value = data.cellular.cellular_password || '';
+                document.getElementById('cellular-mcc').value = data.cellular.cellular_mcc || '';
+                document.getElementById('cellular-mnc').value = data.cellular.cellular_mnc || '';
             }
         });
         
         // Load WiFi mode status
         loadWifiStatus();
+        
+        // Load cellular status
+        loadCellularStatus();
         
         // Load auto-update status
         loadAutoUpdateStatus();
@@ -322,6 +336,9 @@
         document.querySelectorAll('input[name="wifi-mode"]').forEach(radio => {
             radio.addEventListener('change', handleModeChange);
         });
+        
+        // Refresh cellular status button
+        document.getElementById('refresh-cellular-status').addEventListener('click', loadCellularStatus);
         
         // Auto-update toggle handler
         document.getElementById('auto-update-toggle').addEventListener('change', handleAutoUpdateToggle);
@@ -693,6 +710,67 @@
                 });
         }
         
+        function loadCellularStatus() {
+            const statusDisplay = document.getElementById('cellular-status-display');
+            const refreshBtn = document.getElementById('refresh-cellular-status');
+            
+            statusDisplay.innerHTML = '<div style="color: #6c757d; font-style: italic;">Loading cellular status...</div>';
+            refreshBtn.disabled = true;
+            
+            fetch('/system-settings-cellular-status')
+                .then(r => r.json())
+                .then(data => {
+                    let statusHtml = '';
+                    
+                    if (data.connected && data.current_ip) {
+                        statusHtml += '<div style="color: #28a745; margin-bottom: 0.5rem;"><strong>✓ Connected</strong></div>';
+                        statusHtml += `<div style="margin-bottom: 0.25rem;"><strong>IP Address:</strong> ${data.current_ip}</div>`;
+                    } else {
+                        statusHtml += '<div style="color: #dc3545; margin-bottom: 0.5rem;"><strong>✗ Not Connected</strong></div>';
+                    }
+                    
+                    if (data.modem_device) {
+                        statusHtml += `<div style="margin-bottom: 0.25rem;"><strong>Modem Device:</strong> ${data.modem_device}</div>`;
+                    }
+                    
+                    if (data.operator_name) {
+                        statusHtml += `<div style="margin-bottom: 0.25rem;"><strong>Operator:</strong> ${data.operator_name}</div>`;
+                    }
+                    
+                    if (data.access_technology) {
+                        statusHtml += `<div style="margin-bottom: 0.25rem;"><strong>Technology:</strong> ${data.access_technology}</div>`;
+                    }
+                    
+                    if (data.signal_strength !== null && data.signal_strength !== undefined) {
+                        const signalPercent = Math.round(data.signal_strength);
+                        let signalColor = '#dc3545'; // Red
+                        if (signalPercent >= 75) signalColor = '#28a745'; // Green
+                        else if (signalPercent >= 50) signalColor = '#ffc107'; // Yellow
+                        else if (signalPercent >= 25) signalColor = '#fd7e14'; // Orange
+                        
+                        statusHtml += `<div style="margin-bottom: 0.25rem;"><strong>Signal:</strong> <span style="color: ${signalColor};">${signalPercent}%</span></div>`;
+                    }
+                    
+                    if (data.settings) {
+                        statusHtml += `<div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #dee2e6; font-size: 0.9rem; color: #6c757d;">`;
+                        statusHtml += `<strong>Current APN:</strong> ${data.settings.cellular_apn || '(not set)'}`;
+                        if (data.settings.cellular_username) {
+                            statusHtml += `<br><strong>Username:</strong> ${data.settings.cellular_username}`;
+                        }
+                        statusHtml += `</div>`;
+                    }
+                    
+                    statusDisplay.innerHTML = statusHtml || '<div style="color: #6c757d; font-style: italic;">No cellular status available</div>';
+                })
+                .catch(error => {
+                    console.error('Error loading cellular status:', error);
+                    statusDisplay.innerHTML = '<div style="color: #dc3545;">Error loading cellular status</div>';
+                })
+                .finally(() => {
+                    refreshBtn.disabled = false;
+                });
+        }
+        
         function handleModeChange() {
             const selectedMode = document.querySelector('input[name="wifi-mode"]:checked').value;
             const clientSettings = document.getElementById('client-settings');
@@ -968,7 +1046,7 @@
                 cellular_mnc: document.getElementById('cellular-mnc').value
             };
             
-            fetch('/flight-settings', {
+            fetch('/system-settings-cellular', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestData)

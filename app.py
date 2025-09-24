@@ -21,7 +21,7 @@ import fcntl
 from datetime import datetime
 from pathlib import Path
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR,HEARTBEAT_FILE, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, generate_gps_track_id, get_default_hotspot_ssid, get_hardwareid, get_app_version, get_active_recording_info, add_files_from_path, load_wifi_settings, save_wifi_settings, get_wifi_mode_status, reset_modem_at_command
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR,HEARTBEAT_FILE, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, generate_gps_track_id, get_default_hotspot_ssid, get_hardwareid, get_app_version, get_active_recording_info, add_files_from_path, load_wifi_settings, save_wifi_settings, get_wifi_mode_status, reset_modem_at_command, load_cellular_settings, save_cellular_settings, get_cellular_status, update_cellular_connection
 
 # Use pymediainfo for fast video duration extraction - now imported in utils.py
 
@@ -260,76 +260,6 @@ def flight_settings_save():
         settings['gps_start_mode'] = get_value('gps_start_mode', 'manual')
     if 'gps_stop_on_power_loss' in (data if request.is_json else request.form):
         settings['gps_stop_on_power_loss'] = is_checked('gps_stop_on_power_loss')
-    
-    # Handle cellular settings (APN, username, password, MCC, MNC)
-    cellular_changed = False
-    old_apn = settings.get('cellular_apn', 'internet')
-    old_username = settings.get('cellular_username', '')
-    old_password = settings.get('cellular_password', '')
-    old_mcc = settings.get('cellular_mcc', '')
-    old_mnc = settings.get('cellular_mnc', '')
-    
-    if 'cellular_apn' in (data if request.is_json else request.form):
-        new_apn = get_value('cellular_apn', 'internet').strip()
-        settings['cellular_apn'] = new_apn
-        if old_apn != new_apn:
-            cellular_changed = True
-    
-    if 'cellular_username' in (data if request.is_json else request.form):
-        new_username = get_value('cellular_username', '').strip()
-        settings['cellular_username'] = new_username
-        if old_username != new_username:
-            cellular_changed = True
-    
-    if 'cellular_password' in (data if request.is_json else request.form):
-        new_password = get_value('cellular_password', '').strip()
-        settings['cellular_password'] = new_password
-        if old_password != new_password:
-            cellular_changed = True
-    
-    if 'cellular_mcc' in (data if request.is_json else request.form):
-        new_mcc = get_value('cellular_mcc', '').strip()
-        settings['cellular_mcc'] = new_mcc
-        if old_mcc != new_mcc:
-            cellular_changed = True
-    
-    if 'cellular_mnc' in (data if request.is_json else request.form):
-        new_mnc = get_value('cellular_mnc', '').strip()
-        settings['cellular_mnc'] = new_mnc
-        if old_mnc != new_mnc:
-            cellular_changed = True
-        
-    # If any cellular setting changed, trigger NetworkManager connection update
-    if cellular_changed:
-        try:
-            # Update NetworkManager cellular connection with new settings
-            subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 'gsm.apn', settings['cellular_apn']], check=False)
-            subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 'gsm.username', settings['cellular_username']], check=False)
-            subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 'gsm.password', settings['cellular_password']], check=False)
-            
-            # Handle MCC and MNC if provided
-            if settings['cellular_mcc'] and settings['cellular_mnc']:
-                subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 'gsm.home-only', 'yes'], check=False)
-                subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 'gsm.network-id', f"{settings['cellular_mcc']}{settings['cellular_mnc']}"], check=False)
-            else:
-                # Allow automatic network selection if no MCC/MNC specified
-                subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 'gsm.home-only', 'no'], check=False)
-                subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', '--remove', 'gsm.network-id'], check=False)
-            
-            subprocess.run(['sudo', 'nmcli', 'connection', 'reload'], check=False)
-            print(f"Updated NetworkManager cellular settings - APN: '{settings['cellular_apn']}', Username: '{settings['cellular_username'] or '(empty)'}', MCC: '{settings['cellular_mcc'] or '(empty)'}', MNC: '{settings['cellular_mnc'] or '(empty)'}'")
-            
-            # Force the cellular connection to restart with the new settings
-            # First bring it down (if it's up), then bring it up
-            subprocess.run(['sudo', 'nmcli', 'connection', 'down', 'cellular-auto'], check=False, timeout=10)
-            # Give it a moment to disconnect
-            import time
-            time.sleep(2)
-            # Try to bring it back up with new settings (don't wait for completion)
-            subprocess.Popen(['sudo', 'nmcli', 'connection', 'up', 'cellular-auto'])
-            print(f"Restarting cellular connection with updated settings")
-        except Exception as e:
-            print(f"Warning: Could not update NetworkManager cellular settings: {e}")
     
     # Handle power loss timeout with validation
     if 'gps_stop_power_loss_minutes' in (data if request.is_json else request.form):
@@ -1022,7 +952,8 @@ def system_settings():
 def system_settings_data():
     auth, wifi = get_auth_and_wifi()
     settings = load_settings()
-    return jsonify({'auth': auth, 'wifi': wifi, 'settings': settings})
+    cellular = load_cellular_settings()
+    return jsonify({'auth': auth, 'wifi': wifi, 'settings': settings, 'cellular': cellular})
 
 @app.route('/system-settings-auth', methods=['POST'])
 def system_settings_auth():
@@ -1600,6 +1531,85 @@ def system_settings_wifi_scan():
             'success': False,
             'error': f'Failed to scan WiFi networks: {e}',
             'networks': []
+        })
+
+@app.route('/system-settings-cellular-status')
+def system_settings_cellular_status():
+    """Get current cellular status and settings"""
+    try:
+        status = get_cellular_status()
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Failed to get cellular status: {e}',
+            'connected': False,
+            'current_ip': None,
+            'signal_strength': None,
+            'modem_device': None,
+            'operator_name': None,
+            'access_technology': None,
+            'settings': load_cellular_settings()
+        })
+
+@app.route('/system-settings-cellular', methods=['POST'])
+def system_settings_cellular():
+    """Update cellular settings"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        apn = data.get('cellular_apn', '').strip()
+        if not apn:
+            return jsonify({'success': False, 'error': 'APN is required'})
+        
+        # Load current settings to compare changes
+        current_settings = load_cellular_settings()
+        
+        # Update settings
+        new_settings = {
+            'cellular_apn': apn,
+            'cellular_username': data.get('cellular_username', '').strip(),
+            'cellular_password': data.get('cellular_password', '').strip(),
+            'cellular_mcc': data.get('cellular_mcc', '').strip(),
+            'cellular_mnc': data.get('cellular_mnc', '').strip()
+        }
+        
+        # Check if settings actually changed
+        settings_changed = (
+            current_settings['cellular_apn'] != new_settings['cellular_apn'] or
+            current_settings['cellular_username'] != new_settings['cellular_username'] or
+            current_settings['cellular_password'] != new_settings['cellular_password'] or
+            current_settings['cellular_mcc'] != new_settings['cellular_mcc'] or
+            current_settings['cellular_mnc'] != new_settings['cellular_mnc']
+        )
+        
+        # Save settings to file
+        save_cellular_settings(new_settings)
+        
+        # Update NetworkManager connection if settings changed
+        if settings_changed:
+            success = update_cellular_connection(new_settings)
+            if success:
+                return jsonify({
+                    'success': True, 
+                    'message': 'Cellular settings updated successfully'
+                })
+            else:
+                return jsonify({
+                    'success': False, 
+                    'error': 'Settings saved but failed to update NetworkManager connection'
+                })
+        else:
+            return jsonify({
+                'success': True, 
+                'message': 'Cellular settings saved (no changes detected)'
+            })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Failed to update cellular settings: {e}'
         })
 
 @app.route('/system-settings-reboot', methods=['POST'])

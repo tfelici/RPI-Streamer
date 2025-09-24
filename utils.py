@@ -81,12 +81,7 @@ DEFAULT_SETTINGS = {
     "gps_start_mode": "manual",
     "gps_stop_on_power_loss": False,
     "gps_stop_power_loss_minutes": 1,
-    "power_monitor_sleep_time": 60,
-    "cellular_apn": "internet",
-    "cellular_username": "",
-    "cellular_password": "",
-    "cellular_mcc": "",
-    "cellular_mnc": ""
+    "power_monitor_sleep_time": 60
 }
 
 def list_audio_inputs():
@@ -1137,6 +1132,169 @@ def get_wifi_mode_status():
         'signal_strength': signal_strength,
         'signal_percent': int(signal_percent) if signal_percent is not None else None
     }
+
+# =============================================================================
+# Cellular Settings Functions
+# =============================================================================
+
+def load_cellular_settings():
+    """Load cellular settings from cellular.json with defaults"""
+    cellular_path = os.path.join(STREAMER_DATA_DIR, 'cellular.json')
+    
+    # Default cellular settings
+    cellular_defaults = {
+        "cellular_apn": "internet",
+        "cellular_username": "",
+        "cellular_password": "",
+        "cellular_mcc": "",
+        "cellular_mnc": ""
+    }
+    
+    if os.path.exists(cellular_path):
+        try:
+            with open(cellular_path, 'r') as f:
+                cellular_settings = json.load(f)
+                # Merge with defaults to ensure all keys exist
+                for key, default_value in cellular_defaults.items():
+                    if key not in cellular_settings:
+                        cellular_settings[key] = default_value
+                return cellular_settings
+        except (json.JSONDecodeError, ValueError):
+            # Silent error handling in utils
+            pass
+    
+    return cellular_defaults
+
+def save_cellular_settings(cellular_settings):
+    """Save cellular settings to cellular.json"""
+    cellular_path = os.path.join(STREAMER_DATA_DIR, 'cellular.json')
+    try:
+        os.makedirs(STREAMER_DATA_DIR, exist_ok=True)
+        with open(cellular_path, 'w') as f:
+            json.dump(cellular_settings, f, indent=2)
+    except Exception:
+        # Silent error handling in utils - let calling code handle errors
+        pass
+
+def get_cellular_status():
+    """Get current cellular modem status using NetworkManager"""
+    cellular_settings = load_cellular_settings()
+    
+    # Default values
+    cellular_connected = False
+    current_ip = None
+    signal_strength = None
+    modem_device = None
+    operator_name = None
+    access_technology = None
+    
+    try:
+        # Get cellular device status
+        result = subprocess.run(['nmcli', '-f', 'GENERAL.DEVICE,GENERAL.STATE,IP4.ADDRESS', 
+                               'device', 'show'], capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            lines = result.stdout.split('\n')
+            current_device = None
+            
+            for line in lines:
+                line = line.strip()
+                if line.startswith('GENERAL.DEVICE:') and 'wwan' in line:
+                    current_device = line.split(':')[1].strip()
+                    modem_device = current_device
+                elif line.startswith('GENERAL.STATE:') and current_device and 'wwan' in current_device:
+                    state = line.split(':')[1].strip()
+                    cellular_connected = 'connected' in state.lower()
+                elif line.startswith('IP4.ADDRESS[1]:') and current_device and 'wwan' in current_device:
+                    ip_info = line.split(':')[1].strip()
+                    if ip_info and '/' in ip_info:
+                        current_ip = ip_info.split('/')[0]
+        
+        # Try to get signal strength and operator info using ModemManager if available
+        try:
+            mm_result = subprocess.run(['mmcli', '-L'], capture_output=True, text=True, timeout=5)
+            if mm_result.returncode == 0 and 'Modem/' in mm_result.stdout:
+                # Extract modem number (usually 0)
+                import re
+                modem_match = re.search(r'/org/freedesktop/ModemManager1/Modem/(\d+)', mm_result.stdout)
+                if modem_match:
+                    modem_id = modem_match.group(1)
+                    
+                    # Get signal strength
+                    signal_result = subprocess.run(['mmcli', '-m', modem_id, '--signal-get'], 
+                                                 capture_output=True, text=True, timeout=5)
+                    if signal_result.returncode == 0:
+                        for line in signal_result.stdout.split('\n'):
+                            if 'rssi:' in line.lower():
+                                rssi_match = re.search(r'rssi:\s*(-?\d+)', line)
+                                if rssi_match:
+                                    rssi = int(rssi_match.group(1))
+                                    # Convert RSSI to percentage (approximate)
+                                    signal_strength = max(0, min(100, ((rssi + 113) / 53) * 100))
+                    
+                    # Get operator and access technology
+                    status_result = subprocess.run(['mmcli', '-m', modem_id], 
+                                                 capture_output=True, text=True, timeout=5)
+                    if status_result.returncode == 0:
+                        for line in status_result.stdout.split('\n'):
+                            if 'operator name:' in line.lower():
+                                operator_name = line.split(':')[1].strip().strip("'\"")
+                            elif 'access tech:' in line.lower():
+                                access_technology = line.split(':')[1].strip().strip("'\"")
+        
+        except Exception:
+            # ModemManager not available or failed
+            pass
+                
+    except Exception as e:
+        # NetworkManager command failed
+        pass
+    
+    return {
+        'connected': cellular_connected,
+        'current_ip': current_ip,
+        'signal_strength': signal_strength,
+        'modem_device': modem_device,
+        'operator_name': operator_name,
+        'access_technology': access_technology,
+        'settings': cellular_settings
+    }
+
+def update_cellular_connection(cellular_settings):
+    """Update NetworkManager cellular connection with new settings"""
+    try:
+        # Update NetworkManager cellular connection with new settings
+        subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 
+                       'gsm.apn', cellular_settings['cellular_apn']], check=False)
+        subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 
+                       'gsm.username', cellular_settings['cellular_username']], check=False)
+        subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 
+                       'gsm.password', cellular_settings['cellular_password']], check=False)
+        
+        # Handle MCC and MNC if provided
+        if cellular_settings['cellular_mcc'] and cellular_settings['cellular_mnc']:
+            subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 
+                           'gsm.home-only', 'yes'], check=False)
+            subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 
+                           'gsm.network-id', f"{cellular_settings['cellular_mcc']}{cellular_settings['cellular_mnc']}"], 
+                          check=False)
+        else:
+            # Allow automatic network selection if no MCC/MNC specified
+            subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 
+                           'gsm.home-only', 'no'], check=False)
+            subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'cellular-auto', 
+                           '--remove', 'gsm.network-id'], check=False)
+        
+        subprocess.run(['sudo', 'nmcli', 'connection', 'reload'], check=False)
+        print(f"Updated NetworkManager cellular settings - APN: '{cellular_settings['cellular_apn']}', "
+              f"Username: '{cellular_settings['cellular_username'] or '(empty)'}', "
+              f"MCC: '{cellular_settings['cellular_mcc'] or '(empty)'}', "
+              f"MNC: '{cellular_settings['cellular_mnc'] or '(empty)'}'")
+        return True
+        
+    except Exception as e:
+        print(f"Error updating cellular connection: {e}")
+        return False
 
 # =============================================================================
 # Modem/USB Power Management Functions
