@@ -44,7 +44,7 @@ logger.propagate = True
 
 # Import functions from the main app to avoid duplication
 try:
-    from utils import load_settings, get_default_hotspot_ssid, get_hardwareid, get_app_version, HEARTBEAT_FILE, add_files_from_path, get_active_recording_info, get_video_duration_mediainfo, is_streaming, is_gps_tracking, find_usb_storage, STREAMER_DATA_DIR, get_wifi_mode_status
+    from utils import get_hardwareid, get_app_version, HEARTBEAT_FILE, add_files_from_path, get_active_recording_info, get_video_duration_mediainfo, is_streaming, is_gps_tracking, find_usb_storage, STREAMER_DATA_DIR, get_wifi_mode_status
     logger.info("Successfully imported from utils.py")
 except ImportError as e:
     logger.error(f"Error importing functions from utils.py: {e}")
