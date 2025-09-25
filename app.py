@@ -1769,8 +1769,20 @@ def system_check_update():
                               capture_output=True, text=True, cwd=flask_app_dir, timeout=60)
         
         # Parse JSON output from install script
+        # The install script may output progress information before the JSON,
+        # so we need to extract just the JSON portion
         try:
-            update_info = json.loads(result.stdout.strip())
+            raw_output = result.stdout.strip()
+            
+            # Find the JSON portion (starts with { and ends with })
+            json_start = raw_output.find('{')
+            json_end = raw_output.rfind('}')
+            
+            if json_start == -1 or json_end == -1 or json_start >= json_end:
+                raise json.JSONDecodeError("No valid JSON found in output", raw_output, 0)
+            
+            json_output = raw_output[json_start:json_end + 1]
+            update_info = json.loads(json_output)
             
             # Extract information from JSON response
             updates_available = update_info.get('updates_available', False)
@@ -1820,12 +1832,13 @@ def system_check_update():
                 'latest_commit': latest_commit
             })
             
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
             # Fallback if JSON parsing fails
             return jsonify({
                 'success': False,
-                'error': 'Failed to parse update check response from install script',
-                'raw_output': result.stdout
+                'error': f'Failed to parse update check response from install script: {str(e)}',
+                'raw_output': result.stdout,
+                'stderr_output': result.stderr if result.stderr else None
             })
             
     except subprocess.TimeoutExpired:
