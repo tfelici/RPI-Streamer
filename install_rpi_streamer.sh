@@ -125,11 +125,11 @@ if [ -d .git ]; then
             echo "  \"branch\": \"$BRANCH_NAME\","
             echo "  \"changed_files\": ["
             
-            # Get files changed between commits
-            remote_changed_files=$(git diff --name-only $CURRENT_COMMIT $LATEST_COMMIT 2>/dev/null)
+            # Get files changed between commits (ignore filemode changes)
+            remote_changed_files=$(git -c core.filemode=false diff --name-only $CURRENT_COMMIT $LATEST_COMMIT 2>/dev/null)
             
-            # Get locally modified files (uncommitted changes)
-            local_modified_files=$(git diff --name-only HEAD 2>/dev/null)
+            # Get locally modified files (uncommitted changes, ignore filemode/permission changes)
+            local_modified_files=$(git -c core.filemode=false diff --name-only HEAD 2>/dev/null)
             
             # Combine both lists and remove duplicates
             all_changed_files=$(echo -e "$remote_changed_files\n$local_modified_files" | sort | uniq | grep -v '^$')
@@ -180,8 +180,8 @@ if [ -d .git ]; then
         
         # If --check-updates flag is provided, return empty list (no files changed)
         if [[ "$@" == *"--check-updates"* ]]; then
-            # Check for local modifications even if remote is up to date
-            local_modified_files=$(git diff --name-only HEAD 2>/dev/null)
+            # Check for local modifications even if remote is up to date (ignore filemode changes)
+            local_modified_files=$(git -c core.filemode=false diff --name-only HEAD 2>/dev/null)
             
             if [ -n "$local_modified_files" ]; then
                 # Local modifications exist, report updates available
