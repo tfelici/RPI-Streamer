@@ -6,11 +6,13 @@
 #   --main            Install stable main branch (default)
 #   --develop         Install latest develop branch (may be unstable)
 #   --daemon          Run in daemon mode (no interactive prompts)
+#   --check-updates   Check for updates and return JSON with changed files (no installation)
 #
 # Examples:
 #   bash install_rpi_streamer.sh                     # Basic installation with main branch
 #   bash install_rpi_streamer.sh --develop          # Installation with develop branch
 #   bash install_rpi_streamer.sh --daemon           # Silent installation without prompts
+#   bash install_rpi_streamer.sh --check-updates    # Return JSON with files that need updating
 
 # This script installs the RPI Streamer Flask app and MediaMTX on a Raspberry Pi running Raspberry Pi OS Lite.
 # It also sets up a systemd service for the Flask app and MediaMTX, with optional remote access configuration.
@@ -56,37 +58,22 @@ echo ""
 # Check for GitHub updates immediately after confirming internet connectivity
 echo "🔄 Checking for GitHub updates..."
 
-# Determine which branch to use based on flags (support both old and new naming)
-# Make this available globally for the entire script
-if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
-    TARGET_BRANCH="origin/develop"
-    BRANCH_NAME="develop"
-    BRANCH_FLAG="--develop"
-    echo "Using develop branch for installation"
-else
-    # Default to main branch for stability
-    TARGET_BRANCH="origin/main"
-    BRANCH_NAME="main"
-    BRANCH_FLAG="--main"
-    echo "Using main branch for installation"
-fi
-
 # Setup flask app directory
 echo "Setting up Flask app directory... $HOME/flask_app"
 mkdir -p "$HOME/flask_app"
 mkdir -p "$HOME/streamerData"
 cd "$HOME/flask_app"
 
-#     Update the codebase to match the remote GitHub repository if changes are available.
-#     This ensures the device has the latest version from the remote repository.
-#     If the repository is not already cloned, it will clone it fresh.
-echo "Updating RPI Streamer codebase..."
-
 # Check if git is installed
 if ! command -v git &> /dev/null; then
     echo "Git not found, installing..."
     sudo apt-get install git -y
 fi
+
+#     Update the codebase to match the remote GitHub repository if changes are available.
+#     This ensures the device has the latest version from the remote repository.
+#     If the repository is not already cloned, it will clone it fresh.
+echo "Updating RPI Streamer codebase..."
 
 # Variable to track if we need to continue with installation
 UPDATES_AVAILABLE=false
@@ -95,6 +82,25 @@ IS_NEW_INSTALLATION=false
 # If repository exists, check for updates
 # If not, it's a new installation and we should proceed
 if [ -d .git ]; then
+    # EXISTING INSTALLATION: Detect current branch and use it (ignore command line flags)
+    echo "📂 Existing installation detected - using currently installed branch"
+    
+    # Get the current branch name
+    CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || git symbolic-ref --short HEAD 2>/dev/null || echo "")
+    
+    if [ -n "$CURRENT_BRANCH" ]; then
+        TARGET_BRANCH="origin/$CURRENT_BRANCH"
+        BRANCH_NAME="$CURRENT_BRANCH"
+        BRANCH_FLAG="--$CURRENT_BRANCH"
+        echo "🔍 Detected existing branch: $BRANCH_NAME"
+        echo "✅ Continuing with existing branch: $BRANCH_NAME (ignoring command line flags)"
+    else
+        # Fallback if we can't detect the branch
+        echo "⚠️  Could not detect current branch, defaulting to main"
+        TARGET_BRANCH="origin/main"
+        BRANCH_NAME="main"
+        BRANCH_FLAG="--main"
+    fi
     # Get current commit hash before fetch
     CURRENT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
     
@@ -110,15 +116,103 @@ if [ -d .git ]; then
         echo "   Latest:  ${LATEST_COMMIT:0:8}"
         UPDATES_AVAILABLE=true
         
+        # If --check-updates flag is provided, list changed files and exit
+        if [[ "$@" == *"--check-updates"* ]]; then
+            echo "{"
+            echo "  \"updates_available\": true,"
+            echo "  \"current_commit\": \"${CURRENT_COMMIT:0:8}\","
+            echo "  \"latest_commit\": \"${LATEST_COMMIT:0:8}\","
+            echo "  \"branch\": \"$BRANCH_NAME\","
+            echo "  \"changed_files\": ["
+            changed_files=$(git diff --name-only $CURRENT_COMMIT $LATEST_COMMIT 2>/dev/null)
+            if [ -n "$changed_files" ]; then
+                while IFS= read -r file; do
+                    echo "    \"$file\","
+                done <<< "$changed_files" | sed '$ s/,$//'
+            fi
+            echo "  ]"
+            echo "}"
+            exit 0
+        fi
+        
         sudo git reset --hard $TARGET_BRANCH
-        sudo git clean -f -d
+        
+        # Comprehensive cleanup to mirror git repository exactly
+        echo "🧹 Cleaning up files not in git repository..."
+        echo "   This ensures local installation exactly matches the repository"
+        
+        # Show what will be removed (if anything) before removing it
+        files_to_clean=$(sudo git clean -f -d -x --dry-run | wc -l)
+        if [ "$files_to_clean" -gt 0 ]; then
+            echo "   Found $files_to_clean untracked/ignored files to remove"
+            sudo git clean -f -d -x
+        else
+            echo "   No cleanup needed - directory is already clean"
+        fi
+        
+        echo "✅ Local installation now mirrors git repository exactly"
         echo "Repository updated to latest $BRANCH_NAME branch"
+        #run upgrade settings script if it exists
+        if [ -f upgrade_settings.py ]; then
+            echo "Running upgrade script to migrate cellular settings..."
+            python3 upgrade_settings.py || echo "Upgrade script encountered an error, but continuing with installation..."
+        else
+            echo "No upgrade script found, skipping cellular settings migration..."
+        fi
     else
         echo "✅ Already up to date on $BRANCH_NAME branch"
+        
+        # If --check-updates flag is provided, return empty list (no files changed)
+        if [[ "$@" == *"--check-updates"* ]]; then
+            echo "{"
+            echo "  \"updates_available\": false,"
+            echo "  \"current_commit\": \"${CURRENT_COMMIT:0:8}\","
+            echo "  \"latest_commit\": \"${CURRENT_COMMIT:0:8}\","
+            echo "  \"branch\": \"$BRANCH_NAME\","
+            echo "  \"changed_files\": []"
+            echo "}"
+            exit 0
+        fi
+        
         echo "💡 No installation needed - system is current"
         exit 0
     fi
 else
+    # NEW INSTALLATION: Use command line flags to determine branch
+    echo "🆕 New installation detected - using command line flags"
+    
+    if [[ "$@" == *"--develop"* ]] || [[ "$@" == *"--development"* ]]; then
+        TARGET_BRANCH="origin/develop"
+        BRANCH_NAME="develop"
+        BRANCH_FLAG="--develop"
+        echo "🚀 Using develop branch for new installation"
+    else
+        # Default to main branch for stability
+        TARGET_BRANCH="origin/main"
+        BRANCH_NAME="main"
+        BRANCH_FLAG="--main"
+        echo "🏠 Using main branch for new installation (default)"
+    fi
+    
+    echo ""
+    echo "📋 BRANCH SELECTION LOGIC:"
+    echo "   • NEW installations: Use --develop or --main flags (default: main)" 
+    echo "   • EXISTING installations: Use currently installed branch (ignore flags)"
+    echo "   • Selected branch: $BRANCH_NAME"
+    echo ""
+    
+    # If --check-updates flag is provided for new installation, report that installation is needed
+    if [[ "$@" == *"--check-updates"* ]]; then
+        echo "{"
+        echo "  \"updates_available\": true,"
+        echo "  \"current_commit\": \"none\","
+        echo "  \"latest_commit\": \"unknown\","
+        echo "  \"branch\": \"$BRANCH_NAME\","
+        echo "  \"changed_files\": [\"NEW_INSTALLATION\"]"
+        echo "}"
+        exit 0
+    fi
+    
     echo "Repository not found, this is a new installation..."
     IS_NEW_INSTALLATION=true
     cd ..
@@ -127,7 +221,7 @@ else
     cd flask_app
     sudo git clone https://github.com/tfelici/RPI-Streamer.git .
 
-    # Checkout the branch determined globally (BRANCH_NAME already set)
+    # Checkout the branch determined above
     sudo git checkout $BRANCH_NAME
     echo "Using $BRANCH_NAME branch"
 fi
@@ -1255,10 +1349,12 @@ echo "   🔑 SSH Server (remote terminal access)"
 echo ""
 echo "🛠️ Installation Script Options:"
 echo "   --daemon       : Run in daemon mode (no interactive prompts)"
+echo "   --check-updates: Return JSON with files that need updating (no installation)"
 echo ""
 echo "🌐 Examples:"
 echo "   bash install_rpi_streamer.sh                      # Interactive installation"
 echo "   bash install_rpi_streamer.sh --daemon             # Silent installation"
+echo "   bash install_rpi_streamer.sh --check-updates      # Return JSON with files that need updating"
 echo ""
 echo "📚 Documentation:"
 echo "   GPS Tracker: GPS_TRACKER_README.md"

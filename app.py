@@ -1752,120 +1752,122 @@ def system_settings_auto_update_toggle():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
-def get_current_git_branch():
-    """
-    Get the current git branch name to compare against the correct remote branch.
-    Returns the branch name (e.g., 'main', 'development').
-    """
-    import subprocess
-    try:
-        result = subprocess.run(['git', 'branch', '--show-current'], capture_output=True, text=True)
-        if result.returncode == 0:
-            branch = result.stdout.strip()
-            if branch:
-                return branch
-        
-        # Fallback: try to get branch from git symbolic-ref
-        result = subprocess.run(['git', 'symbolic-ref', '--short', 'HEAD'], capture_output=True, text=True)
-        if result.returncode == 0:
-            branch = result.stdout.strip()
-            if branch:
-                return branch
-                
-        # If we can't determine the branch, something is wrong with the git repository
-        raise RuntimeError("Unable to determine current git branch")
-    except Exception as e:
-        raise RuntimeError(f"Failed to get current git branch: {e}")
-
 @app.route('/system-check-update', methods=['POST'])
 def system_check_update():
     """
-    Check for any differences between local and remote tracked files, ignoring timestamps.
-    Returns updates=True if any file content differs, is missing, or is extra locally.
-    Uses the current git branch to compare against the correct remote branch.
+    Check for updates using the install script's --check-updates flag.
+    Returns updates=True if any files need updating.
     """
-    import subprocess, os
+    import subprocess, os, json
+    flask_app_dir = os.path.dirname(os.path.abspath(__file__))
     try:
-        # Get the current branch to compare against the correct remote
-        current_branch = get_current_git_branch()
-        remote_branch = f'origin/{current_branch}'
-        # Fetch latest info from remote
-        fetch_result = subprocess.run(['git', 'fetch', 'origin'], capture_output=True, text=True)
-        if fetch_result.returncode != 0:
-            return jsonify({'success': False, 'error': fetch_result.stderr.strip()})
-        # Compare local and remote tracked files (ignoring timestamps and permission)
-        diff_result = subprocess.run(['git', '-c', 'core.filemode=false', 'diff', '--name-status', remote_branch], capture_output=True, text=True)
-        if diff_result.returncode != 0:
-            return jsonify({'success': False, 'error': diff_result.stderr.strip()})
-        diff_output = diff_result.stdout.strip()
-        # Also check for missing files (tracked in remote but missing locally)
-        ls_remote = subprocess.run(['git', 'ls-tree', '-r', '--name-only', remote_branch], capture_output=True, text=True)
-        if ls_remote.returncode != 0:
-            return jsonify({'success': False, 'error': ls_remote.stderr.strip()})
-        missing_files = []
-        for filename in ls_remote.stdout.strip().split('\n'):
-            if filename and not os.path.exists(filename):
-                missing_files.append(filename)
-        # Also check for extra local files tracked by git but not in remote (deleted from remote)
-        ls_local = subprocess.run(['git', 'ls-files'], capture_output=True, text=True)
-        if ls_local.returncode != 0:
-            return jsonify({'success': False, 'error': ls_local.stderr.strip()})
-        local_tracked = set(ls_local.stdout.strip().split('\n'))
-        remote_tracked = set(ls_remote.stdout.strip().split('\n'))
-        extra_local = [f for f in local_tracked if f not in remote_tracked]
-        details = diff_output
-        if missing_files:
-            details += ('\n' if details else '') + 'Missing files: ' + ', '.join(missing_files)
-        if extra_local:
-            details += ('\n' if details else '') + 'Extra local files: ' + ', '.join(extra_local)
-        if diff_output or missing_files or extra_local:
-            summary = 'Updates are available from the GitHub repository.'
-            return jsonify({'success': True, 'summary': summary, 'updates': True, 'details': details})
-        else:
-            summary = 'Your code is up to date.'
-            return jsonify({'success': True, 'summary': summary, 'updates': False})
+        # Use the install script to check for updates
+        install_script = os.path.join(flask_app_dir, 'install_rpi_streamer.sh')
+        
+        # Run the install script with --check-updates flag
+        result = subprocess.run(['bash', install_script, '--check-updates'], 
+                              capture_output=True, text=True, cwd=flask_app_dir, timeout=60)
+        
+        # Parse JSON output from install script
+        try:
+            update_info = json.loads(result.stdout.strip())
+            
+            # Extract information from JSON response
+            updates_available = update_info.get('updates_available', False)
+            changed_files = update_info.get('changed_files', [])
+            branch = update_info.get('branch', 'unknown')
+            current_commit = update_info.get('current_commit', 'unknown')
+            latest_commit = update_info.get('latest_commit', 'unknown')
+            
+            # Determine summary and details based on the response
+            if not updates_available:
+                summary = 'Your code is up to date.'
+                details = f'Branch: {branch}, Commit: {current_commit}'
+            elif 'NEW_INSTALLATION' in changed_files:
+                summary = 'New installation required - all files out of date.'
+                details = f'No existing installation found for branch: {branch}'
+            else:
+                summary = 'Updates are available from the GitHub repository.'
+                details = f'Branch: {branch}, {current_commit} → {latest_commit}\nChanged files:\n' + '\n'.join(changed_files)
+            
+            return jsonify({
+                'success': True,
+                'summary': summary,
+                'updates': updates_available,
+                'details': details,
+                'changed_files': changed_files,
+                'branch': branch,
+                'current_commit': current_commit,
+                'latest_commit': latest_commit
+            })
+            
+        except json.JSONDecodeError:
+            # Fallback if JSON parsing fails
+            return jsonify({
+                'success': False,
+                'error': 'Failed to parse update check response from install script',
+                'raw_output': result.stdout
+            })
+            
+    except subprocess.TimeoutExpired:
+        return jsonify({'success': False, 'error': 'Update check timed out after 60 seconds'})
     except Exception as e:
         return jsonify({'success': False, 'error': f'Update check failed: {e}'})
 
 @app.route('/system-do-update', methods=['POST'])
 def system_do_update():
     """
-    Force update the codebase to match the remote GitHub repository (overwriting local changes, restoring missing files, removing extra tracked files), fix permissions, and restart services.
-    Uses the current git branch to update from the correct remote branch.
+    Perform system update using the install script with --daemon flag.
+    This will update the codebase and restart services automatically.
     """
     import subprocess, os
+    flask_app_dir = os.path.dirname(os.path.abspath(__file__))
     results = []
     try:
-        # Get the current branch to update from the correct remote
-        current_branch = get_current_git_branch()
-        remote_branch = f'origin/{current_branch}'
-        results.append(f'Updating from branch: {current_branch}')
+        # Use the install script to perform the update
+        install_script = os.path.join(flask_app_dir, 'install_rpi_streamer.sh')
+        results.append(f'Starting update using install script: {install_script}')
         
-        # Fetch latest changes
-        fetch = subprocess.run(['git', 'fetch', 'origin'], capture_output=True, text=True)
-        results.append('git fetch: ' + fetch.stdout.strip() + fetch.stderr.strip())
-        if fetch.returncode != 0:
-            return jsonify({'success': False, 'error': fetch.stderr.strip(), 'results': results})
-        # Hard reset to the correct remote branch (restores missing/tracked files, removes local changes, removes extra tracked files)
-        reset = subprocess.run(['git', 'reset', '--hard', remote_branch], capture_output=True, text=True)
-        results.append('git reset: ' + reset.stdout.strip() + reset.stderr.strip())
-        if reset.returncode != 0:
-            return jsonify({'success': False, 'error': reset.stderr.strip(), 'results': results})
-        # Remove extra local files tracked by git but not in remote (deleted from remote)
-        clean = subprocess.run(['git', 'clean', '-fd'], capture_output=True, text=True)
-        results.append('git clean: ' + clean.stdout.strip() + clean.stderr.strip())
-        # Change ownership of all files to the user/group specified by environment variable
-        import os
-        owner = os.environ.get('OWNER')
-        if not owner:
-            raise RuntimeError("No user:group parameter provided. Please set OWNER environment variable (e.g., OWNER=pi:pi)")
-        chown = subprocess.run(['sudo', 'chown', '-R', owner, '.'], capture_output=True, text=True)
-        results.append('chown: ' + chown.stdout.strip() + chown.stderr.strip())
-        return jsonify({'success': True, 'results': results})
+        # Run the install script with --daemon flag (no interactive prompts)
+        # This will automatically detect the current branch and update accordingly
+        result = subprocess.run(['bash', install_script, '--daemon'], 
+                              capture_output=True, text=True, cwd=flask_app_dir, timeout=300)
+        
+        # Capture all output from the install script
+        if result.stdout:
+            results.extend(result.stdout.strip().split('\n'))
+        if result.stderr:
+            results.extend([f"STDERR: {line}" for line in result.stderr.strip().split('\n')])
+        
+        # Check if the update was successful
+        if result.returncode == 0:
+            results.append('✅ Update completed successfully')
+            return jsonify({'success': True, 'results': results})
+        else:
+            results.append(f'❌ Update failed with return code: {result.returncode}')
+            return jsonify({
+                'success': False, 
+                'error': f'Install script failed with return code {result.returncode}',
+                'results': results
+            })
+            
+    except subprocess.TimeoutExpired:
+        results.append('❌ Update timed out after 5 minutes')
+        return jsonify({
+            'success': False, 
+            'error': 'Update process timed out after 5 minutes',
+            'results': results
+        })
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
-        return jsonify({'success': False, 'error': str(e), 'traceback': tb, 'results': results})
+        results.append(f'❌ Update failed with exception: {str(e)}')
+        return jsonify({
+            'success': False, 
+            'error': str(e), 
+            'traceback': tb, 
+            'results': results
+        })
 
 @app.route('/system-restart-services', methods=['POST'])
 def restart_services():
