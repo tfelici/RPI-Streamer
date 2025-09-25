@@ -1940,11 +1940,11 @@ def system_do_update():
             'Transfer-Encoding': 'chunked'
         }
     )
-
+#test
 @app.route('/system-restart-services', methods=['POST'])
 def restart_services():
     """
-    Restart flask_app and mediamtx services, returning a results array with status messages.
+    Restart flask_app service, returning a results array with status messages.
     """
     import subprocess
     results = []
@@ -1954,7 +1954,8 @@ def restart_services():
         results.append('flask_app service restarted.')
     except Exception as e:
         results.append(f"Failed to restart flask_app: {e}")
-     return jsonify({'success': True, 'results': results})
+    
+    return jsonify({'success': True, 'results': results})
 
 @app.route('/delete-recording', methods=['POST'])
 def delete_recording():
