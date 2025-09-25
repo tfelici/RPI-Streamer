@@ -1764,9 +1764,16 @@ def system_check_update():
         # Use the install script to check for updates
         install_script = os.path.join(flask_app_dir, 'install_rpi_streamer.sh')
         
-        # Run the install script with --check-updates flag
-        result = subprocess.run(['bash', install_script, '--check-updates'], 
-                              capture_output=True, text=True, cwd=flask_app_dir, timeout=60)
+        # Get the owner user from environment variable
+        owner = os.environ.get('OWNER')
+        
+        # Run the install script with --check-updates flag as the owner user
+        if owner:
+            cmd = ['sudo', '-u', owner, 'bash', install_script, '--check-updates']
+        else:
+            cmd = ['bash', install_script, '--check-updates']
+            
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=flask_app_dir, timeout=60)
         
         # Parse JSON output from install script
         # The install script may output progress information before the JSON,
@@ -1862,9 +1869,19 @@ def system_do_update():
             install_script = os.path.join(flask_app_dir, 'install_rpi_streamer.sh')
             yield f"data: Starting update using install script: {install_script}\n\n"
             
-            # Run the install script with real-time output streaming
+            # Get the owner user from environment variable
+            owner = os.environ.get('OWNER')
+            
+            # Run the install script with real-time output streaming as the owner user
+            if owner:
+                cmd = ['sudo', '-u', owner, 'bash', install_script, '--daemon']
+                yield f"data: Running as user: {owner}\n\n"
+            else:
+                cmd = ['bash', install_script, '--daemon']
+                yield f"data: Running as current user (no OWNER env var set)\n\n"
+            
             process = subprocess.Popen(
-                ['bash', install_script, '--daemon'], 
+                cmd, 
                 stdout=subprocess.PIPE, 
                 stderr=subprocess.STDOUT,  # Combine stderr with stdout
                 cwd=flask_app_dir,
