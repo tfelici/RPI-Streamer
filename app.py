@@ -1918,10 +1918,6 @@ def system_do_update():
                 yield f"✅ Update completed successfully\n"
                 yield f"🎉 All files have been updated to the latest version\n"
                     
-            elif return_code == -15:
-                # SIGTERM - likely caused by system restart during update
-                yield f"✅ Update completed - process was terminated (expected during system updates)\n"
-                yield f"🔄 Services should restart automatically\n"
             else:
                 yield f"❌ Update failed with return code: {return_code}\n"
                 

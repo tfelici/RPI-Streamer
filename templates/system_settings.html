@@ -1313,6 +1313,24 @@
                                     doUpdateBtn.disabled = false;
                                     updateStatus.textContent = 'Update completed!';
                                     updateStatus.className = 'status-message status-success';
+                                    
+                                    // Only call restart services after the update stream has fully completed
+                                    // Check if update was successful by looking for success indicators in the output
+                                    const outputText = outputContainer.textContent;
+                                    if (outputText.includes('✅ Update completed successfully') || 
+                                        outputText.includes('🎉 All files have been updated to the latest version')) {
+                                        
+                                        // Fire and forget restart services call - don't wait for response
+                                        // since the Flask app will terminate itself during restart
+                                        fetch('/system-restart-services', { method: 'POST' }).catch(() => {});
+                                        
+                                        // Show restart status in the output
+                                        outputContainer.textContent += '\n🔄 Service restart initiated...\n';
+                                        outputContainer.textContent += '✅ Update and restart completed successfully!\n';
+                                        updateStatus.textContent = 'Update and restart completed successfully!';
+                                        outputContainer.scrollTop = outputContainer.scrollHeight;
+                                    }
+                                    
                                     return;
                                 }
                                 
@@ -1329,23 +1347,11 @@
                                         outputContainer.textContent += line + '\n';
                                         outputContainer.scrollTop = outputContainer.scrollHeight;
                                         
-                                        // Check for successful update completion
+                                        // Just update status for successful completion, but don't restart yet
                                         if (line.includes('✅ Update completed successfully') || 
                                             line.includes('🎉 All files have been updated to the latest version')) {
-                                            updateStatus.textContent = 'Update completed successfully! Restarting services...';
+                                            updateStatus.textContent = 'Update completed successfully! Finalizing...';
                                             updateStatus.className = 'status-message status-success';
-                                            
-                                            // Fire and forget restart services call - don't wait for response
-                                            // since the Flask app will terminate itself during restart
-                                            fetch('/system-restart-services', { method: 'POST' }).catch(() => {});
-                                            
-                                            // Immediately show success since restart was initiated
-                                            outputContainer.textContent += '\n🔄 Service restart initiated...\n';
-                                            outputContainer.textContent += '✅ Update and restart completed successfully!\n';
-                                            updateStatus.textContent = 'Update and restart completed successfully!';
-                                            updateStatus.className = 'status-message status-success';
-                                            outputContainer.scrollTop = outputContainer.scrollHeight;
-                                                
                                         } else if (line.includes('❌') && !line.includes('Flask app restarted')) {
                                             updateStatus.textContent = 'Update encountered errors - check output below';
                                             updateStatus.className = 'status-message status-error';
