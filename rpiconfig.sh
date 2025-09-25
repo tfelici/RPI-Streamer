@@ -108,11 +108,11 @@ check_flask_journals() {
 
 # Function to run installer in develop mode
 run_develop_install() {
-    print_header "Running RPI Streamer Installer (Develop Branch)"
-    print_info "This will update to the latest develop branch and install"
+    print_header "Running RPI Streamer Installer"
+    print_info "This will update to the latest branch"
     
     if [ -f "install_rpi_streamer.sh" ]; then
-        bash install_rpi_streamer.sh --develop
+        bash install_rpi_streamer.sh
     else
         print_error "install_rpi_streamer.sh not found in current directory"
         print_info "Make sure you're running this from the RPI Streamer directory"
@@ -540,7 +540,7 @@ show_menu() {
     echo "Available Options:"
     echo "  1) Restart Flask App Service"
     echo "  2) Check Flask App Service Logs"
-    echo "  3) Install/Update (Develop Branch)"
+    echo "  3) Install/Update RPI Streamer (Latest Branch)"
     echo "  4) Toggle Auto-Updates on Boot"
     echo "  5) Toggle GPS Mode (Simulation/Real)"
     echo "  6) Restart GPS Startup Manager"

@@ -1291,55 +1291,50 @@
         if (doUpdateBtn) {
             doUpdateBtn.onclick = function() {
                 doUpdateBtn.disabled = true;
-                updateStatus.textContent = 'Updating...';
+                updateStatus.textContent = 'Starting update...';
                 updateStatus.className = 'status-message';
                 updateDetails.innerHTML = '';
                 
-                fetch('/system-do-update', { method: 'POST' })
-                    .then(function(r) { return r.json(); })
-                    .then(function(data) {
-                        let statusSet = false;
-                        if (data.success) {
-                            updateStatus.textContent = 'Update complete!';
-                            updateStatus.className = 'status-message status-success';
-                            statusSet = true;
-                            // After successful update, call /system-restart-services (fire and forget)
-                            fetch('/system-restart-services', { method: 'POST' });
-                        } else if (data.results && data.results.length > 0) {
-                            let found = data.results.find(x => /update (complete|successful|succeeded)/i.test(x));
-                            if (found) {
-                                updateStatus.textContent = found;
-                                updateStatus.className = 'status-message status-success';
-                                statusSet = true;
-                            }
-                        }
-                        if (!statusSet) {
-                            updateStatus.textContent = data.error || 'Update failed.';
-                            updateStatus.className = 'status-message status-error';
-                        }
-                        
-                        if (data.results && data.results.length > 0) {
-                            let html = '<div style="margin-top:1rem;"><strong>Update Results:</strong><ul style="text-align: left; margin-top: 0.5rem;">';
-                            data.results.forEach(function(res) {
-                                html += `<li>${res}</li>`;
-                            });
-                            html += '</ul></div>';
-                            updateDetails.innerHTML = html;
-                        }
-                        
-                        if (data.traceback) {
-                            updateDetails.innerHTML += `<pre style="color: var(--accent-color); white-space: pre-wrap; word-break: break-all; background: #f8f9fa; padding: 1rem; border-radius: 4px; margin-top: 1rem;"><strong>Traceback:</strong>\n${data.traceback}</pre>`;
-                        }
-                        
-                        doUpdateBtn.disabled = false;
-                    })
-                    .catch(function(e) {
-                        let msg = (e && e.message) ? e.message : (typeof e === 'string' ? e : (e && e.toString ? e.toString() : 'Network or server error.'));
-                        updateStatus.textContent = 'Update failed: ' + msg;
+                // Create a container for streaming output
+                let outputContainer = document.createElement('div');
+                outputContainer.style.cssText = 'margin-top: 1rem; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 0.5rem; padding: 1rem; max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 0.9rem; white-space: pre-wrap; word-break: break-all;';
+                updateDetails.appendChild(outputContainer);
+                
+                // Create EventSource for real-time updates
+                let eventSource = new EventSource('/system-do-update');
+                let hasError = false;
+                
+                eventSource.onmessage = function(event) {
+                    // Append each line of output to the container
+                    outputContainer.textContent += event.data + '\n';
+                    outputContainer.scrollTop = outputContainer.scrollHeight; // Auto-scroll to bottom
+                };
+                
+                eventSource.addEventListener('complete', function(event) {
+                    eventSource.close();
+                    doUpdateBtn.disabled = false;
+                    
+                    if (event.data === 'success') {
+                        updateStatus.textContent = 'Update completed successfully!';
+                        updateStatus.className = 'status-message status-success';
+                        // Fire and forget service restart call (already handled in backend)
+                    } else {
+                        updateStatus.textContent = 'Update failed. Check output below for details.';
                         updateStatus.className = 'status-message status-error';
-                        updateDetails.innerHTML = '<pre style="color: var(--accent-color); white-space: pre-wrap; word-break: break-all; background: #f8f9fa; padding: 1rem; border-radius: 4px; margin-top: 1rem;">' + msg + '</pre>';
-                        doUpdateBtn.disabled = false;
-                    });
+                        hasError = true;
+                    }
+                });
+                
+                eventSource.onerror = function(event) {
+                    eventSource.close();
+                    doUpdateBtn.disabled = false;
+                    
+                    if (!hasError) {
+                        updateStatus.textContent = 'Update connection error. The update may still be running.';
+                        updateStatus.className = 'status-message status-error';
+                        outputContainer.textContent += '\n❌ Connection to update stream lost. Check system manually.\n';
+                    }
+                };
             };
         }
         

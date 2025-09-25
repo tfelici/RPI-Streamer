@@ -1851,56 +1851,73 @@ def system_do_update():
     """
     Perform system update using the install script with --daemon flag.
     This will update the codebase and restart services automatically.
+    Streams output in real-time using Server-Sent Events.
     """
-    import subprocess, os
+    import subprocess, os, threading, queue
     flask_app_dir = os.path.dirname(os.path.abspath(__file__))
-    results = []
-    try:
-        # Use the install script to perform the update
-        install_script = os.path.join(flask_app_dir, 'install_rpi_streamer.sh')
-        results.append(f'Starting update using install script: {install_script}')
-        
-        # Run the install script with --daemon flag (no interactive prompts)
-        # This will automatically detect the current branch and update accordingly
-        result = subprocess.run(['bash', install_script, '--daemon'], 
-                              capture_output=True, text=True, cwd=flask_app_dir, timeout=300)
-        
-        # Capture all output from the install script
-        if result.stdout:
-            results.extend(result.stdout.strip().split('\n'))
-        if result.stderr:
-            results.extend([f"STDERR: {line}" for line in result.stderr.strip().split('\n')])
-        
-        # Check if the update was successful
-        if result.returncode == 0:
-            results.append('✅ Update completed successfully')
-            return jsonify({'success': True, 'results': results})
-        else:
-            results.append(f'❌ Update failed with return code: {result.returncode}')
-            return jsonify({
-                'success': False, 
-                'error': f'Install script failed with return code {result.returncode}',
-                'results': results
-            })
+    
+    def generate_update_stream():
+        try:
+            # Use the install script to perform the update
+            install_script = os.path.join(flask_app_dir, 'install_rpi_streamer.sh')
+            yield f"data: Starting update using install script: {install_script}\n\n"
             
-    except subprocess.TimeoutExpired:
-        results.append('❌ Update timed out after 5 minutes')
-        return jsonify({
-            'success': False, 
-            'error': 'Update process timed out after 5 minutes',
-            'results': results
-        })
-    except Exception as e:
-        import traceback
-        tb = traceback.format_exc()
-        results.append(f'❌ Update failed with exception: {str(e)}')
-        return jsonify({
-            'success': False, 
-            'error': str(e), 
-            'traceback': tb, 
-            'results': results
-        })
-
+            # Run the install script with real-time output streaming
+            process = subprocess.Popen(
+                ['bash', install_script, '--daemon'], 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.STDOUT,  # Combine stderr with stdout
+                cwd=flask_app_dir,
+                text=True,
+                bufsize=1,  # Line buffered
+                universal_newlines=True
+            )
+            
+            # Stream output line by line in real-time
+            while True:
+                line = process.stdout.readline()
+                if not line:
+                    break
+                # Send each line as SSE data
+                yield f"data: {line.rstrip()}\n\n"
+            
+            # Wait for process to complete and get return code
+            return_code = process.wait()
+            
+            # Send final status
+            if return_code == 0:
+                yield f"data: ✅ Update completed successfully\n\n"
+                yield f"event: complete\ndata: success\n\n"
+                # After successful update, call /system-restart-services (fire and forget)
+                try:
+                    subprocess.Popen(['sudo', 'systemctl', 'restart', 'flask_app'], 
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.Popen(['sudo', 'systemctl', 'restart', 'mediamtx'], 
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    yield f"data: Services restart initiated\n\n"
+                except Exception as e:
+                    yield f"data: Warning: Failed to restart services: {str(e)}\n\n"
+            else:
+                yield f"data: ❌ Update failed with return code: {return_code}\n\n"
+                yield f"event: complete\ndata: error\n\n"
+                
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            yield f"data: ❌ Update failed with exception: {str(e)}\n\n"
+            yield f"data: Traceback: {tb}\n\n"
+            yield f"event: complete\ndata: error\n\n"
+    
+    return Response(
+        generate_update_stream(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Access-Control-Allow-Origin': '*'
+        }
+    )
+#teste
 @app.route('/system-restart-services', methods=['POST'])
 def restart_services():
     """
