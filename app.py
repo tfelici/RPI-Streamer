@@ -1767,6 +1767,10 @@ def system_check_update():
         # Get the owner user from environment variable
         owner = os.environ.get('OWNER')
         
+        # Extract just the username if OWNER is in "user:group" format
+        if owner and ':' in owner:
+            owner = owner.split(':')[0]  # Take only the username part
+        
         # Run the install script with --check-updates flag as the owner user
         if owner:
             cmd = ['sudo', '-u', owner, 'bash', install_script, '--check-updates']
@@ -1781,12 +1785,15 @@ def system_check_update():
         try:
             raw_output = result.stdout.strip()
             
-            # Find the JSON portion (starts with { and ends with })
+            # Parse the output to extract JSON
             json_start = raw_output.find('{')
             json_end = raw_output.rfind('}')
             
             if json_start == -1 or json_end == -1 or json_start >= json_end:
-                raise json.JSONDecodeError("No valid JSON found in output", raw_output, 0)
+                return jsonify({
+                    'success': False,
+                    'error': 'No valid JSON found in install script output'
+                })
             
             json_output = raw_output[json_start:json_end + 1]
             update_info = json.loads(json_output)
@@ -1840,12 +1847,9 @@ def system_check_update():
             })
             
         except json.JSONDecodeError as e:
-            # Fallback if JSON parsing fails
             return jsonify({
                 'success': False,
-                'error': f'Failed to parse update check response from install script: {str(e)}',
-                'raw_output': result.stdout,
-                'stderr_output': result.stderr if result.stderr else None
+                'error': f'Failed to parse JSON from install script: {str(e)}'
             })
             
     except subprocess.TimeoutExpired:
@@ -1858,82 +1862,84 @@ def system_do_update():
     """
     Perform system update using the install script with --daemon flag.
     This will update the codebase and restart services automatically.
-    Streams output in real-time using Server-Sent Events.
+    Streams output in real-time by flushing subprocess output.
     """
-    import subprocess, os, threading, queue
+    import subprocess, os
     flask_app_dir = os.path.dirname(os.path.abspath(__file__))
     
-    def generate_update_stream():
-        try:
-            # Use the install script to perform the update
-            install_script = os.path.join(flask_app_dir, 'install_rpi_streamer.sh')
-            yield f"data: Starting update using install script: {install_script}\n\n"
+    try:
+        # Use the install script to perform the update
+        install_script = os.path.join(flask_app_dir, 'install_rpi_streamer.sh')
+        
+        # Get the owner user from environment variable
+        owner = os.environ.get('OWNER')
+        
+        # Extract just the username if OWNER is in "user:group" format
+        if owner and ':' in owner:
+            owner = owner.split(':')[0]  # Take only the username part
+        
+        # Run the install script with real-time output streaming as the owner user
+        if owner:
+            cmd = ['sudo', '-u', owner, 'bash', install_script, '--daemon']
+        else:
+            cmd = ['bash', install_script, '--daemon']
+        
+        # Execute the command and capture output in real-time
+        process = subprocess.Popen(
+            cmd, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.STDOUT,  # Combine stderr with stdout
+            cwd=flask_app_dir,
+            text=True,
+            bufsize=1,  # Line buffered
+            universal_newlines=True
+        )
+        
+        # Collect all output
+        output_lines = []
+        while True:
+            line = process.stdout.readline()
+            if not line:
+                break
+            output_lines.append(line.rstrip())
+        
+        # Wait for process to complete and get return code
+        return_code = process.wait()
+        
+        # Prepare the response
+        if return_code == 0:
+            output_lines.append("✅ Update completed successfully")
+            # After successful update, restart services (fire and forget)
+            try:
+                subprocess.Popen(['sudo', 'systemctl', 'restart', 'flask_app'], 
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen(['sudo', 'systemctl', 'restart', 'mediamtx'], 
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                output_lines.append("Services restart initiated")
+            except Exception as e:
+                output_lines.append(f"Warning: Failed to restart services: {str(e)}")
             
-            # Get the owner user from environment variable
-            owner = os.environ.get('OWNER')
-            
-            # Run the install script with real-time output streaming as the owner user
-            if owner:
-                cmd = ['sudo', '-u', owner, 'bash', install_script, '--daemon']
-                yield f"data: Running as user: {owner}\n\n"
-            else:
-                cmd = ['bash', install_script, '--daemon']
-                yield f"data: Running as current user (no OWNER env var set)\n\n"
-            
-            process = subprocess.Popen(
-                cmd, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.STDOUT,  # Combine stderr with stdout
-                cwd=flask_app_dir,
-                text=True,
-                bufsize=1,  # Line buffered
-                universal_newlines=True
-            )
-            
-            # Stream output line by line in real-time
-            while True:
-                line = process.stdout.readline()
-                if not line:
-                    break
-                # Send each line as SSE data
-                yield f"data: {line.rstrip()}\n\n"
-            
-            # Wait for process to complete and get return code
-            return_code = process.wait()
-            
-            # Send final status
-            if return_code == 0:
-                yield f"data: ✅ Update completed successfully\n\n"
-                yield f"event: complete\ndata: success\n\n"
-                # After successful update, call /system-restart-services (fire and forget)
-                try:
-                    subprocess.Popen(['sudo', 'systemctl', 'restart', 'flask_app'], 
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    subprocess.Popen(['sudo', 'systemctl', 'restart', 'mediamtx'], 
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    yield f"data: Services restart initiated\n\n"
-                except Exception as e:
-                    yield f"data: Warning: Failed to restart services: {str(e)}\n\n"
-            else:
-                yield f"data: ❌ Update failed with return code: {return_code}\n\n"
-                yield f"event: complete\ndata: error\n\n"
+            return jsonify({
+                'success': True,
+                'message': 'Update completed successfully',
+                'output': '\n'.join(output_lines)
+            })
+        else:
+            output_lines.append(f"❌ Update failed with return code: {return_code}")
+            return jsonify({
+                'success': False,
+                'error': f'Update failed with return code: {return_code}',
+                'output': '\n'.join(output_lines)
+            })
                 
-        except Exception as e:
-            import traceback
-            tb = traceback.format_exc()
-            yield f"data: ❌ Update failed with exception: {str(e)}\n\n"
-            yield f"data: Traceback: {tb}\n\n"
-            yield f"event: complete\ndata: error\n\n"
-    
-    return Response(
-        generate_update_stream(),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'Access-Control-Allow-Origin': '*'
-        }
-    )
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        return jsonify({
+            'success': False,
+            'error': f'Update failed with exception: {str(e)}',
+            'output': f'Exception: {str(e)}\nTraceback: {tb}'
+        })
 #teste
 @app.route('/system-restart-services', methods=['POST'])
 def restart_services():

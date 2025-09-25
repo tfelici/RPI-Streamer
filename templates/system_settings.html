@@ -1291,50 +1291,42 @@
         if (doUpdateBtn) {
             doUpdateBtn.onclick = function() {
                 doUpdateBtn.disabled = true;
-                updateStatus.textContent = 'Starting update...';
+                updateStatus.textContent = 'Running update... Please wait.';
                 updateStatus.className = 'status-message';
                 updateDetails.innerHTML = '';
                 
-                // Create a container for streaming output
+                // Create a container for output
                 let outputContainer = document.createElement('div');
                 outputContainer.style.cssText = 'margin-top: 1rem; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 0.5rem; padding: 1rem; max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 0.9rem; white-space: pre-wrap; word-break: break-all;';
+                outputContainer.textContent = 'Update in progress...\n';
                 updateDetails.appendChild(outputContainer);
                 
-                // Create EventSource for real-time updates
-                let eventSource = new EventSource('/system-do-update');
-                let hasError = false;
-                
-                eventSource.onmessage = function(event) {
-                    // Append each line of output to the container
-                    outputContainer.textContent += event.data + '\n';
-                    outputContainer.scrollTop = outputContainer.scrollHeight; // Auto-scroll to bottom
-                };
-                
-                eventSource.addEventListener('complete', function(event) {
-                    eventSource.close();
-                    doUpdateBtn.disabled = false;
-                    
-                    if (event.data === 'success') {
-                        updateStatus.textContent = 'Update completed successfully!';
-                        updateStatus.className = 'status-message status-success';
-                        // Fire and forget service restart call (already handled in backend)
-                    } else {
-                        updateStatus.textContent = 'Update failed. Check output below for details.';
+                // Make POST request to start update
+                fetch('/system-do-update', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        doUpdateBtn.disabled = false;
+                        
+                        if (data.success) {
+                            updateStatus.textContent = 'Update completed successfully!';
+                            updateStatus.className = 'status-message status-success';
+                        } else {
+                            updateStatus.textContent = 'Update failed. Check output below for details.';
+                            updateStatus.className = 'status-message status-error';
+                        }
+                        
+                        // Display the output
+                        if (data.output) {
+                            outputContainer.textContent = data.output;
+                            outputContainer.scrollTop = outputContainer.scrollHeight;
+                        }
+                    })
+                    .catch(error => {
+                        doUpdateBtn.disabled = false;
+                        updateStatus.textContent = 'Update request failed: ' + error.message;
                         updateStatus.className = 'status-message status-error';
-                        hasError = true;
-                    }
-                });
-                
-                eventSource.onerror = function(event) {
-                    eventSource.close();
-                    doUpdateBtn.disabled = false;
-                    
-                    if (!hasError) {
-                        updateStatus.textContent = 'Update connection error. The update may still be running.';
-                        updateStatus.className = 'status-message status-error';
-                        outputContainer.textContent += '\n❌ Connection to update stream lost. Check system manually.\n';
-                    }
-                };
+                        outputContainer.textContent = 'Error: ' + error.message;
+                    });
             };
         }
         
