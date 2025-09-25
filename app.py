@@ -1881,12 +1881,15 @@ def system_do_update():
                 owner = owner.split(':')[0]  # Take only the username part
             
             # Run the install script with real-time output streaming as the owner user
+            # Use --no-restart flag to prevent the script from restarting flask_app
             if owner:
-                cmd = ['sudo', '-u', owner, 'bash', install_script, '--daemon']
+                cmd = ['sudo', '-u', owner, 'bash', install_script, '--daemon', '--no-restart']
                 yield f"Running as user: {owner}\n"
             else:
-                cmd = ['bash', install_script, '--daemon']
+                cmd = ['bash', install_script, '--daemon', '--no-restart']
                 yield f"Running as current user (no OWNER env var set)\n"
+            
+            yield f"Using --no-restart flag to prevent script from restarting flask_app\n"
             
             # Execute the command and stream output in real-time
             process = subprocess.Popen(
@@ -1913,19 +1916,12 @@ def system_do_update():
             # Send final status
             if return_code == 0:
                 yield f"✅ Update completed successfully\n"
-                yield f"🔄 Flask app will restart automatically to load updated code\n"
-                # Don't restart Flask app here - it will restart when this process ends
-                # Only restart MediaMTX since it's a separate service
-                try:
-                    subprocess.Popen(['sudo', 'systemctl', 'restart', 'mediamtx'], 
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    yield f"MediaMTX service restart initiated\n"
-                except Exception as e:
-                    yield f"Warning: Failed to restart MediaMTX: {str(e)}\n"
+                yield f"🎉 All files have been updated to the latest version\n"
+                    
             elif return_code == -15:
-                # SIGTERM - likely caused by Flask app restart during update
-                yield f"✅ Update completed - Flask app restarted during process (expected behavior)\n"
-                yield f"🔄 Application is loading updated code\n"
+                # SIGTERM - likely caused by system restart during update
+                yield f"✅ Update completed - process was terminated (expected during system updates)\n"
+                yield f"🔄 Services should restart automatically\n"
             else:
                 yield f"❌ Update failed with return code: {return_code}\n"
                 

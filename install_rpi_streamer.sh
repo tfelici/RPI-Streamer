@@ -7,12 +7,14 @@
 #   --develop         Install latest develop branch (may be unstable)
 #   --daemon          Run in daemon mode (no interactive prompts)
 #   --check-updates   Check for updates and return JSON with changed files (no installation)
+#   --no-restart      Skip restarting flask_app service (for internal updates)
 #
 # Examples:
 #   bash install_rpi_streamer.sh                     # Basic installation with main branch
 #   bash install_rpi_streamer.sh --develop          # Installation with develop branch
 #   bash install_rpi_streamer.sh --daemon           # Silent installation without prompts
 #   bash install_rpi_streamer.sh --check-updates    # Return JSON with files that need updating
+#   bash install_rpi_streamer.sh --no-restart       # Update without restarting flask_app
 
 # This script installs the RPI Streamer Flask app and MediaMTX on a Raspberry Pi running Raspberry Pi OS Lite.
 # It also sets up a systemd service for the Flask app and MediaMTX, with optional remote access configuration.
@@ -1056,7 +1058,15 @@ sudo systemctl daemon-reload
 sudo systemctl enable install_rpi_streamer
 echo "✅ install_rpi_streamer.service created and enabled"
 sudo systemctl enable flask_app
-sudo systemctl restart flask_app
+
+# Check if --no-restart flag is provided to avoid restarting flask_app
+if [[ "$@" != *"--no-restart"* ]]; then
+    sudo systemctl restart flask_app
+    echo "✅ flask_app service restarted"
+else
+    echo "🚫 Skipping flask_app restart due to --no-restart flag"
+fi
+
 sudo systemctl enable mediamtx
 sudo systemctl restart mediamtx
 sudo systemctl enable heartbeat-daemon
@@ -1435,11 +1445,13 @@ echo ""
 echo "🛠️ Installation Script Options:"
 echo "   --daemon       : Run in daemon mode (no interactive prompts)"
 echo "   --check-updates: Return JSON with files that need updating (no installation)"
+echo "   --no-restart   : Skip restarting flask_app service (for internal updates)"
 echo ""
 echo "🌐 Examples:"
 echo "   bash install_rpi_streamer.sh                      # Interactive installation"
 echo "   bash install_rpi_streamer.sh --daemon             # Silent installation"
 echo "   bash install_rpi_streamer.sh --check-updates      # Return JSON with files that need updating"
+echo "   bash install_rpi_streamer.sh --no-restart         # Update without restarting flask_app"
 echo ""
 echo "📚 Documentation:"
 echo "   GPS Tracker: GPS_TRACKER_README.md"
