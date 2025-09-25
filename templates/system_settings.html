@@ -1291,35 +1291,60 @@
         if (doUpdateBtn) {
             doUpdateBtn.onclick = function() {
                 doUpdateBtn.disabled = true;
-                updateStatus.textContent = 'Running update... Please wait.';
+                updateStatus.textContent = 'Starting update...';
                 updateStatus.className = 'status-message';
                 updateDetails.innerHTML = '';
                 
-                // Create a container for output
+                // Create a container for streaming output
                 let outputContainer = document.createElement('div');
                 outputContainer.style.cssText = 'margin-top: 1rem; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 0.5rem; padding: 1rem; max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 0.9rem; white-space: pre-wrap; word-break: break-all;';
-                outputContainer.textContent = 'Update in progress...\n';
                 updateDetails.appendChild(outputContainer);
                 
-                // Make POST request to start update
+                // Use fetch with response streaming
                 fetch('/system-do-update', { method: 'POST' })
-                    .then(response => response.json())
-                    .then(data => {
-                        doUpdateBtn.disabled = false;
+                    .then(response => {
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
+                        let buffer = '';
                         
-                        if (data.success) {
-                            updateStatus.textContent = 'Update completed successfully!';
-                            updateStatus.className = 'status-message status-success';
-                        } else {
-                            updateStatus.textContent = 'Update failed. Check output below for details.';
-                            updateStatus.className = 'status-message status-error';
+                        function readChunk() {
+                            return reader.read().then(({ done, value }) => {
+                                if (done) {
+                                    doUpdateBtn.disabled = false;
+                                    updateStatus.textContent = 'Update completed!';
+                                    updateStatus.className = 'status-message status-success';
+                                    return;
+                                }
+                                
+                                // Decode chunk and add to buffer
+                                buffer += decoder.decode(value, { stream: true });
+                                
+                                // Process complete lines
+                                let lines = buffer.split('\n');
+                                buffer = lines.pop(); // Keep incomplete line in buffer
+                                
+                                // Display each complete line immediately
+                                for (let line of lines) {
+                                    if (line.trim()) {
+                                        outputContainer.textContent += line + '\n';
+                                        outputContainer.scrollTop = outputContainer.scrollHeight;
+                                        
+                                        // Update status based on content
+                                        if (line.includes('✅ Update completed successfully')) {
+                                            updateStatus.textContent = 'Update completed successfully!';
+                                            updateStatus.className = 'status-message status-success';
+                                        } else if (line.includes('❌') || line.includes('failed')) {
+                                            updateStatus.textContent = 'Update encountered errors - check output below';
+                                            updateStatus.className = 'status-message status-error';
+                                        }
+                                    }
+                                }
+                                
+                                return readChunk();
+                            });
                         }
                         
-                        // Display the output
-                        if (data.output) {
-                            outputContainer.textContent = data.output;
-                            outputContainer.scrollTop = outputContainer.scrollHeight;
-                        }
+                        return readChunk();
                     })
                     .catch(error => {
                         doUpdateBtn.disabled = false;
