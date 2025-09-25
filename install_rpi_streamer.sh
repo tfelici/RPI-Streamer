@@ -124,11 +124,27 @@ if [ -d .git ]; then
             echo "  \"latest_commit\": \"${LATEST_COMMIT:0:8}\","
             echo "  \"branch\": \"$BRANCH_NAME\","
             echo "  \"changed_files\": ["
-            changed_files=$(git diff --name-only $CURRENT_COMMIT $LATEST_COMMIT 2>/dev/null)
-            if [ -n "$changed_files" ]; then
+            
+            # Get files changed between commits
+            remote_changed_files=$(git diff --name-only $CURRENT_COMMIT $LATEST_COMMIT 2>/dev/null)
+            
+            # Get locally modified files (uncommitted changes)
+            local_modified_files=$(git diff --name-only HEAD 2>/dev/null)
+            
+            # Combine both lists and remove duplicates
+            all_changed_files=$(echo -e "$remote_changed_files\n$local_modified_files" | sort | uniq | grep -v '^$')
+            
+            if [ -n "$all_changed_files" ]; then
                 while IFS= read -r file; do
-                    echo "    \"$file\","
-                done <<< "$changed_files" | sed '$ s/,$//'
+                    [ -n "$file" ] && echo "    \"$file\","
+                done <<< "$all_changed_files" | sed '$ s/,$//'
+            fi
+            echo "  ],"
+            echo "  \"local_modifications\": ["
+            if [ -n "$local_modified_files" ]; then
+                while IFS= read -r file; do
+                    [ -n "$file" ] && echo "    \"$file\","
+                done <<< "$local_modified_files" | sed '$ s/,$//'
             fi
             echo "  ]"
             echo "}"
@@ -164,13 +180,38 @@ if [ -d .git ]; then
         
         # If --check-updates flag is provided, return empty list (no files changed)
         if [[ "$@" == *"--check-updates"* ]]; then
-            echo "{"
-            echo "  \"updates_available\": false,"
-            echo "  \"current_commit\": \"${CURRENT_COMMIT:0:8}\","
-            echo "  \"latest_commit\": \"${CURRENT_COMMIT:0:8}\","
-            echo "  \"branch\": \"$BRANCH_NAME\","
-            echo "  \"changed_files\": []"
-            echo "}"
+            # Check for local modifications even if remote is up to date
+            local_modified_files=$(git diff --name-only HEAD 2>/dev/null)
+            
+            if [ -n "$local_modified_files" ]; then
+                # Local modifications exist, report updates available
+                echo "{"
+                echo "  \"updates_available\": true,"
+                echo "  \"current_commit\": \"${CURRENT_COMMIT:0:8}\","
+                echo "  \"latest_commit\": \"${CURRENT_COMMIT:0:8}\","
+                echo "  \"branch\": \"$BRANCH_NAME\","
+                echo "  \"changed_files\": ["
+                while IFS= read -r file; do
+                    [ -n "$file" ] && echo "    \"$file\","
+                done <<< "$local_modified_files" | sed '$ s/,$//'
+                echo "  ],"
+                echo "  \"local_modifications\": ["
+                while IFS= read -r file; do
+                    [ -n "$file" ] && echo "    \"$file\","
+                done <<< "$local_modified_files" | sed '$ s/,$//'
+                echo "  ]"
+                echo "}"
+            else
+                # No changes at all
+                echo "{"
+                echo "  \"updates_available\": false,"
+                echo "  \"current_commit\": \"${CURRENT_COMMIT:0:8}\","
+                echo "  \"latest_commit\": \"${CURRENT_COMMIT:0:8}\","
+                echo "  \"branch\": \"$BRANCH_NAME\","
+                echo "  \"changed_files\": [],"
+                echo "  \"local_modifications\": []"
+                echo "}"
+            fi
             exit 0
         fi
         

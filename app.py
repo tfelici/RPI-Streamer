@@ -24,7 +24,7 @@ from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR,HEARTBEAT_FILE, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, get_hardwareid, get_app_version, get_active_recording_info, add_files_from_path, load_wifi_settings, save_wifi_settings, get_wifi_mode_status, reset_modem_at_command, load_cellular_settings, save_cellular_settings, get_cellular_status, update_cellular_connection
 
 # Use pymediainfo for fast video duration extraction - now imported in utils.py
-
+#this is a test
 app = Flask(__name__)
 
 # Global dictionary to track upload progress and allow cancellation
@@ -1775,6 +1775,7 @@ def system_check_update():
             # Extract information from JSON response
             updates_available = update_info.get('updates_available', False)
             changed_files = update_info.get('changed_files', [])
+            local_modifications = update_info.get('local_modifications', [])
             branch = update_info.get('branch', 'unknown')
             current_commit = update_info.get('current_commit', 'unknown')
             latest_commit = update_info.get('latest_commit', 'unknown')
@@ -1787,8 +1788,25 @@ def system_check_update():
                 summary = 'New installation required - all files out of date.'
                 details = f'No existing installation found for branch: {branch}'
             else:
-                summary = 'Updates are available from the GitHub repository.'
-                details = f'Branch: {branch}, {current_commit} → {latest_commit}\nChanged files:\n' + '\n'.join(changed_files)
+                # Determine what type of changes exist
+                has_remote_changes = current_commit != latest_commit
+                has_local_changes = len(local_modifications) > 0
+                
+                if has_remote_changes and has_local_changes:
+                    summary = 'Updates available from GitHub and local modifications detected.'
+                    details = f'Branch: {branch}, {current_commit} → {latest_commit}\n'
+                    details += f'Remote changes: {len([f for f in changed_files if f not in local_modifications])} files\n'
+                    details += f'Local modifications: {len(local_modifications)} files\n'
+                    details += f'All changed files:\n' + '\n'.join(changed_files)
+                elif has_remote_changes:
+                    summary = 'Updates are available from the GitHub repository.'
+                    details = f'Branch: {branch}, {current_commit} → {latest_commit}\nChanged files:\n' + '\n'.join(changed_files)
+                elif has_local_changes:
+                    summary = 'Local modifications detected (no remote updates).'
+                    details = f'Branch: {branch}, Commit: {current_commit}\nLocally modified files:\n' + '\n'.join(local_modifications)
+                else:
+                    summary = 'Updates are available from the GitHub repository.'
+                    details = f'Branch: {branch}, {current_commit} → {latest_commit}\nChanged files:\n' + '\n'.join(changed_files)
             
             return jsonify({
                 'success': True,
@@ -1796,6 +1814,7 @@ def system_check_update():
                 'updates': updates_available,
                 'details': details,
                 'changed_files': changed_files,
+                'local_modifications': local_modifications,
                 'branch': branch,
                 'current_commit': current_commit,
                 'latest_commit': latest_commit
