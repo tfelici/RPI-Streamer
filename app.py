@@ -1940,16 +1940,58 @@ def system_do_update():
 @app.route('/system-restart-services', methods=['POST'])
 def restart_services():
     """
-    Restart flask_app service, returning a results array with status messages.
+    Restart any services that are currently running, with flask_app restarted last
+    since it will terminate the current process.
     """
     import subprocess
     results = []
-    # Restart flask_app service
+    
+    # List of services to check and potentially restart (excluding flask_app for now)
+    services_to_check = MONITORED_SERVICES.copy()  # ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon', 'modem-manager', 'ups-monitor']
+    
+    # Check each service and restart if it's currently active
+    for service in services_to_check:
+        try:
+            # Check if service is active
+            status_result = subprocess.run(['systemctl', 'is-active', service], 
+                                         capture_output=True, text=True, timeout=5)
+            
+            if status_result.returncode == 0 and status_result.stdout.strip() == 'active':
+                # Service is active, restart it
+                try:
+                    subprocess.run(['sudo', 'systemctl', 'restart', service], check=True, timeout=30)
+                    results.append(f'{service} service restarted.')
+                except subprocess.CalledProcessError as e:
+                    results.append(f'Failed to restart {service}: return code {e.returncode}')
+                except subprocess.TimeoutExpired:
+                    results.append(f'Failed to restart {service}: timeout after 30 seconds')
+                except Exception as e:
+                    results.append(f'Failed to restart {service}: {e}')
+            else:
+                results.append(f'{service} service not active, skipped.')
+                
+        except subprocess.TimeoutExpired:
+            results.append(f'Failed to check {service} status: timeout')
+        except Exception as e:
+            results.append(f'Failed to check {service} status: {e}')
+    
+    # Finally, restart flask_app last (this will terminate the current process)
     try:
         subprocess.run(['sudo', 'systemctl', 'restart', 'flask_app'], check=True)
-        results.append('flask_app service restarted.')
+        results.append('flask_app service restart initiated (process terminated as expected).')
+    except subprocess.CalledProcessError as e:
+        # Check if the process was killed by SIGTERM (15), which is expected when restarting ourselves
+        if e.returncode == -15:  # SIGTERM
+            results.append('flask_app service restart initiated (process terminated as expected).')
+        else:
+            results.append(f"Failed to restart flask_app: Command failed with return code {e.returncode}")
     except Exception as e:
-        results.append(f"Failed to restart flask_app: {e}")
+        # Handle other exceptions (like "died with <Signals.SIGTERM: 15>")
+        error_msg = str(e)
+        if 'SIGTERM: 15' in error_msg or 'died with <Signals.SIGTERM: 15>' in error_msg:
+            results.append('flask_app service restart initiated (process terminated as expected).')
+        else:
+            results.append(f"Failed to restart flask_app: {e}")
     
     return jsonify({'success': True, 'results': results})
 
