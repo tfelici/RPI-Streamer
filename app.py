@@ -1954,13 +1954,7 @@ def restart_services():
         results.append('flask_app service restarted.')
     except Exception as e:
         results.append(f"Failed to restart flask_app: {e}")
-    # Restart mediamtx service
-    try:
-        subprocess.run(['sudo', 'systemctl', 'restart', 'mediamtx'], check=True)
-        results.append('mediamtx service restarted.')
-    except Exception as e:
-        results.append(f"Failed to restart mediamtx: {e}")
-    return jsonify({'success': True, 'results': results})
+     return jsonify({'success': True, 'results': results})
 
 @app.route('/delete-recording', methods=['POST'])
 def delete_recording():
