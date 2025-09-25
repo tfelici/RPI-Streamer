@@ -215,8 +215,52 @@ if [ -d .git ]; then
             exit 0
         fi
         
-        echo "💡 No installation needed - system is current"
-        exit 0
+        # Check for local modifications even if remote is up to date (ignore filemode changes)
+        local_modified_files=$(git -c core.filemode=false diff --name-only HEAD 2>/dev/null)
+        
+        if [ -n "$local_modified_files" ]; then
+            echo "⚠️  Local modifications detected even though remote is up to date:"
+            echo "$local_modified_files"
+            echo ""
+            echo "🧹 Performing hard reset to ensure local installation exactly matches the repository"
+            
+            # Show what will be reset before resetting it
+            files_to_reset=$(echo "$local_modified_files" | wc -l)
+            echo "   Found $files_to_reset locally modified files to reset"
+            
+            # Hard reset to match the remote exactly
+            sudo git reset --hard HEAD
+            
+            # Comprehensive cleanup to mirror git repository exactly
+            echo "🧹 Cleaning up files not in git repository..."
+            echo "   This ensures local installation exactly matches the repository"
+            
+            # Show what will be removed (if anything) before removing it
+            files_to_clean=$(sudo git clean -f -d -x --dry-run | wc -l)
+            if [ "$files_to_clean" -gt 0 ]; then
+                echo "   Found $files_to_clean untracked/ignored files to remove"
+                sudo git clean -f -d -x
+            else
+                echo "   No cleanup needed - directory is already clean"
+            fi
+            
+            echo "✅ Local installation now exactly matches git repository"
+            echo "Repository reset to current $BRANCH_NAME branch"
+            
+            #run upgrade settings script if it exists
+            if [ -f upgrade_settings.py ]; then
+                echo "Running upgrade script to migrate cellular settings..."
+                python3 upgrade_settings.py || echo "Upgrade script encountered an error, but continuing with installation..."
+            else
+                echo "No upgrade script found, skipping cellular settings migration..."
+            fi
+            
+            # Continue with installation since we made changes
+            UPDATES_AVAILABLE=true
+        else
+            echo "💡 No installation needed - system is current"
+            exit 0
+        fi
     fi
 else
     # NEW INSTALLATION: Use command line flags to determine branch
