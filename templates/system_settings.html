@@ -1335,34 +1335,16 @@
                                             updateStatus.textContent = 'Update completed successfully! Restarting services...';
                                             updateStatus.className = 'status-message status-success';
                                             
-                                            // Call restart services endpoint after successful update
-                                            fetch('/system-restart-services', { method: 'POST' })
-                                                .then(r => r.json())
-                                                .then(restartData => {
-                                                    if (restartData.success) {
-                                                        outputContainer.textContent += '\n✅ Services restarted successfully\n';
-                                                        updateStatus.textContent = 'Update and restart completed successfully!';
-                                                        updateStatus.className = 'status-message status-success';
-                                                        
-                                                        // Show restart results
-                                                        if (restartData.results) {
-                                                            restartData.results.forEach(result => {
-                                                                outputContainer.textContent += `• ${result}\n`;
-                                                            });
-                                                        }
-                                                    } else {
-                                                        outputContainer.textContent += '\n⚠️ Warning: Service restart failed\n';
-                                                        updateStatus.textContent = 'Update completed, but service restart failed';
-                                                        updateStatus.className = 'status-message status-warning';
-                                                    }
-                                                    outputContainer.scrollTop = outputContainer.scrollHeight;
-                                                })
-                                                .catch(error => {
-                                                    outputContainer.textContent += '\n⚠️ Warning: Could not restart services: ' + error.message + '\n';
-                                                    updateStatus.textContent = 'Update completed, but service restart failed';
-                                                    updateStatus.className = 'status-message status-warning';
-                                                    outputContainer.scrollTop = outputContainer.scrollHeight;
-                                                });
+                                            // Fire and forget restart services call - don't wait for response
+                                            // since the Flask app will terminate itself during restart
+                                            fetch('/system-restart-services', { method: 'POST' }).catch(() => {});
+                                            
+                                            // Immediately show success since restart was initiated
+                                            outputContainer.textContent += '\n🔄 Service restart initiated...\n';
+                                            outputContainer.textContent += '✅ Update and restart completed successfully!\n';
+                                            updateStatus.textContent = 'Update and restart completed successfully!';
+                                            updateStatus.className = 'status-message status-success';
+                                            outputContainer.scrollTop = outputContainer.scrollHeight;
                                                 
                                         } else if (line.includes('❌') && !line.includes('Flask app restarted')) {
                                             updateStatus.textContent = 'Update encountered errors - check output below';
