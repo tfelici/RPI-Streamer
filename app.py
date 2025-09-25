@@ -1940,7 +1940,7 @@ def system_do_update():
             'Transfer-Encoding': 'chunked'
         }
     )
-#test
+
 @app.route('/system-restart-services', methods=['POST'])
 def restart_services():
     """
