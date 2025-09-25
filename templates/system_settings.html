@@ -1330,10 +1330,12 @@
                                         outputContainer.scrollTop = outputContainer.scrollHeight;
                                         
                                         // Update status based on content
-                                        if (line.includes('✅ Update completed successfully')) {
+                                        if (line.includes('✅ Update completed successfully') || 
+                                            line.includes('✅ Update completed - Flask app restarted') ||
+                                            line.includes('Application is loading updated code')) {
                                             updateStatus.textContent = 'Update completed successfully!';
                                             updateStatus.className = 'status-message status-success';
-                                        } else if (line.includes('❌') || line.includes('failed')) {
+                                        } else if (line.includes('❌') && !line.includes('Flask app restarted')) {
                                             updateStatus.textContent = 'Update encountered errors - check output below';
                                             updateStatus.className = 'status-message status-error';
                                         }

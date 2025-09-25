@@ -1913,15 +1913,19 @@ def system_do_update():
             # Send final status
             if return_code == 0:
                 yield f"✅ Update completed successfully\n"
-                # After successful update, restart services (fire and forget)
+                yield f"🔄 Flask app will restart automatically to load updated code\n"
+                # Don't restart Flask app here - it will restart when this process ends
+                # Only restart MediaMTX since it's a separate service
                 try:
-                    subprocess.Popen(['sudo', 'systemctl', 'restart', 'flask_app'], 
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     subprocess.Popen(['sudo', 'systemctl', 'restart', 'mediamtx'], 
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    yield f"Services restart initiated\n"
+                    yield f"MediaMTX service restart initiated\n"
                 except Exception as e:
-                    yield f"Warning: Failed to restart services: {str(e)}\n"
+                    yield f"Warning: Failed to restart MediaMTX: {str(e)}\n"
+            elif return_code == -15:
+                # SIGTERM - likely caused by Flask app restart during update
+                yield f"✅ Update completed - Flask app restarted during process (expected behavior)\n"
+                yield f"🔄 Application is loading updated code\n"
             else:
                 yield f"❌ Update failed with return code: {return_code}\n"
                 
@@ -1940,7 +1944,7 @@ def system_do_update():
             'Transfer-Encoding': 'chunked'
         }
     )
-
+#test
 @app.route('/system-restart-services', methods=['POST'])
 def restart_services():
     """

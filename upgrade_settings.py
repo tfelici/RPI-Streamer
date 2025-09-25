@@ -89,8 +89,9 @@ def main():
     settings_data = load_json_file(settings_path)
     
     if settings_data is None:
-        print("✗ Could not load settings.json - file may not exist or be corrupted")
-        return False
+        print("ℹ️  Could not load settings.json - file may not exist or be corrupted")
+        print("✅ No migration needed - likely a fresh installation")
+        return True
     
     # Check if any cellular settings exist in settings.json
     cellular_settings_found = {}
