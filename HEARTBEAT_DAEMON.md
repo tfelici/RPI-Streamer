@@ -1,6 +1,6 @@
 # RPI Streamer Heartbeat Daemon
 
-This document describes the standalone heartbeat daemon that runs independently of the web server to monitor device health and send status updates to the remote server.
+This document describes the standalone heartbeat daemon that runs independently of the web server to monitor device health, send status updates to the remote server, and process remote control commands.
 
 ## Overview
 
@@ -8,6 +8,7 @@ The heartbeat daemon (`heartbeat_daemon.py`) is a standalone Python service that
 
 - Runs independently of the Flask web application
 - Sends periodic heartbeat data to the remote server every 5 seconds
+- Processes remote control commands from server responses
 - Starts automatically on boot as a systemd service
 - Provides robust error handling and graceful shutdown
 - Monitors CPU usage, memory usage, temperature, power consumption, UPS status, and comprehensive hardware diagnostics via vcgencmd
@@ -15,11 +16,31 @@ The heartbeat daemon (`heartbeat_daemon.py`) is a standalone Python service that
 ## Features
 
 - **Independent Operation**: No dependency on the web server running
+- **Remote Control**: Processes commands received from heartbeat server responses
+- **GPS Control**: Start/stop GPS tracking via remote commands
 - **Automatic Startup**: Starts on boot via systemd
 - **Graceful Shutdown**: Handles SIGTERM and SIGINT signals properly
 - **Error Resilience**: Continues running even if heartbeat requests fail
 - **Resource Efficient**: Minimal CPU and memory usage
 - **Comprehensive Monitoring**: Collects all available system metrics including UPS power status and vcgencmd hardware diagnostics
+
+## Remote Control Features
+
+The daemon now supports remote device control through heartbeat responses:
+
+### Supported Commands
+
+#### GPS Control
+- **Start GPS Tracking**: Server can remotely start GPS tracking
+- **Stop GPS Tracking**: Server can remotely stop GPS tracking
+
+### Command Processing
+1. Device sends heartbeat data to server
+2. Server responds with optional command in JSON format
+3. Daemon processes command and executes it locally
+4. Results are logged for monitoring
+
+For detailed information about remote control features, see [HEARTBEAT_REMOTE_CONTROL.md](HEARTBEAT_REMOTE_CONTROL.md).
 
 ## Installation
 

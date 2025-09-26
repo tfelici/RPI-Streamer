@@ -14,7 +14,7 @@ from datetime import datetime
 # Add the RPI Streamer directory to the path so we can import utils
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils import is_gps_tracking, load_settings, save_settings, calculate_distance, get_hardwareid
+from utils import is_gps_tracking, load_settings, calculate_distance, get_hardwareid, get_streamer_settings
 from gps_client import get_gnss_location
 import math
 
@@ -59,60 +59,6 @@ def start_flight_via_api():
 # Module logger (configured in main)
 logger = logging.getLogger('gps-startup')
 
-
-def get_streamer_settings(poll_until_success=False, poll_interval=30):
-    """
-    Retrieve streamer settings from the server using the hardware ID.
-    
-    Args:
-        poll_until_success (bool): If True, will keep polling until successful
-        poll_interval (int): Seconds to wait between polling attempts
-        
-    Returns the response data or None if failed (when not polling).
-    """
-    hardwareid = get_hardwareid()
-    url = f"https://streamer.lambda-tek.com/public_api.php?command=getstreamersettings&hardwareid={hardwareid}"
-    
-    attempt = 1
-    
-    while True:
-        try:
-            if attempt > 1:
-                logger.info(f"Retrieving streamer settings (attempt {attempt}) for hardware ID: {hardwareid}")
-            else:
-                logger.info(f"Retrieving streamer settings for hardware ID: {hardwareid}")
-            logger.debug(f"Request URL: {url}")
-
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()  # Raises an HTTPError for bad responses
-
-            logger.info(f"Response status: {response.status_code}")
-            logger.debug(f"Response content: {response.text[:500]}...")  # First 500 chars for debugging
-
-            # Try to parse as JSON first
-            try:
-                json_data = response.json()
-                logger.debug(f"Parsed JSON response: {json_data}")
-                logger.info("Successfully retrieved streamer settings from server")
-                return json_data
-            except json.JSONDecodeError:
-                logger.warning("Response is not valid JSON, returning as text")
-                # If not JSON, return the text content
-                result = {"text_response": response.text}
-                logger.info("Successfully retrieved streamer settings from server (text format)")
-                return result
-
-        except Exception as e:
-            logger.warning(f"Failed to retrieve streamer settings (attempt {attempt}): {e}")
-            
-            if not poll_until_success:
-                logger.exception(f"Unexpected error in get_streamer_settings: {e}")
-                return None
-            
-            # If polling, wait and try again
-            logger.info(f"Will retry in {poll_interval} seconds...")
-            time.sleep(poll_interval)
-            attempt += 1
 
 
 def calculate_bearing(lat1, lon1, lat2, lon2):
@@ -267,9 +213,6 @@ def monitor_motion(updated_settings):
                 if motion_count >= motion_threshold_count:
                     if not is_gps_tracking():
                         logger.info("Aircraft motion detected! Starting GPS tracking...")
-                        # Save updated settings just before starting GPS tracking
-                        save_settings(updated_settings)
-                        logger.info("Settings saved before starting GPS tracking")
                         
                         success, message, status_code = start_flight_via_api()
                         if success:
@@ -308,38 +251,18 @@ def main():
     logger.info("GPS Startup Manager starting...")
 
     try:
-        settings = load_settings()
-
-        # Sync flight parameters from server and update settings
+        # Sync flight parameters from server and load/update settings
         logger.info("Syncing flight parameters from server...")
-        remote_settings = get_streamer_settings(poll_until_success=True, poll_interval=30)
+        success, settings, response_data = get_streamer_settings(
+            logger, 
+            poll_until_success=True, 
+            poll_interval=30
+        )
         
-        # Update settings with flight parameters if they exist in the response
-        # But don't save them yet - only save when start_flight is actually called
-        if isinstance(remote_settings, dict) and 'text_response' not in remote_settings:
-            # Handle JSON response - loop through all remote settings and override local ones
-            settings_updated = False
-            for key, value in remote_settings.items():
-                if key in settings:
-                    # Only update if the value is different
-                    if settings[key] != value:
-                        old_value = settings[key]
-                        settings[key] = value
-                        logger.info(f"Updated {key}: {old_value} -> {value}")
-                        settings_updated = True
-                else:
-                    # Add new setting if it doesn't exist locally
-                    settings[key] = value
-                    logger.info(f"Added new setting {key}: {value}")
-                    settings_updated = True
-
-            # Log changes but don't save yet
-            if settings_updated:
-                logger.info("Flight parameters updated from server (will save only when GPS tracking starts)")
-            else:
-                logger.info("No setting changes needed - all values already match")
+        if success:
+            logger.info("Flight parameters synced successfully from server")
         else:
-            logger.warning(f"Flight parameters response format not recognized: {type(remote_settings)}")
+            logger.warning("Failed to sync flight parameters from server, using local settings")
 
         gps_start_mode = settings.get('gps_start_mode', 'manual')
 
@@ -347,9 +270,6 @@ def main():
 
         if gps_start_mode == 'boot':
             logger.info("Auto-starting GPS tracking on boot...")
-            # Save updated settings just before starting GPS tracking
-            save_settings(settings)
-            logger.info("Settings saved before starting GPS tracking")
             
             success, message, status_code = start_flight_via_api()
             if success:

@@ -18,6 +18,9 @@ try:
 except ImportError:
     MediaInfo = None
 
+# Additional imports for server communication
+import requests
+
 def generate_gps_track_id() -> str:
     """Generate a unique GPS track ID based on current timestamp"""
     return str(int(time.time()))
@@ -83,6 +86,110 @@ DEFAULT_SETTINGS = {
     "gps_stop_power_loss_minutes": 1,
     "power_monitor_sleep_time": 60
 }
+
+def get_streamer_settings(logger, poll_until_success=False, poll_interval=30):
+    """
+    Load local settings, retrieve streamer settings from the server, and update local settings.
+    
+    This function provides a complete solution for settings management:
+    1. Loads local settings automatically
+    2. Retrieves settings from the server using hardware ID
+    3. Updates local settings with server values
+    4. Saves updated settings to file automatically
+    5. Returns the updated settings
+    
+    Args:
+        logger: Logger instance for logging messages
+        poll_until_success (bool): If True, will keep polling until successful
+        poll_interval (int): Seconds to wait between polling attempts
+        
+    Returns:
+        tuple: (success, updated_settings_dict, response_data)
+        - success: bool indicating if retrieval was successful
+        - updated_settings_dict: Updated settings dictionary (loaded and updated with server values)
+        - response_data: Raw response data from server (or None if failed)
+    """
+    # Load settings automatically
+    logger.debug("Loading local settings from file")
+    settings_dict = load_settings()
+    
+    hardwareid = get_hardwareid()
+    url = f"https://streamer.lambda-tek.com/public_api.php?command=getstreamersettings&hardwareid={hardwareid}"
+    
+    attempt = 1
+    
+    while True:
+        try:
+            if attempt > 1:
+                logger.info(f"Retrieving streamer settings (attempt {attempt}) for hardware ID: {hardwareid}")
+            else:
+                logger.info(f"Retrieving streamer settings for hardware ID: {hardwareid}")
+            logger.debug(f"Request URL: {url}")
+
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()  # Raises an HTTPError for bad responses
+
+            logger.info(f"Response status: {response.status_code}")
+            logger.debug(f"Response content: {response.text[:500]}...")  # First 500 chars for debugging
+
+            # Try to parse as JSON first
+            try:
+                json_data = response.json()
+                logger.debug(f"Parsed JSON response: {json_data}")
+                
+                # Update settings with flight parameters from response
+                if isinstance(json_data, dict):
+                    # Handle JSON response - loop through all remote settings and override local ones
+                    settings_updated = False
+                    for key, value in json_data.items():
+                        if key in settings_dict:
+                            # Only update if the value is different
+                            if settings_dict[key] != value:
+                                old_value = settings_dict[key]
+                                settings_dict[key] = value
+                                logger.info(f"Updated {key}: {old_value} -> {value}")
+                                settings_updated = True
+                        else:
+                            # Add new setting if it doesn't exist locally
+                            settings_dict[key] = value
+                            logger.info(f"Added new setting {key}: {value}")
+                            settings_updated = True
+
+                    # Log changes
+                    if settings_updated:
+                        logger.info("Flight parameters updated from server")
+                        # Save the updated settings to file
+                        try:
+                            save_settings(settings_dict)
+                            logger.info("Updated settings saved to file")
+                        except Exception as save_error:
+                            logger.error(f"Failed to save updated settings: {save_error}")
+                    else:
+                        logger.info("No setting changes needed - all values already match")
+                else:
+                    logger.warning(f"Flight parameters response format not recognized: {type(json_data)}")
+                
+                logger.info("Successfully retrieved streamer settings from server")
+                return True, settings_dict, json_data
+                
+            except json.JSONDecodeError:
+                logger.warning("Response is not valid JSON, returning as text")
+                # If not JSON, return the text content
+                result = {"text_response": response.text}
+                logger.info("Successfully retrieved streamer settings from server (text format)")
+                return True, settings_dict, result
+
+        except Exception as e:
+            logger.warning(f"Failed to retrieve streamer settings (attempt {attempt}): {e}")
+            
+            if not poll_until_success:
+                logger.exception(f"Unexpected error in get_streamer_settings: {e}")
+                return False, settings_dict, None
+            
+            # If polling, wait and try again
+            logger.info(f"Will retry in {poll_interval} seconds...")
+            time.sleep(poll_interval)
+            attempt += 1
 
 def list_audio_inputs():
     """

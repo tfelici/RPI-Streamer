@@ -3,7 +3,7 @@
 RPI Streamer Heartbeat Daemon
 
 This daemon runs independently of the web server and provides centralized
-system statistics collection. It:
+system statistics collection and remote device control. It:
 
 1. Collects comprehensive system metrics every 5 seconds including:
    - CPU, memory, temperature, power consumption
@@ -11,11 +11,24 @@ system statistics collection. It:
    - Complete system diagnostics (vcgencmd, UPS, INA219)
 2. Saves stats to local file (/tmp/rpi_streamer_heartbeat.json) for web interface consumption
 3. Sends heartbeat data to remote server for monitoring
-4. Runs as a systemd service and starts automatically on boot
+4. Processes commands from server responses for remote device control:
+   - GPS control commands (start/stop GPS tracking)
+   - Future commands can be added easily
+5. Runs as a systemd service and starts automatically on boot
 
 The web application's /stats and /diagnostics endpoints read from the stats file,
 ensuring consistency and eliminating code duplication. All hardware monitoring
 is centralized here to reduce vcgencmd overhead and provide consistent data.
+
+Remote Control Feature:
+The heartbeat server can now send commands in JSON responses with this format:
+{
+    "command": "command_type",
+    "action": "action_name"
+}
+
+Currently supported commands:
+- "gps-control" with actions "start" or "stop" to control GPS tracking
 """
 
 import os
@@ -44,7 +57,7 @@ logger.propagate = True
 
 # Import functions from the main app to avoid duplication
 try:
-    from utils import get_hardwareid, get_app_version, HEARTBEAT_FILE, add_files_from_path, get_active_recording_info, get_video_duration_mediainfo, is_streaming, is_gps_tracking, find_usb_storage, STREAMER_DATA_DIR, get_wifi_mode_status
+    from utils import get_hardwareid, get_app_version, HEARTBEAT_FILE, add_files_from_path, is_streaming, is_gps_tracking, find_usb_storage, STREAMER_DATA_DIR, get_wifi_mode_status, get_streamer_settings
     logger.info("Successfully imported from utils.py")
 except ImportError as e:
     logger.error(f"Error importing functions from utils.py: {e}")
@@ -767,6 +780,112 @@ def cleanup_stale_stats():
     except Exception as e:
         logger.error(f"Error cleaning up stats file: {e}")
 
+def process_server_command(response_data):
+    """
+    Process commands received from the heartbeat server response.
+    
+    The server can send commands in the JSON response with the following format:
+    {
+        "command": "command_type",
+        "action": "action_name",
+        ... additional parameters ...
+    }
+    
+    Supported commands:
+    - gps-control: Control GPS tracking (actions: start, stop)
+    - Future commands can be added here (e.g., recording-control, system-control, etc.)
+    """
+    try:
+        # Load updated settings from server at the beginning to ensure we have latest configuration
+        logger.debug("Loading updated settings for command processing")
+        success, settings, server_response = get_streamer_settings(logger, poll_until_success=False)
+        if not success:
+            logger.warning("Failed to load updated settings for command processing, continuing with current settings")
+            settings = None
+        
+        command = response_data.get('command')
+        action = response_data.get('action')
+        
+        if not command:
+            return
+            
+        logger.info(f"Received command from server: {command}, action: {action}")
+        
+        if command == 'gps-control':
+            handle_gps_control_command(action, response_data, settings)
+        # Future command handlers can be added here:
+        # elif command == 'recording-control':
+        #     handle_recording_control_command(action, response_data, settings)
+        # elif command == 'system-control':
+        #     handle_system_control_command(action, response_data, settings)
+        else:
+            logger.warning(f"Unknown command received: {command}")
+            
+    except Exception as e:
+        logger.error(f"Error processing server command: {e}")
+
+def handle_gps_control_command(action, command_data=None, settings=None):
+    """
+    Handle GPS control commands received from the server.
+    
+    Args:
+        action (str): The GPS control action ('start' or 'stop')
+        command_data (dict): Full command data (for future use with additional parameters)
+        settings (dict): Updated settings from server (optional)
+    """
+    try:
+        if action == 'start':
+            logger.info("Executing GPS start command from server")
+            # Make POST request to the gps-control endpoint
+            response = requests.post(
+                'http://localhost:80/gps-control',
+                json={'action': 'start'},
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                status_msg = result.get('status', 'GPS started')
+                logger.info(f"GPS start command executed successfully: {status_msg}")
+            else:
+                error_msg = f"GPS start command failed with status {response.status_code}"
+                try:
+                    error_detail = response.json().get('error', response.text)
+                    error_msg += f": {error_detail}"
+                except:
+                    error_msg += f": {response.text}"
+                logger.error(error_msg)
+                
+        elif action == 'stop':
+            logger.info("Executing GPS stop command from server")
+            # Make POST request to the gps-control endpoint
+            response = requests.post(
+                'http://localhost:80/gps-control',
+                json={'action': 'stop'},
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                status_msg = result.get('status', 'GPS stopped')
+                logger.info(f"GPS stop command executed successfully: {status_msg}")
+            else:
+                error_msg = f"GPS stop command failed with status {response.status_code}"
+                try:
+                    error_detail = response.json().get('error', response.text)
+                    error_msg += f": {error_detail}"
+                except:
+                    error_msg += f": {response.text}"
+                logger.error(error_msg)
+                
+        else:
+            logger.warning(f"Unknown GPS control action: {action}")
+            
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Network error executing GPS control command: {e}")
+    except Exception as e:
+        logger.error(f"Error handling GPS control command: {e}")
+
 def send_heartbeat():
     """Send heartbeat data to remote server and save stats locally (fire and forget)"""
     def _send_async():
@@ -798,9 +917,9 @@ def send_heartbeat():
                 add_files_from_path(active_files, usb_recording_path, "[USB] ", "USB", active_only=True)
             server_payload['active_files'] = active_files
             
-            # Fire and forget POST request to heartbeat server with enhanced payload
+            # Send POST request to heartbeat server with enhanced payload and process response
             # Send the enhanced JSON in request body (more secure and no size limits)
-            requests.post(
+            response = requests.post(
                 HEARTBEAT_URL,
                 json=server_payload,
                 timeout=REQUEST_TIMEOUT,
@@ -808,6 +927,17 @@ def send_heartbeat():
             )
             
             logger.info(f"Heartbeat sent: CPU={stats_data['cpu']:.1f}%, MEM={stats_data['mem']:.1f}%, TEMP={stats_data['temp']}")
+            
+            # Process commands from server response
+            try:
+                if response.status_code == 200:
+                    response_data = response.json()
+                    if isinstance(response_data, dict) and 'command' in response_data:
+                        process_server_command(response_data)
+            except (ValueError, KeyError) as e:
+                logger.debug(f"No valid command in server response: {e}")
+            except Exception as e:
+                logger.error(f"Error processing server response: {e}")
             
         except Exception as e:
             # Log errors but don't fail
