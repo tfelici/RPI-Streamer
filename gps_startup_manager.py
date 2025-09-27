@@ -14,7 +14,7 @@ from datetime import datetime
 # Add the RPI Streamer directory to the path so we can import utils
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils import is_gps_tracking, load_settings, calculate_distance, get_hardwareid, get_streamer_settings
+from utils import is_gps_tracking, is_streaming, calculate_distance, get_streamer_settings
 from gps_client import get_gnss_location
 import math
 
@@ -249,6 +249,15 @@ def monitor_motion(updated_settings):
 def main():
     """Main startup logic"""
     logger.info("GPS Startup Manager starting...")
+
+    # Check if GPS tracking or streaming are already active
+    if is_gps_tracking():
+        logger.info("GPS tracking is already active, exiting startup manager")
+        return
+    
+    if is_streaming():
+        logger.info("Video streaming is already active, exiting startup manager")
+        return
 
     try:
         # Sync flight parameters from server and load/update settings
