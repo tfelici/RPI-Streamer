@@ -29,6 +29,7 @@ The heartbeat server can now send commands in JSON responses with this format:
 
 Currently supported commands:
 - "gps-control" with actions "start" or "stop" to control GPS tracking
+- "stream-control" with actions "start" or "stop" to control video streaming
 """
 
 import os
@@ -793,6 +794,7 @@ def process_server_command(response_data):
     
     Supported commands:
     - gps-control: Control GPS tracking (actions: start, stop)
+    - stream-control: Control video streaming (actions: start, stop)
     - Future commands can be added here (e.g., recording-control, system-control, etc.)
     """
     try:
@@ -813,6 +815,8 @@ def process_server_command(response_data):
         
         if command == 'gps-control':
             handle_gps_control_command(action, response_data, settings)
+        elif command == 'stream-control':
+            handle_stream_control_command(action, response_data, settings)
         # Future command handlers can be added here:
         # elif command == 'recording-control':
         #     handle_recording_control_command(action, response_data, settings)
@@ -885,6 +889,68 @@ def handle_gps_control_command(action, command_data=None, settings=None):
         logger.error(f"Network error executing GPS control command: {e}")
     except Exception as e:
         logger.error(f"Error handling GPS control command: {e}")
+
+def handle_stream_control_command(action, command_data=None, settings=None):
+    """
+    Handle stream control commands received from the server.
+    
+    Args:
+        action (str): The stream control action ('start' or 'stop')
+        command_data (dict): Full command data (for future use with additional parameters)
+        settings (dict): Updated settings from server (optional)
+    """
+    try:
+        if action == 'start':
+            logger.info("Executing stream start command from server")
+            # Make POST request to the stream-control endpoint
+            response = requests.post(
+                'http://localhost:80/stream-control',
+                json={'action': 'start'},
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                status_msg = result.get('status', 'Stream started')
+                logger.info(f"Stream start command executed successfully: {status_msg}")
+            else:
+                error_msg = f"Stream start command failed with status {response.status_code}"
+                try:
+                    error_detail = response.json().get('error', response.text)
+                    error_msg += f": {error_detail}"
+                except:
+                    error_msg += f": {response.text}"
+                logger.error(error_msg)
+                
+        elif action == 'stop':
+            logger.info("Executing stream stop command from server")
+            # Make POST request to the stream-control endpoint
+            response = requests.post(
+                'http://localhost:80/stream-control',
+                json={'action': 'stop'},
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                status_msg = result.get('status', 'Stream stopped')
+                logger.info(f"Stream stop command executed successfully: {status_msg}")
+            else:
+                error_msg = f"Stream stop command failed with status {response.status_code}"
+                try:
+                    error_detail = response.json().get('error', response.text)
+                    error_msg += f": {error_detail}"
+                except:
+                    error_msg += f": {response.text}"
+                logger.error(error_msg)
+                
+        else:
+            logger.warning(f"Unknown stream control action: {action}")
+            
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Network error executing stream control command: {e}")
+    except Exception as e:
+        logger.error(f"Error handling stream control command: {e}")
 
 def send_heartbeat():
     """Send heartbeat data to remote server and save stats locally (fire and forget)"""
