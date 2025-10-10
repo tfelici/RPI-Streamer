@@ -1083,7 +1083,7 @@ def configure_wifi_hotspot(ssid, password, channel=36, ip_address="192.168.4.1")
         # Clean up existing hotspot connections (all AP mode connections)
         print("🧹 Cleaning up existing hotspot connections...")
         try:
-            result = subprocess.run(['sudo', 'nmcli', '--mode', 'tabular', '--terse', '--fields', 'NAME,TYPE', 
+            result = subprocess.run(['sudo', 'nmcli', '-t', '-f', 'NAME,TYPE', 
                                    'connection', 'show'], capture_output=True, text=True, check=False, timeout=10)
             
             if result.returncode == 0:
@@ -1093,12 +1093,19 @@ def configure_wifi_hotspot(ssid, password, channel=36, ip_address="192.168.4.1")
                         name, conn_type = line.split(':', 1)
                         # Look for WiFi connections that might be hotspots
                         if conn_type == 'wifi' or conn_type == '802-11-wireless':
-                            # Check if this connection is configured as an AP
-                            detail_result = subprocess.run(['sudo', 'nmcli', 'connection', 'show', name], 
+                            # Check for AP mode using terse output
+                            detail_result = subprocess.run(['sudo', 'nmcli', '-t', 'connection', 'show', name], 
                                                          capture_output=True, text=True, check=False, timeout=5)
-                            if detail_result.returncode == 0 and 'wifi.mode:' in detail_result.stdout:
-                                if 'ap' in detail_result.stdout.lower():
-                                    connections_to_delete.append(name)
+                            
+                            # Check for hotspot indicators
+                            is_ap_mode = (detail_result.returncode == 0 and 
+                                        '802-11-wireless.mode:ap' in detail_result.stdout)
+                            is_shared_ip = (detail_result.returncode == 0 and 
+                                          'ipv4.method:shared' in detail_result.stdout)
+                            
+                            if is_ap_mode or is_shared_ip:
+                                connections_to_delete.append(name)
+                                print(f"🎯 Found hotspot connection: {name} (AP mode: {is_ap_mode}, Shared IP: {is_shared_ip})")
                 
                 # Delete all existing hotspot connections
                 for conn_name in connections_to_delete:
@@ -1247,11 +1254,10 @@ def configure_wifi_client():
     """
     Switch back to WiFi client mode using NetworkManager
 
-    This function uses multiple criteria to detect and remove hotspot connections:
-    1. SSID name matching hotspot_ssid from settings
-    2. wifi.mode=ap detection in connection details  
+    This function detects and removes hotspot connections by checking:
+    1. 802-11-wireless.mode=ap (AP mode detection)
+    2. ipv4.method=shared (hotspot IP sharing method)
     3. High autoconnect-priority (10+) detection
-    4. ipv4.method=shared detection (used by hotspots)
     """
     try:
         print("🔄 Switching to WiFi client mode via NetworkManager...")
@@ -1271,7 +1277,7 @@ def configure_wifi_client():
             wifi_settings = load_wifi_settings()
             hotspot_ssid = wifi_settings.get('hotspot_ssid', 'RPi-Hotspot')
             
-            result = subprocess.run(['sudo', 'nmcli', '--mode', 'tabular', '--terse', '--fields', 'NAME,TYPE', 
+            result = subprocess.run(['sudo', 'nmcli', '-t', '-f', 'NAME,TYPE', 
                                    'connection', 'show'], capture_output=True, text=True, check=False, timeout=10)
             
             if result.returncode == 0:
@@ -1281,43 +1287,19 @@ def configure_wifi_client():
                         name, conn_type = line.split(':', 1)
                         # Look for WiFi connections that might be hotspots
                         if conn_type == 'wifi' or conn_type == '802-11-wireless':
-                            # Check multiple criteria for hotspot detection:
-                            # 1. Connection name matches hotspot SSID from settings
-                            # 2. Check if connection is configured as AP mode
-                            # 3. Check if connection has high autoconnect priority (10+)
-                            is_hotspot = False
-                            
-                            # Criterion 1: Name matches hotspot SSID
-                            if name == hotspot_ssid:
-                                is_hotspot = True
-                                print(f"🎯 Found hotspot by SSID match: {name}")
-                            
-                            # Criterion 2: Check connection details for AP mode
-                            detail_result = subprocess.run(['sudo', 'nmcli', 'connection', 'show', name], 
+                            # Check for hotspot indicators using terse output
+                            detail_result = subprocess.run(['sudo', 'nmcli', '-t', 'connection', 'show', name], 
                                                          capture_output=True, text=True, check=False, timeout=5)
-                            if detail_result.returncode == 0:
-                                detail_output = detail_result.stdout.lower()
-                                # Look for AP mode indicators
-                                if ('wifi.mode:' in detail_output and 'ap' in detail_output) or \
-                                   ('802-11-wireless.mode:' in detail_output and 'ap' in detail_output) or \
-                                   ('ipv4.method:' in detail_output and 'shared' in detail_output):
-                                    is_hotspot = True
-                                    print(f"🎯 Found hotspot by AP mode: {name}")
-                                
-                                # Criterion 3: High autoconnect priority (hotspots use priority 10)
-                                if 'connection.autoconnect-priority:' in detail_output:
-                                    try:
-                                        priority_line = [line for line in detail_result.stdout.split('\n') 
-                                                       if 'connection.autoconnect-priority:' in line][0]
-                                        priority_value = int(priority_line.split(':')[-1].strip())
-                                        if priority_value >= 10:
-                                            is_hotspot = True
-                                            print(f"🎯 Found hotspot by high priority ({priority_value}): {name}")
-                                    except (IndexError, ValueError):
-                                        pass
                             
-                            if is_hotspot:
+                            # Check for hotspot indicators
+                            is_ap_mode = (detail_result.returncode == 0 and 
+                                        '802-11-wireless.mode:ap' in detail_result.stdout)
+                            is_shared_ip = (detail_result.returncode == 0 and 
+                                          'ipv4.method:shared' in detail_result.stdout)
+                            
+                            if is_ap_mode or is_shared_ip:
                                 connections_to_delete.append(name)
+                                print(f"🎯 Found hotspot: {name} (AP mode: {is_ap_mode}, Shared IP: {is_shared_ip})")
                 
                 # Delete hotspot connections
                 for conn_name in connections_to_delete:
@@ -1363,7 +1345,7 @@ def configure_wifi_client():
         print("🔗 Attempting to reconnect to saved networks...")
         try:
             # Get list of saved WiFi connections
-            result = subprocess.run(['sudo', 'nmcli', '--mode', 'tabular', '--terse', '--fields', 'NAME,TYPE', 
+            result = subprocess.run(['sudo', 'nmcli', '-t', '-f', 'NAME,TYPE', 
                                    'connection', 'show'], capture_output=True, text=True, check=False, timeout=10)
             
             wifi_connections = []
@@ -1492,8 +1474,8 @@ def system_settings_wifi_scan():
         except Exception:
             pass  # Continue even if rescan fails
         
-        # Get list of networks using nmcli's tabular terse mode
-        result = subprocess.run(['nmcli', '--mode', 'tabular', '--terse', '--fields', 'IN-USE,BSSID,SSID,MODE,CHAN,SIGNAL,SECURITY', 'device', 'wifi', 'list'], 
+        # Get list of networks using nmcli's terse mode
+        result = subprocess.run(['nmcli', '-t', '-f', 'IN-USE,BSSID,SSID,MODE,CHAN,SIGNAL,SECURITY', 'device', 'wifi', 'list'], 
                                capture_output=True, text=True, timeout=10)
         
         networks = []
