@@ -11,6 +11,15 @@ IPv6 is disabled on all connections for simplicity, better cellular compatibilit
 
 ## Priority Hierarchy (IPv4 Only)
 
+**Fixed Hotspot Fallback Issue:**
+The issue was that hotspot connections weren't being properly deleted when switching to client mode.
+The improved `configure_wifi_client()` function now completely removes hotspot connections.
+
+**Priority Scheme:**
+1. **Ethernet (Wired)**: Priority 100, Route Metric 100 *(Highest - Most reliable)*
+2. **Cellular & Hotspot**: Priority 10, Route Metric 200/400 *(Medium - Automatic connections)*
+3. **WiFi Client**: Priority 5, Route Metric 300 *(Lower - User-connected networks will work since hotspots are deleted)*
+
 ### 1. Ethernet (Wired Connection) - Priority: 100, Route Metric: 100
 - **Highest Priority** - Most reliable, unlimited bandwidth
 - Usually configured automatically by install_rpi_streamer.sh
@@ -24,10 +33,10 @@ IPv6 is disabled on all connections for simplicity, better cellular compatibilit
 - **Configuration**: Automatic during installation
 - **IPv6**: Disabled
 
-### 3. WiFi Client Connection - Priority: 5, Route Metric: 300
-- **Tertiary Internet** - When no ethernet or cellular  
-- Connects to external WiFi networks
-- **Configuration**: Done in app.py system_settings_wifi()
+### 3. WiFi Client (User Networks) - Priority: 5, Route Metric: 300
+- **User-connected Networks** - Manual WiFi connections
+- Lower priority than cellular, but hotspot connections are deleted when switching to client mode
+- Configured via web interface (/system-settings WiFi section)
 - **IPv6**: Disabled
 
 ### 4. WiFi Hotspot (AP Mode) - Priority: 10, Route Metric: 400
