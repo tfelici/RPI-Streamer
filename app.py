@@ -1257,7 +1257,6 @@ def configure_wifi_client():
     This function detects and removes hotspot connections by checking:
     1. 802-11-wireless.mode=ap (AP mode detection)
     2. ipv4.method=shared (hotspot IP sharing method)
-    3. High autoconnect-priority (10+) detection
     """
     try:
         print("🔄 Switching to WiFi client mode via NetworkManager...")
@@ -1270,13 +1269,9 @@ def configure_wifi_client():
         except Exception as e:
             return False, f"Failed to start NetworkManager: {e}"
         
-        # Get list of hotspot connections to remove
         print("🧹 Cleaning up existing hotspot connections...")
         try:
-            # Also remove connections by checking WiFi settings to get hotspot SSID names
-            wifi_settings = load_wifi_settings()
-            hotspot_ssid = wifi_settings.get('hotspot_ssid', 'RPi-Hotspot')
-            
+            # Get list of hotspot connections to remove            
             result = subprocess.run(['sudo', 'nmcli', '-t', '-f', 'NAME,TYPE', 
                                    'connection', 'show'], capture_output=True, text=True, check=False, timeout=10)
             
@@ -1412,6 +1407,17 @@ def system_settings_wifi_mode():
     """Handle WiFi mode switching between client and hotspot"""
     data = request.get_json()
     mode = data.get('mode', 'client')
+    
+    # Check current mode to avoid unnecessary switching
+    current_status = get_wifi_mode_status()
+    current_mode = current_status.get('mode', 'client')
+    
+    # If we're already in the requested mode, return success without changing anything
+    if current_mode == mode:
+        if mode == 'hotspot':
+            return jsonify({'success': True, 'message': f'Already in hotspot mode'})
+        else:
+            return jsonify({'success': True, 'message': 'Already in client mode'})
     
     # Load current WiFi settings
     wifi_settings = load_wifi_settings()

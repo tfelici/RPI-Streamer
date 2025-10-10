@@ -642,7 +642,7 @@
             // Provide immediate visual feedback on the connect button
             const originalText = connectBtn.textContent;
             const originalClass = connectBtn.className;
-            connectBtn.textContent = 'Connecting...';
+            connectBtn.textContent = 'Switching to client mode...';
             connectBtn.className = 'btn btn-secondary';
             connectBtn.disabled = true;
             
@@ -660,7 +660,7 @@
             // Store button reference for restoration later
             window.currentConnectingBtn = { btn: connectBtn, originalText, originalClass };
             
-            // Trigger the existing form submission
+            // Trigger the existing form submission (which handles client mode switching first)
             document.getElementById('wifi-form').dispatchEvent(new Event('submit'));
         }
         
@@ -891,19 +891,35 @@
             const submitBtn = e.target.querySelector('button[type="submit"]');
             
             // Show updating message
-            resultDiv.textContent = 'Connecting to WiFi network...';
+            resultDiv.textContent = 'Switching to client mode and connecting...';
             resultDiv.className = 'status-message';
             resultDiv.style.display = 'block';
             submitBtn.disabled = true;
             
-            fetch('/system-settings-wifi', {
+            // First switch to client mode to clean up any hotspot connections
+            fetch('/system-settings-wifi-mode', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ssid: document.getElementById('wifi-ssid').value,
-                    password: document.getElementById('wifi-pass').value
-                })
-            }).then(r => r.json()).then(data => {
+                body: JSON.stringify({ mode: 'client' })
+            })
+            .then(r => r.json())
+            .then(modeData => {
+                if (!modeData.success) {
+                    throw new Error(modeData.error || 'Failed to switch to client mode');
+                }
+                
+                // Now connect to the specific network
+                resultDiv.textContent = 'Connecting to WiFi network...';
+                return fetch('/system-settings-wifi', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        ssid: document.getElementById('wifi-ssid').value,
+                        password: document.getElementById('wifi-pass').value
+                    })
+                });
+            })
+            .then(r => r.json()).then(data => {
                 resultDiv.textContent = data.success ? 'Connected to WiFi network!' : (data.error || 'Connection failed');
                 resultDiv.className = data.success ? 'status-message status-success' : 'status-message status-error';
                 resultDiv.style.display = 'block';
