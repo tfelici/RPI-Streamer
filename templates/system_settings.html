@@ -642,7 +642,7 @@
             // Provide immediate visual feedback on the connect button
             const originalText = connectBtn.textContent;
             const originalClass = connectBtn.className;
-            connectBtn.textContent = 'Switching to client mode...';
+            connectBtn.textContent = 'Connecting...';
             connectBtn.className = 'btn btn-secondary';
             connectBtn.disabled = true;
             
@@ -891,7 +891,7 @@
             const submitBtn = e.target.querySelector('button[type="submit"]');
             
             // Show updating message
-            resultDiv.textContent = 'Switching to client mode and connecting...';
+            resultDiv.textContent = 'Connecting to WiFi network...';
             resultDiv.className = 'status-message';
             resultDiv.style.display = 'block';
             submitBtn.disabled = true;
