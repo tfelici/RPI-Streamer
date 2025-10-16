@@ -16,13 +16,13 @@ import time
 import logging
 import sys
 import argparse
+import requests
 from logging.handlers import RotatingFileHandler
 from subprocess import call
 from x120x import X120X
 
 import fcntl
 from utils import is_streaming, is_gps_tracking, load_settings
-from app import stop_flight
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='UPS Power Monitor for RPI Streamer')
@@ -166,11 +166,17 @@ try:
                                     if not final_timeout_ac_power:
                                         # Power still lost, stop GPS tracking
                                         try:
-                                            success, message, status_code = stop_flight()
-                                            if success:
+                                            logging.info("Executing GPS stop command from server")
+                                            # Make POST request to the gps-control endpoint
+                                            response = requests.post(
+                                                'http://localhost:80/gps-control',
+                                                json={'action': 'stop'},
+                                                timeout=30
+                                            )
+                                            if response.status_code == 200:
                                                 logging.warning("GPS tracking stopped due to prolonged power loss")
                                             else:
-                                                logging.error(f"Failed to stop GPS tracking: {message}")
+                                                logging.error(f"Failed to stop GPS tracking: HTTP {response.status_code}")
                                         except Exception as e:
                                             logging.error(f"Error stopping GPS tracking: {e}")
                                         
