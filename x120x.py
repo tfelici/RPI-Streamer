@@ -137,28 +137,56 @@ class X120X:
     def get_ac_power_state(self, pld_pin=6):
         """
         Check AC power state via GPIO.
+        Compatible with both Bookworm (gpiod v1.x) and Trixie (gpiod v2.x).
         Returns True if AC power is present, False if unplugged, None if error.
         """
         if not LIBRARIES_AVAILABLE:
             return None
+        
         try:
-            # Try different GPIO chip names for compatibility
-            chip = None
-            for chip_name in ['gpiochip0', 'gpiochip4']:
-                try:
-                    chip = gpiod.Chip(chip_name)
-                    break
-                except:
-                    continue
-            
-            if chip is None:
-                return None
+            # Try to determine gpiod API version and use appropriate method
+            try:
+                # Test for gpiod v1.x (Bookworm)
+                chip = gpiod.Chip('/dev/gpiochip0')
+                pld_line = chip.get_line(pld_pin)
+                pld_line.request(consumer="PLD", type=gpiod.LINE_REQ_DIR_IN)
                 
-            pld_line = chip.get_line(pld_pin)
-            pld_line.request(consumer="PLD", type=gpiod.LINE_REQ_DIR_IN)
-            ac_power_state = pld_line.get_value()
-            pld_line.release()
-            return ac_power_state == 1
+                ac_power_state = pld_line.get_value()
+                pld_line.release()
+                chip.close()
+                
+                return ac_power_state == 1
+                
+            except AttributeError:
+                # This is gpiod v2.x (Trixie)
+                direction = gpiod.line.Direction.INPUT
+                line_settings = gpiod.LineSettings(direction=direction)
+                
+                request = gpiod.request_lines(
+                    "/dev/gpiochip0",
+                    consumer="PLD", 
+                    config={pld_pin: line_settings}
+                )
+                
+                try:
+                    values = request.get_values([pld_pin])
+                    gpio_value = values[0]
+                    
+                    # Handle GPIO value (can be enum or int)
+                    if hasattr(gpio_value, 'value'):
+                        numeric_value = gpio_value.value
+                    elif str(gpio_value) == 'Value.ACTIVE':
+                        numeric_value = 1
+                    elif str(gpio_value) == 'Value.INACTIVE':
+                        numeric_value = 0
+                    else:
+                        numeric_value = int(gpio_value)
+                    
+                    return numeric_value == 1
+                    
+                finally:
+                    request.release()
+                    
         except Exception:
             return None
     
