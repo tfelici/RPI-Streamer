@@ -121,7 +121,7 @@ class X120X:
         
         if voltage is None:
             return "Unknown"
-        if 3.87 <= voltage <= 4.2:
+        if voltage >= 3.87:
             return "Full"
         elif 3.7 <= voltage < 3.87:
             return "High"
