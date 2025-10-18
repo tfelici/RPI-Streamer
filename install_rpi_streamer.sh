@@ -1249,17 +1249,17 @@ setup_reverse_ssh_tunnel() {
     
     # Generate unique ports based on hardware ID hash
     PORT_BASE=$(echo "$hardwareid" | sha256sum | cut -c1-4)
-    PORT_BASE=$((16#$PORT_BASE % 25000 + 15000))  # Port range 15000-40000 (avoids Webmin/Usermin)
+    PORT_BASE=$((16#$PORT_BASE % 15000 + 15000))  # Port range 15000-30000 (avoids Webmin/Usermin)
     
     # Internal tunnel ports (server-side, not exposed) - safe range
-    tunnel_http_port=$((PORT_BASE + 30000))  # Internal: 45000-70000 range (safe)
-    tunnel_ssh_port=$((PORT_BASE + 30001))
+    tunnel_http_port=$((PORT_BASE + 20000))  # Internal: 35000-50000 range (safe, under 65535 limit)
+    tunnel_ssh_port=$((PORT_BASE + 20001))
     
     echo ""
     echo "🎯 AUTO-GENERATED UNIQUE PORTS FOR THIS DEVICE:"
     echo "   Hardware ID: $hardwareid"
-    echo "   Internal HTTP Tunnel: $tunnel_http_port (server-side only, safe range)"
-    echo "   Internal SSH Tunnel: $tunnel_ssh_port (server-side only, safe range)"
+    echo "   Internal HTTP Tunnel: $tunnel_http_port (server-side only, range 35000-50000)"
+    echo "   Internal SSH Tunnel: $tunnel_ssh_port (server-side only, range 35000-50000)"
     echo "   Access via SSH port forwarding: ssh -L 8080:localhost:80 user@server -p $server_port"
     echo ""
     
