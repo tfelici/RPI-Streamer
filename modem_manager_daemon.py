@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 
 # Import shared utilities
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from utils import send_at_command, find_working_at_port, load_settings
+from utils import send_at_command, find_working_at_port, load_cellular_settings
 
 # Configure logging
 logging.basicConfig(
@@ -254,7 +254,7 @@ def configure_modem():
             
             # Cellular APN Configuration - Set APN, username, and password from settings
             logger.info("Configuring cellular APN, username, and password...")
-            settings = load_settings()
+            settings = load_cellular_settings()
             apn = settings.get('cellular_apn', 'internet')
             username = settings.get('cellular_username', '')
             password = settings.get('cellular_password', '')
