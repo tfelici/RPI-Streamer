@@ -1618,18 +1618,30 @@ def system_settings_cellular():
         # Save settings to file
         save_cellular_settings(new_settings)
         
-        # Update NetworkManager connection if settings changed
+        # Restart modem-manager service if settings changed
         if settings_changed:
-            success = update_cellular_connection(new_settings)
-            if success:
-                return jsonify({
-                    'success': True, 
-                    'message': 'Cellular settings updated successfully'
-                })
-            else:
+            try:
+                result = subprocess.run(['sudo', 'systemctl', 'restart', 'modem-manager'], 
+                                      capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    return jsonify({
+                        'success': True, 
+                        'message': 'Cellular settings updated and modem-manager restarted successfully'
+                    })
+                else:
+                    return jsonify({
+                        'success': False, 
+                        'error': 'Settings saved but failed to restart modem-manager service'
+                    })
+            except subprocess.TimeoutExpired:
                 return jsonify({
                     'success': False, 
-                    'error': 'Settings saved but failed to update NetworkManager connection'
+                    'error': 'Settings saved but modem-manager restart timed out'
+                })
+            except Exception as restart_error:
+                return jsonify({
+                    'success': False, 
+                    'error': f'Settings saved but failed to restart modem-manager: {restart_error}'
                 })
         else:
             return jsonify({
