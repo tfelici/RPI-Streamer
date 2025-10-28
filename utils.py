@@ -1006,7 +1006,7 @@ def copy_settings_and_executables_to_usb(usb_path):
             for fname in os.listdir(src_exec_dir):
                 src_f = os.path.join(src_exec_dir, fname)
                 dst_f = os.path.join(usb_path, fname)
-                if os.path.isfile(src_f):
+                if os.path.isfile(src_f) and not fname.endswith('.sha'):
                     # Check if executable is missing or outdated
                     copy_exec = False
                     if not os.path.exists(dst_f):
