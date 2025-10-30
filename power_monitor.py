@@ -65,12 +65,33 @@ except (IOError, OSError):
     sys.exit(1)
 
 poll_time = 30 # Polling interval in seconds
+
+# Check initial power status to determine if sleep_time should be disabled
+power_monitoring_disabled_at_startup = False
+
+try:
+    with X120X() as ups_initial:
+        initial_ups_status = ups_initial.get_status()
+        initial_ac_power_connected = initial_ups_status.get('ac_power_connected', False)
+        
+        if not initial_ac_power_connected:
+            power_monitoring_disabled_at_startup = True
+            logging.warning("Device is NOT plugged in at startup - power monitoring (sleep_time) disabled for this session")
+        else:
+            logging.info("Device is plugged in at startup - normal power monitoring enabled")
+            
+except Exception as e:
+    logging.warning(f"Could not check initial power status: {e}. Proceeding with normal power monitoring.")
+
 try:
     logging.info("Starting UPS monitoring")
     if args.daemon:
         logging.info("Running in daemon mode - logging to console and file")
     else:
         logging.info("Running in interactive mode - logging to console only")
+    
+    if power_monitoring_disabled_at_startup:
+        logging.info("Power monitoring disabled due to unplugged state at startup")
     
     # Main monitoring loop - runs until error occurs
     while True:
@@ -100,13 +121,20 @@ try:
             settings = load_settings()
             sleep_time = settings.get('power_monitor_sleep_time')
             
+            # Override sleep_time if power monitoring was disabled at startup
+            if power_monitoring_disabled_at_startup:
+                sleep_time = 0
+            
             # Handle power state outside of connection context
             if not ac_power_connected:
                 logging.warning("UPS is unplugged or AC power loss detected.")
                 
                 # If sleep_time is 0 or None, disable power monitoring
                 if not sleep_time:
-                    logging.info(f"Power monitoring disabled (sleep_time is 0 or unset) - continuing normal monitoring for {poll_time} seconds")
+                    if power_monitoring_disabled_at_startup:
+                        logging.info(f"Power monitoring disabled (device was unplugged at startup) - continuing normal monitoring for {poll_time} seconds")
+                    else:
+                        logging.info(f"Power monitoring disabled (sleep_time is 0 or unset) - continuing normal monitoring for {poll_time} seconds")
                     time.sleep(poll_time)
                     continue
                 else:
