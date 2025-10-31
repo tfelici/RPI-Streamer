@@ -600,47 +600,62 @@ check_and_download_executable() {
     
     printf "Checking %s executable...\n" "$platform"
     
-    # Get remote file SHA from GitHub API
-    remote_sha=$(curl -s $api_path | jq -r ".sha")
+    # Get remote file SHA from GitHub API with cache busting
+    printf "  Fetching remote SHA from: %s\n" "$api_path"
+    remote_sha=$(curl -s -H "Cache-Control: no-cache" "$api_path" | jq -r ".sha")
     
     if [ -z "$remote_sha" ] || [ "$remote_sha" = "null" ]; then
         echo "Warning: Could not fetch remote SHA for $platform executable. Remote file may not exist or API is unavailable."
+        echo "API path: $api_path"
         echo "Skipping $platform executable update check."
         return 0  # Return success to continue gracefully
     fi
     
+    printf "  Remote SHA: %s\n" "${remote_sha:0:7}..."
+    
     # Check if local file exists and has a stored SHA
     local need_download=false
+    
     if [ -f "$local_file" ] && [ -f "$sha_file" ]; then
         # Read the stored SHA
         stored_sha=$(cat "$sha_file" 2>/dev/null || echo "")
+        printf "  Local SHA:  %s\n" "${stored_sha:0:7}..."
         
         if [ -z "$stored_sha" ]; then
-            echo "No stored SHA found for $platform executable, will download."
+            echo "  No stored SHA found for $platform executable, will download."
             need_download=true
         elif [ "$stored_sha" = "$remote_sha" ]; then
-            echo "$platform executable is up to date."
+            echo "  $platform executable is up to date (SHA match)."
             return 0  # Already up to date
         else
-            echo "$platform executable needs update (stored: ${stored_sha:0:7}, remote: ${remote_sha:0:7})."
+            echo "  $platform executable needs update!"
+            echo "    Stored:  ${stored_sha:0:7}..."
+            echo "    Remote:  ${remote_sha:0:7}..."
             need_download=true
         fi
     else
-        echo "$platform executable not found, will download."
+        if [ ! -f "$local_file" ]; then
+            echo "  $platform executable file not found, will download."
+        else
+            echo "  $platform executable SHA file not found, will download."
+        fi
         need_download=true
     fi
     
     # Download if needed
     if [ "$need_download" = "true" ]; then
-        printf "Downloading %s executable...\n" "$platform"
+        printf "  Downloading %s executable...\n" "$platform"
+        printf "  URL: %s\n" "$download_url"
         if curl -H "Cache-Control: no-cache" -L "$download_url?$(date +%s)" -o "$local_file"; then
-            echo "$platform executable downloaded successfully."
+            echo "  $platform executable downloaded successfully."
             # Store the remote SHA for future comparisons
             echo "$remote_sha" > "$sha_file"
+            printf "  SHA %s stored for future comparisons.\n" "${remote_sha:0:7}..."
             return 0  # Success
         else
-            echo "Warning: Failed to download $platform executable. This may be due to network issues or the file not existing."
-            echo "Continuing with installation..."
+            echo "  Warning: Failed to download $platform executable. This may be due to network issues or the file not existing."
+            echo "  Download URL: $download_url"
+            echo "  Continuing with installation..."
             return 0  # Return success to continue gracefully
         fi
     fi
@@ -651,19 +666,22 @@ printf "Checking StreamerUploader executables...\n"
 
 # Use the same branch as the main RPI Streamer installation
 STREAMER_UPLOADER_BRANCH=$BRANCH_NAME
-printf "Using Streamer-Uploader $STREAMER_UPLOADER_BRANCH branch for executables...\n"
+printf "📦 Using Streamer-Uploader $STREAMER_UPLOADER_BRANCH branch for executables...\n"
+printf "🔍 GitHub API will check branch: $STREAMER_UPLOADER_BRANCH\n"
+
+
 
 # Check and download Windows executables
-check_and_download_executable "Windows" "Uploader-windows.exe" "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/windows/dist/StreamerUploader.exe" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/windows/dist/StreamerUploader.exe"
-check_and_download_executable "Windows" "Viewer-windows.exe" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/windows/dist/StreamerViewer.exe" "https://github.com/tfelici/Streamer-Viewer/raw/main/windows/dist/StreamerViewer.exe"
+check_and_download_executable "Windows" "Uploader-windows.exe" "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/windows/dist/StreamerUploader.exe?ref=$STREAMER_UPLOADER_BRANCH" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/windows/dist/StreamerUploader.exe"
+check_and_download_executable "Windows" "Viewer-windows.exe" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/windows/dist/StreamerViewer.exe?ref=main" "https://github.com/tfelici/Streamer-Viewer/raw/main/windows/dist/StreamerViewer.exe"
 
 # Check and download macOS executables
-check_and_download_executable "macOS" "Uploader-macos" "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/macos/dist/StreamerUploader" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/macos/dist/StreamerUploader"
-check_and_download_executable "macOS" "Viewer-macos" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/macos/dist/StreamerViewer" "https://github.com/tfelici/Streamer-Viewer/raw/$STREAMER_UPLOADER_BRANCH/macos/dist/StreamerViewer"
+check_and_download_executable "macOS" "Uploader-macos" "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/macos/dist/StreamerUploader?ref=$STREAMER_UPLOADER_BRANCH" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/macos/dist/StreamerUploader"
+check_and_download_executable "macOS" "Viewer-macos" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/macos/dist/StreamerViewer?ref=$STREAMER_UPLOADER_BRANCH" "https://github.com/tfelici/Streamer-Viewer/raw/$STREAMER_UPLOADER_BRANCH/macos/dist/StreamerViewer"
 
 # Check and download Linux executables
-check_and_download_executable "Linux" "Uploader-linux" "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/linux/dist/StreamerUploader" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/linux/dist/StreamerUploader"
-check_and_download_executable "Linux" "Viewer-linux" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/linux/dist/StreamerViewer" "https://github.com/tfelici/Streamer-Viewer/raw/$STREAMER_UPLOADER_BRANCH/linux/dist/StreamerViewer"
+check_and_download_executable "Linux" "Uploader-linux" "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/linux/dist/StreamerUploader?ref=$STREAMER_UPLOADER_BRANCH" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/linux/dist/StreamerUploader"
+check_and_download_executable "Linux" "Viewer-linux" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/linux/dist/StreamerViewer?ref=$STREAMER_UPLOADER_BRANCH" "https://github.com/tfelici/Streamer-Viewer/raw/$STREAMER_UPLOADER_BRANCH/linux/dist/StreamerViewer"
 
 printf "StreamerUploader executable check completed.\n"
 
