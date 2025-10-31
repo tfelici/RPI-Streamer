@@ -4,7 +4,7 @@ import subprocess
 import sys
 import time
 import signal
-from utils import cleanup_pidfile, copy_settings_and_executables_to_usb
+from utils import cleanup_pidfile, copy_executables_to_usb, get_setting
 
 def main():
     if len(sys.argv) < 2:
@@ -15,6 +15,22 @@ def main():
     # Make PID file unique per MTX_PATH
     safe_mtx_path = mtx_path.replace('/', '_').replace('\\', '_')
     ACTIVE_PIDFILE = f"/tmp/relay-ffmpeg-record-{safe_mtx_path}.pid"
+
+    stream_url = get_setting('stream_url')
+    if not stream_url:
+        print("Error: 'stream_url' must be set in settings.json")
+        sys.exit(1)
+
+    # extract rtmpkey and domain from stream_url
+    # stream_url is of form srt://gyropilots.org:8890?streamid=publish:<domain>/<rtmpkey>&...
+    import re
+    match = re.search(r'streamid=publish:([^/]+)/([^&]+)', stream_url)
+    if not match:
+        print(f"Error: Could not extract domain and rtmpkey from stream_url: {stream_url}")
+        sys.exit(1)
+    
+    domain, rtmpkey = match.groups()
+    print(f"Extracted domain: {domain}, rtmpkey: {rtmpkey}")
 
     proc = None  # Track the ffmpeg process
     def handle_exit(signum, frame):
@@ -45,9 +61,9 @@ def main():
         print(f"Using USB storage at {usb_mount} for recordings")
         record_dir = os.path.join(usb_mount, 'streamerData', 'recordings', stream_name)
         
-        # Copy settings and executables to USB if using USB storage
-        copy_result = copy_settings_and_executables_to_usb(usb_mount)
-        print(f"USB settings copy result: {copy_result}")
+        # Copy executables to USB if using USB storage
+        copy_result = copy_executables_to_usb(usb_mount)
+        print(f"USB executables copy result: {copy_result}")
     else:
         print("No USB storage found, using local disk for recordings")
         record_dir = os.path.join(STREAMER_DATA_DIR, 'recordings', stream_name)
@@ -79,7 +95,10 @@ def main():
     
     while True:
         timestamp = int(time.time())
-        recording_file = os.path.join(record_dir, f"{timestamp}.mp4")
+        recording_file = os.path.join(record_dir, domain, rtmpkey, f"{timestamp}.mp4")
+        
+        # Ensure the domain/rtmpkey directory structure exists
+        os.makedirs(os.path.dirname(recording_file), exist_ok=True)
 
         rtsp_url = f"srt://localhost:8890?streamid=read:{mtx_path}"
         ffmpeg_cmd = [

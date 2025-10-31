@@ -1118,7 +1118,7 @@
                     {% endif %}
                 </div>
                 <div style="display: flex; gap: 1rem; margin-top: 1.5rem; flex-wrap: wrap;">
-                    <button type="submit" id="upload-btn" class="btn btn-success">Upload to Server</button>
+                    <button type="submit" id="upload-btn" class="btn btn-success">Sync to Server</button>
                     <button type="button" id="move-to-usb-btn" class="btn btn-primary">Move to USB Drive</button>
                     <button type="button" id="delete-btn" class="btn btn-danger">Delete Selected</button>
                 </div>
@@ -1312,9 +1312,27 @@
                                                     }
                                                     statusText.textContent = `Uploaded ${fileName}: Success.` + replacedMsg;
                                                     successCount++;
-                                                    // Remove the checkbox since upload succeeded
-                                                    const checkboxDiv = checkbox.closest('div');
-                                                    if (checkboxDiv) checkboxDiv.remove();
+                                                    // Update file entry to show upload success and server info
+                                                    const fileItemDiv = checkbox.closest('.file-item');
+                                                    if (fileItemDiv) {
+                                                        // Uncheck the checkbox but keep it enabled for potential deletion
+                                                        checkbox.checked = false;
+                                                        // Add visual indicator
+                                                        fileItemDiv.style.backgroundColor = '#f0f8f0';
+                                                        fileItemDiv.style.borderLeft = '4px solid #28a745';
+                                                        // Add upload status to the label
+                                                        const labelElement = fileItemDiv.querySelector('.file-info');
+                                                        if (labelElement) {
+                                                            const statusDiv = document.createElement('div');
+                                                            statusDiv.innerHTML = `<strong style="color: green;">Upload Status:</strong> Success${replacedMsg}`;
+                                                            statusDiv.style.marginTop = '8px';
+                                                            statusDiv.style.padding = '4px 8px';
+                                                            statusDiv.style.backgroundColor = '#d4edda';
+                                                            statusDiv.style.border = '1px solid #c3e6cb';
+                                                            statusDiv.style.borderRadius = '4px';
+                                                            labelElement.appendChild(statusDiv);
+                                                        }
+                                                    }
                                                 }
                                                 uploadContainer.remove();
                                                 eventSource.close();
@@ -1387,22 +1405,58 @@
                 };
             }
 
-            async function getUploadServerUrl() {
+            function extractDomainAndRtmpkey(filePath) {
+                // Extract domain and rtmpkey from hierarchical file path
+                // Expected format: .../recordings/webcam/<domain>/<rtmpkey>/<filename>
                 try {
-                    const resp = await fetch('/settings');
-                    const data = await resp.json();
-                    return data.upload_url || '';
+                    const pathParts = filePath.replace(/\\/g, '/').split('/');
+                    
+                    // Find the webcam directory and extract domain/rtmpkey from the path after it
+                    let webcamIdx = -1;
+                    for (let i = 0; i < pathParts.length; i++) {
+                        if (pathParts[i] === 'webcam') {
+                            webcamIdx = i;
+                            break;
+                        }
+                    }
+                    
+                    if (webcamIdx === -1 || webcamIdx + 2 >= pathParts.length) {
+                        return null;
+                    }
+                    
+                    const domain = pathParts[webcamIdx + 1];
+                    const rtmpkey = pathParts[webcamIdx + 2];
+                    
+                    if (!domain || !rtmpkey) {
+                        return null;
+                    }
+                    
+                    return { domain, rtmpkey };
                 } catch (e) {
-                    return '';
+                    return null;
                 }
-            } async function fetchOverlappingInfo(uploadUrl, file, duration) {
-                if (!uploadUrl) return null;
+            }
+
+            async function fetchOverlappingInfo(file, duration) {
+                // Extract domain and rtmpkey from file path to construct URL dynamically
+                const pathInfo = extractDomainAndRtmpkey(file);
+                if (!pathInfo) {
+                    return { error: 'Could not extract domain and rtmpkey from file path' };
+                }
+                
+                const { domain, rtmpkey } = pathInfo;
+                
                 // Handle both Windows and Unix path separators
                 const filename = file.split(/[/\\]/).pop();
-                let url = new URL(uploadUrl);
+                
+                // Construct URL dynamically
+                const baseUrl = `https://${domain}.org/ajaxservices.php`;
+                let url = new URL(baseUrl);
                 url.searchParams.set('command', 'getrecordingsinfo');
+                url.searchParams.set('rtmpkey', rtmpkey);
                 url.searchParams.set('videofilename', filename);
                 url.searchParams.set('duration', duration);
+                
                 try {
                     const response = await fetch(url, { method: 'GET' });
                     if (!response.ok) throw new Error('Network response was not ok. URL: ' + url.toString());
@@ -1413,7 +1467,6 @@
             }
 
             (async function () {
-                const uploadUrl = await getUploadServerUrl();
                 const checkboxes = document.querySelectorAll('.upload-checkbox');
                 for (const checkbox of checkboxes) {
                     const file = checkbox.value;
@@ -1429,7 +1482,7 @@
                     try {
                         localInfo = JSON.parse(label.getAttribute('data-info'));
                     } catch (e) { }
-                    const info = await fetchOverlappingInfo(uploadUrl, file, localInfo ? localInfo.duration : 0);
+                    const info = await fetchOverlappingInfo(file, localInfo ? localInfo.duration : 0);
                     if (info && info.overlapping_files && info.overlapping_files.length > 0 && localInfo) {
                         const barWidth = 220;
                         const barHeight = 18;

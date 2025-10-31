@@ -27,7 +27,7 @@ import re
 import os
 from datetime import datetime
 from typing import Dict, List, Optional
-from utils import generate_gps_track_id, calculate_distance, cleanup_pidfile, load_settings, save_settings, get_hardwareid, STREAMER_DATA_DIR, copy_settings_and_executables_to_usb, find_usb_storage
+from utils import generate_gps_track_id, calculate_distance, cleanup_pidfile, load_settings, save_settings, get_hardwareid, STREAMER_DATA_DIR, copy_executables_to_usb, find_usb_storage
 from gps_client import get_gnss_location
 
 # GPS functionality available via GPS daemon client
@@ -332,9 +332,9 @@ class GPSTracker:
         if self.usb_mount:
             print(f"Using USB storage at {self.usb_mount} for tracks")
             track_dir = os.path.join(self.usb_mount, 'streamerData', 'tracks')
-            # Copy settings and executables to USB if using USB storage
-            copy_result = copy_settings_and_executables_to_usb(self.usb_mount)
-            print(f"USB settings copy result: {copy_result}")
+            # Copy executables to USB if using USB storage
+            copy_result = copy_executables_to_usb(self.usb_mount)
+            print(f"USB executables copy result: {copy_result}")
         else:
             print(f"No USB storage found, using local disk for tracks")
             track_dir = os.path.join(STREAMER_DATA_DIR, 'tracks')

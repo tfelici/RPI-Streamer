@@ -63,7 +63,6 @@ def get_default_hotspot_ssid():
 
 DEFAULT_SETTINGS = {
     "stream_url": "",
-    "upload_url": "",
     "framerate": 30,
     "crf": 32,
     "resolution": "854x480",
@@ -861,6 +860,7 @@ def get_video_duration_mediainfo(path):
 def add_files_from_path(recording_files, path, source_label="", location="Local", active_only=False):
     """
     Helper function to add files from a given path. Appends to the passed-in recording_files list.
+    Now handles hierarchical directory structure: <domain>/<rtmpkey>/<timestamp>.mp4
     
     Args:
         recording_files: List to append files to
@@ -870,41 +870,65 @@ def add_files_from_path(recording_files, path, source_label="", location="Local"
         active_only: If True, only include files that are currently being recorded
     """
     active_pid, active_file = get_active_recording_info()
-    if os.path.isdir(path):
-        files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
-        files.sort(key=lambda f: os.path.getmtime(os.path.join(path, f)), reverse=True)
-        for f in files:
-            file_path = os.path.join(path, f)
-            file_size = os.path.getsize(file_path)
-            display_name = f"{source_label}{f}" if source_label else f
-            is_active = (active_file is not None and os.path.abspath(file_path) == os.path.abspath(active_file) and is_pid_running(active_pid))
+    
+    if not os.path.isdir(path):
+        return
+    
+    # Walk through the hierarchical structure: domain/rtmpkey/files
+    for domain in os.listdir(path):
+        domain_path = os.path.join(path, domain)
+        if not os.path.isdir(domain_path):
+            continue
             
-            # Skip non-active files if active_only is True
-            if active_only and not is_active:
+        for rtmpkey in os.listdir(domain_path):
+            rtmpkey_path = os.path.join(domain_path, rtmpkey)
+            if not os.path.isdir(rtmpkey_path):
                 continue
                 
-            # Add duration if file is not active
-            if is_active:
-                duration = None
-            else:
-                duration = get_video_duration_mediainfo(file_path)
-            # Extract timestamp from filename if possible
-            m = re.match(r'^(\d+)\.mp4$', f)
-            timestamp = int(m.group(1)) if m else None
-            recording_files.append({
-                'path': file_path,
-                'size': file_size,
-                'active': is_active,
-                'name': display_name,
-                'location': location,
-                'duration': duration,
-                'timestamp': timestamp
-            })
+            # Get all mp4 files in this rtmpkey directory
+            files = [f for f in os.listdir(rtmpkey_path) 
+                    if os.path.isfile(os.path.join(rtmpkey_path, f)) and f.endswith('.mp4')]
+            files.sort(key=lambda f: os.path.getmtime(os.path.join(rtmpkey_path, f)), reverse=True)
+            
+            for f in files:
+                file_path = os.path.join(rtmpkey_path, f)
+                file_size = os.path.getsize(file_path)
+                
+                # Create a more descriptive display name with domain and rtmpkey
+                display_name = f"{source_label}{domain}/{rtmpkey}/{f}" if source_label else f"{domain}/{rtmpkey}/{f}"
+                
+                is_active = (active_file is not None and os.path.abspath(file_path) == os.path.abspath(active_file) and is_pid_running(active_pid))
+                
+                # Skip non-active files if active_only is True
+                if active_only and not is_active:
+                    continue
+                    
+                # Add duration if file is not active
+                if is_active:
+                    duration = None
+                else:
+                    duration = get_video_duration_mediainfo(file_path)
+                    
+                # Extract timestamp from filename if possible
+                m = re.match(r'^(\d+)\.mp4$', f)
+                timestamp = int(m.group(1)) if m else None
+                
+                recording_files.append({
+                    'path': file_path,
+                    'size': file_size,
+                    'active': is_active,
+                    'name': display_name,
+                    'location': location,
+                    'duration': duration,
+                    'timestamp': timestamp,
+                    'domain': domain,
+                    'rtmpkey': rtmpkey
+                })
 
 
 def move_file_to_usb(file_path, usb_path):
     """
-    Move a file to the USB storage device.
+    Move a file to the USB storage device, preserving hierarchical directory structure.
     Returns a dict with success status and destination path or error message.
     """
     try:
@@ -914,21 +938,42 @@ def move_file_to_usb(file_path, usb_path):
         if not usb_path or not os.path.exists(usb_path):
             return {'success': False, 'error': 'USB storage not found or not accessible'}
         
-        # Create proper directory structure on USB: streamerData/recordings/webcam
-        usb_recordings_dir = os.path.join(usb_path, 'streamerData', 'recordings', 'webcam')
-        os.makedirs(usb_recordings_dir, exist_ok=True)
+        # Determine the relative path from the local recordings directory to preserve structure
+        # First, find the recordings base directory in the file path
+        path_parts = file_path.replace('\\', '/').split('/')
         
-        # Get filename and create destination path
-        filename = os.path.basename(file_path)
-        destination = os.path.join(usb_recordings_dir, filename)
+        # Look for 'recordings' in the path to determine the relative structure
+        recordings_index = -1
+        for i, part in enumerate(path_parts):
+            if part == 'recordings':
+                recordings_index = i
+                break
+        
+        if recordings_index == -1:
+            return {'success': False, 'error': 'File is not in a recognized recordings directory structure'}
+        
+        # Extract the relative path after 'recordings' (e.g., 'webcam/domain/rtmpkey/file.mp4')
+        relative_path_parts = path_parts[recordings_index + 1:]
+        if not relative_path_parts:
+            return {'success': False, 'error': 'Invalid file path structure'}
+        
+        # Reconstruct the destination path on USB with the same structure
+        usb_recordings_dir = os.path.join(usb_path, 'streamerData', 'recordings')
+        destination = os.path.join(usb_recordings_dir, *relative_path_parts)
+        
+        # Create the full directory structure on USB
+        destination_dir = os.path.dirname(destination)
+        os.makedirs(destination_dir, exist_ok=True)
         
         # Check if file already exists and create unique name if needed
-        counter = 1
-        base_name, ext = os.path.splitext(filename)
-        while os.path.exists(destination):
-            new_filename = f"{base_name}_{counter}{ext}"
-            destination = os.path.join(usb_recordings_dir, new_filename)
-            counter += 1
+        if os.path.exists(destination):
+            filename = os.path.basename(destination)
+            base_name, ext = os.path.splitext(filename)
+            counter = 1
+            while os.path.exists(destination):
+                new_filename = f"{base_name}_{counter}{ext}"
+                destination = os.path.join(destination_dir, new_filename)
+                counter += 1
         
         # Move the file
         import shutil
@@ -940,65 +985,31 @@ def move_file_to_usb(file_path, usb_path):
         return {'success': False, 'error': str(e)}
 
 
-def copy_settings_and_executables_to_usb(usb_path):
+def copy_executables_to_usb(usb_path):
     """
-    Copy settings.json and executables to USB drive if they don't exist or are outdated.
+    Copy executables to USB drive if they don't exist or are outdated.
     
     Args:
         usb_path: Path to the USB mount point
     
     Returns:
         dict with information about what was copied: {
-            'settings_copied': bool,
             'executables_copied': int,
             'errors': list
         }
     """
     import shutil
     
-    # Determine the parent directory containing streamerData and executables
+    # Determine the parent directory containing executables
     script_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.dirname(script_dir)
     
     result = {
-        'settings_copied': False,
         'executables_copied': 0,
         'errors': []
     }
     
     try:
-        # Copy settings.json if it doesn't exist or is outdated
-        print("Checking settings.json on USB drive...")
-        src_settings = os.path.join(parent_dir, 'streamerData', 'settings.json')
-        dst_streamerData = os.path.join(usb_path, 'streamerData')
-        dst_settings = os.path.join(dst_streamerData, 'settings.json')
-        os.makedirs(dst_streamerData, exist_ok=True)
-        
-        if os.path.exists(src_settings):
-            # Check if USB settings file is missing or outdated
-            copy_settings = False
-            if not os.path.exists(dst_settings):
-                copy_settings = True
-                print("Settings file not found on USB, copying...")
-            else:
-                # Compare modification times
-                src_mtime = os.path.getmtime(src_settings)
-                dst_mtime = os.path.getmtime(dst_settings)
-                if src_mtime > dst_mtime:
-                    copy_settings = True
-                    print("Local settings file is newer, updating USB...")
-            
-            if copy_settings:
-                shutil.copy2(src_settings, dst_settings)
-                size_kb = os.path.getsize(dst_settings) / 1024
-                print(f"Copied settings.json ({size_kb:.2f} KB) to USB: {dst_settings}")
-                result['settings_copied'] = True
-            else:
-                print("USB settings.json is up to date")
-        else:
-            print(f"Warning: {src_settings} not found, skipping settings.json copy.")
-            result['errors'].append(f"Settings file not found: {src_settings}")
-        
         # Copy executables if they don't exist or are outdated
         print("Checking executables on USB drive...")
         src_exec_dir = os.path.join(parent_dir, 'executables')
@@ -1032,7 +1043,7 @@ def copy_settings_and_executables_to_usb(usb_path):
             result['errors'].append(f"Executables directory not found: {src_exec_dir}")
         
     except Exception as e:
-        error_msg = f"Error copying files to USB: {str(e)}"
+        error_msg = f"Error copying executables to USB: {str(e)}"
         print(error_msg)
         result['errors'].append(error_msg)
     

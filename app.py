@@ -21,7 +21,7 @@ import fcntl
 from datetime import datetime
 from pathlib import Path
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_settings_and_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR,HEARTBEAT_FILE, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, get_hardwareid, get_app_version, get_active_recording_info, add_files_from_path, load_wifi_settings, save_wifi_settings, get_wifi_mode_status, reset_modem_at_command, load_cellular_settings, save_cellular_settings, get_cellular_status, update_cellular_connection
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR,HEARTBEAT_FILE, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, get_hardwareid, get_app_version, get_active_recording_info, add_files_from_path, load_wifi_settings, save_wifi_settings, get_wifi_mode_status, reset_modem_at_command, load_cellular_settings, save_cellular_settings, get_cellular_status, update_cellular_connection
 
 # Use pymediainfo for fast video duration extraction - now imported in utils.py
 #this is a test
@@ -174,8 +174,6 @@ def settings():
             settings['abitrate'] = data['abitrate']
         if 'ar' in data:
             settings['ar'] = int(data['ar'])
-        if 'upload_url' in data:
-            settings['upload_url'] = data['upload_url']
         if 'audio_input' in data:
             settings['audio_input'] = data['audio_input']
         if 'video_input' in data:
@@ -687,19 +685,39 @@ def hardwareid():
 @app.route('/upload-recording', methods=['POST'])
 def upload_recording():
     from werkzeug.utils import secure_filename
+    import re
     
-    settings = load_settings()
-    upload_url = settings['upload_url'].strip()
-    if not upload_url:
-        return jsonify({'error': 'Upload URL is not set. Please configure it in Settings.'}), 400
-    
-    # Ensure command=replacerecordings is present
-    if 'command=replacerecordings' not in upload_url:
-        return jsonify({'error': 'Upload URL is incorrect. Please configure it in Settings.'}), 400
-
     file_path = request.form.get('file_path')
     if not file_path or not os.path.isfile(file_path):
         return jsonify({'error': 'Recording file not found.'}), 400
+    
+    # Extract domain and rtmpkey from hierarchical file path
+    # Expected format: .../recordings/webcam/<domain>/<rtmpkey>/<filename>
+    try:
+        # Get the relative path from the recordings/webcam directory
+        path_parts = file_path.replace('\\', '/').split('/')
+        
+        # Find the webcam directory and extract domain/rtmpkey from the path after it
+        webcam_idx = -1
+        for i, part in enumerate(path_parts):
+            if part == 'webcam':
+                webcam_idx = i
+                break
+        
+        if webcam_idx == -1 or webcam_idx + 2 >= len(path_parts):
+            return jsonify({'error': 'Invalid file path format. Expected: .../recordings/webcam/<domain>/<rtmpkey>/<filename>'}), 400
+        
+        domain = path_parts[webcam_idx + 1]
+        rtmpkey = path_parts[webcam_idx + 2]
+        
+        if not domain or not rtmpkey:
+            return jsonify({'error': 'Could not extract domain and rtmpkey from file path.'}), 400
+        
+        # Construct upload URL dynamically
+        upload_url = f"https://{domain}.org/ajaxservices.php?command=replacerecordings&rtmpkey={rtmpkey}"
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to parse file path: {e}'}), 400
     # Generate unique upload ID for progress tracking
     upload_id = str(uuid.uuid4())
     
@@ -764,11 +782,11 @@ def upload_recording():
                 upload_progress[upload_id]['result'] = result
                 
                 # If upload succeeded and no error, delete the original file
-                if result.get('error') == '':
-                    try:
-                        os.remove(file_path)
-                    except Exception:
-                        pass  # Ignore deletion errors
+                #if result.get('error') == '':
+                #    try:
+                #        os.remove(file_path)
+                #    except Exception:
+                #        pass  # Ignore deletion errors
                         
         except Exception as e:
             if upload_progress[upload_id]['cancelled']:
@@ -2942,9 +2960,8 @@ def move_to_usb():
         if abs_file_path.startswith(abs_usb_path):
             return jsonify({'success': True, 'info': 'File is already stored on USB drive. No action needed.'})
         
-        # Copy settings and executables to USB if needed
-        copy_result = copy_settings_and_executables_to_usb(usb_path)
-        settings_copied = copy_result['settings_copied']
+        # Copy executables to USB if needed
+        copy_result = copy_executables_to_usb(usb_path)
         executables_copied = copy_result['executables_copied']
         
         # Move the file to USB
@@ -2961,22 +2978,16 @@ def move_to_usb():
                 print(f"Warning: USB sync failed: {e}")
             
             # Create detailed message about what was copied
-            message_parts = ['Successfully moved to USB drive']
-            if settings_copied:
-                message_parts.append('settings updated')
             if executables_copied > 0:
-                message_parts.append(f'{executables_copied} executable(s) updated')
-            
-            message = message_parts[0]
-            if len(message_parts) > 1:
-                message += ' with ' + ' and '.join(message_parts[1:])
+                message = f'Successfully moved to USB drive with {executables_copied} executable(s) updated'
+            else:
+                message = 'Successfully moved to USB drive'
             
             return jsonify({
                 'success': True,
                 'destination': result['destination'],
                 'message': message,
                 'files_copied': {
-                    'settings': settings_copied,
                     'executables': executables_copied
                 }
             })
