@@ -66,8 +66,8 @@ except (IOError, OSError):
 
 poll_time = 30 # Polling interval in seconds
 
-# Check initial power status to determine if sleep_time should be disabled
-power_monitoring_disabled_at_startup = False
+# Check initial power status to determine if gps tracking should be disabled
+power_unplugged_at_startup = False
 
 try:
     with X120X() as ups_initial:
@@ -75,7 +75,7 @@ try:
         initial_ac_power_connected = initial_ups_status.get('ac_power_connected', False)
         
         if not initial_ac_power_connected:
-            power_monitoring_disabled_at_startup = True
+            power_unplugged_at_startup = True
             logging.warning("Device is NOT plugged in at startup - power monitoring (sleep_time) disabled for this session")
         else:
             logging.info("Device is plugged in at startup - normal power monitoring enabled")
@@ -89,9 +89,6 @@ try:
         logging.info("Running in daemon mode - logging to console and file")
     else:
         logging.info("Running in interactive mode - logging to console only")
-    
-    if power_monitoring_disabled_at_startup:
-        logging.info("Power monitoring disabled due to unplugged state at startup")
     
     # Main monitoring loop - runs until error occurs
     while True:
@@ -121,20 +118,13 @@ try:
             settings = load_settings()
             sleep_time = settings.get('power_monitor_sleep_time')
             
-            # Override sleep_time if power monitoring was disabled at startup
-            if power_monitoring_disabled_at_startup:
-                sleep_time = 0
-            
             # Handle power state outside of connection context
             if not ac_power_connected:
                 logging.warning("UPS is unplugged or AC power loss detected.")
                 
                 # If sleep_time is 0 or None, disable power monitoring
                 if not sleep_time:
-                    if power_monitoring_disabled_at_startup:
-                        logging.info(f"Power monitoring disabled (device was unplugged at startup) - continuing normal monitoring for {poll_time} seconds")
-                    else:
-                        logging.info(f"Power monitoring disabled (sleep_time is 0 or unset) - continuing normal monitoring for {poll_time} seconds")
+                    logging.info(f"Power monitoring disabled (sleep_time is 0 or unset) - continuing normal monitoring for {poll_time} seconds")
                     time.sleep(poll_time)
                     continue
                 else:
@@ -146,8 +136,10 @@ try:
                 
                 if streaming_active or gps_active:                    
                     # Check if GPS tracking should be stopped after timeout
+                    #only do this if power was not already lost at startup
                     if (gps_active and 
-                        settings['gps_stop_on_power_loss']):
+                        settings['gps_stop_on_power_loss'] and
+                        not power_unplugged_at_startup):
                         
                         timeout_minutes = settings['gps_stop_power_loss_minutes']
                         timeout_seconds = timeout_minutes * 60
@@ -220,8 +212,11 @@ try:
                             activities.append("streaming")
                         if gps_active:
                             activities.append("GPS tracking")
-                        # Standard behavior - skip shutdown while activities are running
-                        logging.warning(f"UPS unplugged but {' and '.join(activities)} {'is' if len(activities)==1 else 'are'} active. Skipping shutdown to prevent interruption.")
+                        # Standard behavior - skip shutdown while activities are running or power was unplugged at startup
+                        if power_unplugged_at_startup:
+                            logging.warning(f"UPS unplugged at startup and {' and '.join(activities)} {'is' if len(activities)==1 else 'are'} active. Skipping shutdown to prevent interruption.")
+                        else:
+                            logging.warning(f"UPS unplugged but {' and '.join(activities)} {'is' if len(activities)==1 else 'are'} active. Skipping shutdown to prevent interruption.")
                 else:
                     # No activities running, proceed with normal shutdown
                     logging.info(f"Waiting {sleep_time} seconds before shutdown...")

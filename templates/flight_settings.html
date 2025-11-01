@@ -60,7 +60,7 @@
                     <option value="off" {% if not settings.gps_stop_on_power_loss %}selected{% endif %}>No - Continue GPS tracking during power loss</option>
                     <option value="on" {% if settings.gps_stop_on_power_loss %}selected{% endif %}>Yes - Stop GPS tracking after specified time</option>
                 </select>
-                <small>When enabled, GPS tracking will stop automatically if UPS power loss is detected for the specified duration.</small>
+                <small>When enabled, GPS tracking will stop automatically if UPS power loss is detected for the specified duration. Disabled if device was unplugged at boot.</small>
 
                 <label for="gps_stop_power_loss_minutes">Power Loss Timeout (minutes)</label>
                 <input type="number" id="gps_stop_power_loss_minutes" name="gps_stop_power_loss_minutes" 
