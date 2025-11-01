@@ -6,6 +6,58 @@ import time
 import signal
 from utils import cleanup_pidfile, copy_executables_to_usb, get_setting
 
+def postprocess_recording(recording_file):
+    """
+    Post-process a recording file to optimize it for playback by adding faststart.
+    
+    Args:
+        recording_file (str): Path to the recording file to process
+        
+    Returns:
+        bool: True if post-processing was successful, False otherwise
+    """
+    if not os.path.exists(recording_file) or os.path.getsize(recording_file) == 0:
+        print(f"Recording file {recording_file} doesn't exist or is empty, skipping post-processing")
+        return False
+    
+    print(f"Post-processing {recording_file} for optimal playback...")
+    temp_file = recording_file + ".processing.mp4"
+    
+    postprocess_cmd = [
+        'ffmpeg',
+        '-i', recording_file,
+        '-c', 'copy',
+        '-f', 'mp4',
+        '-movflags', '+faststart',
+        '-y', temp_file
+    ]
+    
+    try:
+        print("Running post-process:", ' '.join(postprocess_cmd))
+        postprocess_proc = subprocess.run(postprocess_cmd, capture_output=True, text=True, timeout=60)
+        
+        if postprocess_proc.returncode == 0 and os.path.exists(temp_file):
+            # Replace original with processed version
+            os.replace(temp_file, recording_file)
+            print(f"Successfully post-processed {recording_file}")
+            return True
+        else:
+            print(f"Post-processing failed: {postprocess_proc.stderr}")
+            # Clean up temp file if it exists
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+            return False
+    except subprocess.TimeoutExpired:
+        print("Post-processing timed out")
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        return False
+    except Exception as e:
+        print(f"Post-processing error: {e}")
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        return False
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python relay-ffmpeg-record.py <MTX_PATH>")
@@ -33,6 +85,8 @@ def main():
     print(f"Extracted domain: {domain}, rtmpkey: {rtmpkey}")
 
     proc = None  # Track the ffmpeg process
+    current_recording_file = None  # Track the current recording file
+    
     def handle_exit(signum, frame):
         print(f"Received exit signal {signum}, cleaning up...")
         # Terminate ffmpeg child process if running
@@ -45,6 +99,12 @@ def main():
                 if proc.poll() is not None:
                     break
                 time.sleep(0.1)
+        
+        # Post-process the current recording file if it exists
+        if current_recording_file:
+            print(f"Post-processing interrupted recording...")
+            postprocess_recording(current_recording_file)
+        
         cleanup_pidfile(ACTIVE_PIDFILE, sync_usb=True)
         print("Exiting gracefully...")
         sys.exit(0)
@@ -96,6 +156,7 @@ def main():
     while True:
         timestamp = int(time.time())
         recording_file = os.path.join(record_dir, domain, rtmpkey, f"{timestamp}.mp4")
+        current_recording_file = recording_file  # Update the global tracking variable
         
         # Ensure the domain/rtmpkey directory structure exists
         os.makedirs(os.path.dirname(recording_file), exist_ok=True)
@@ -106,7 +167,8 @@ def main():
             '-i', rtsp_url,
             '-c', 'copy',
             '-f', 'mp4',
-            '-movflags', '+faststart',
+            '-movflags', '+empty_moov+frag_keyframe',
+            '-reset_timestamps', '1',
             recording_file
         ]
         print("Running:", ' '.join(ffmpeg_cmd))
@@ -123,6 +185,10 @@ def main():
             print(f"Warning: Could not write active PID file: {e}")
         proc.wait()
         cleanup_pidfile(ACTIVE_PIDFILE, sync_usb=True)
+        
+        # Post-process the recording to ensure proper MP4 structure with faststart
+        postprocess_recording(recording_file)
+        
         print("ffmpeg exited, restarting in 1 second...")
         time.sleep(1)
 
