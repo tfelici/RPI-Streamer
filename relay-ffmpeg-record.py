@@ -106,8 +106,7 @@ def main():
             '-i', rtsp_url,
             '-c', 'copy',
             '-f', 'mp4',
-            '-movflags', '+faststart+frag_keyframe+empty_moov+default_base_moof',
-            '-frag_duration', '2000000',
+            '-movflags', '+faststart',
             recording_file
         ]
         print("Running:", ' '.join(ffmpeg_cmd))
