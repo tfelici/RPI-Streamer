@@ -30,6 +30,7 @@ The heartbeat server can now send commands in JSON responses with this format:
 Currently supported commands:
 - "gps-control" with actions "start" or "stop" to control GPS tracking
 - "stream-control" with actions "start" or "stop" to control video streaming
+- "system-control" with actions "shutdown" or "reboot" to control system power state
 """
 
 import os
@@ -817,11 +818,11 @@ def process_server_command(response_data):
             handle_gps_control_command(action, response_data, settings)
         elif command == 'stream-control':
             handle_stream_control_command(action, response_data, settings)
+        elif command == 'system-control':
+            handle_system_control_command(action, response_data, settings)
         # Future command handlers can be added here:
         # elif command == 'recording-control':
         #     handle_recording_control_command(action, response_data, settings)
-        # elif command == 'system-control':
-        #     handle_system_control_command(action, response_data, settings)
         else:
             logger.warning(f"Unknown command received: {command}")
             
@@ -951,6 +952,61 @@ def handle_stream_control_command(action, command_data=None, settings=None):
         logger.error(f"Network error executing stream control command: {e}")
     except Exception as e:
         logger.error(f"Error handling stream control command: {e}")
+
+def handle_system_control_command(action, command_data=None, settings=None):
+    """
+    Handle system control commands received from the server.
+    
+    Args:
+        action (str): The system control action ('shutdown', 'reboot', etc.)
+        command_data (dict): Full command data (for future use with additional parameters)
+        settings (dict): Updated settings from server (optional)
+    """
+    try:
+        if action == 'shutdown':
+            logger.info("Executing system shutdown command from server")
+            
+            # Schedule shutdown with a small delay to allow heartbeat response to be sent
+            def delayed_shutdown():
+                time.sleep(2)  # Allow time for any response to be sent
+                try:
+                    # Use systemctl to perform graceful shutdown
+                    subprocess.run(['sudo', 'shutdown', '-h', 'now'], timeout=10)
+                except Exception as e:
+                    logger.error(f"Error executing shutdown command: {e}")
+                    # Fallback to halt command
+                    try:
+                        subprocess.run(['sudo', 'halt'], timeout=10)
+                    except Exception as e2:
+                        logger.error(f"Error executing halt fallback: {e2}")
+            
+            # Run shutdown in separate thread to avoid blocking heartbeat response
+            shutdown_thread = threading.Thread(target=delayed_shutdown, daemon=True)
+            shutdown_thread.start()
+            logger.info("System shutdown initiated")
+            
+        elif action == 'reboot':
+            logger.info("Executing system reboot command from server")
+            
+            # Schedule reboot with a small delay to allow heartbeat response to be sent
+            def delayed_reboot():
+                time.sleep(2)  # Allow time for any response to be sent
+                try:
+                    # Use systemctl to perform graceful reboot
+                    subprocess.run(['sudo', 'reboot'], timeout=10)
+                except Exception as e:
+                    logger.error(f"Error executing reboot command: {e}")
+            
+            # Run reboot in separate thread to avoid blocking heartbeat response
+            reboot_thread = threading.Thread(target=delayed_reboot, daemon=True)
+            reboot_thread.start()
+            logger.info("System reboot initiated")
+            
+        else:
+            logger.warning(f"Unknown system control action: {action}")
+            
+    except Exception as e:
+        logger.error(f"Error handling system control command: {e}")
 
 def send_heartbeat():
     """Send heartbeat data to remote server and save stats locally (fire and forget)"""
