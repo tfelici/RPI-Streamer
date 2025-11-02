@@ -575,11 +575,26 @@ else
 fi
 
 
-#download the executables directory from the Streamer-Uploader & Streamer-Viewer repository
+#download the executables directory from the Streamer-Viewer repository
 #only download if the executables have changed or don't exist
 if [ ! -d "$HOME/executables" ]; then
     mkdir -p "$HOME/executables"
 fi
+
+# Clean up any old executables that don't begin with "Viewer-" from previous installations
+echo "🧹 Cleaning up old executables (keeping only Viewer- files)..."
+if [ -d "$HOME/executables" ]; then
+    for file in "$HOME/executables"/*; do
+        if [ -f "$file" ]; then
+            filename=$(basename "$file")
+            # Remove any file that doesn't start with "Viewer-"
+            if [[ ! "$filename" =~ ^Viewer- ]]; then
+                rm -f "$file" && echo "  Removed old executable: $filename"
+            fi
+        fi
+    done
+fi
+echo "✅ Old executables cleanup completed (kept only Viewer- files)"
 
 # Function to check and download executable if needed
 # This function handles both SHA checking and downloading in one place
@@ -661,33 +676,31 @@ check_and_download_executable() {
     fi
 }
 
-# Download the StreamerUploader executables for different platforms
-printf "Checking StreamerUploader executables...\n"
+# Download the StreamerViewer executables for different platforms
+printf "Checking StreamerViewer executables...\n"
 
 # Use the same branch as the main RPI Streamer installation
-STREAMER_UPLOADER_BRANCH=$BRANCH_NAME
-printf "📦 Using Streamer-Uploader $STREAMER_UPLOADER_BRANCH branch for executables...\n"
-printf "🔍 GitHub API will check branch: $STREAMER_UPLOADER_BRANCH\n"
+STREAMER_VIEWER_BRANCH=$BRANCH_NAME
+printf "📦 Using Streamer-Viewer $STREAMER_VIEWER_BRANCH branch for executables...\n"
+printf "🔍 GitHub API will check branch: $STREAMER_VIEWER_BRANCH\n"
 
 
 
 # Check and download Windows executables
-check_and_download_executable "Windows" "Uploader-windows.exe" "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/windows/dist/StreamerUploader.exe?ref=$STREAMER_UPLOADER_BRANCH" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/windows/dist/StreamerUploader.exe"
-check_and_download_executable "Windows" "Viewer-windows.exe" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/windows/dist/StreamerViewer.exe?ref=main" "https://github.com/tfelici/Streamer-Viewer/raw/main/windows/dist/StreamerViewer.exe"
+check_and_download_executable "Windows" "Viewer-windows.exe" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/windows/dist/StreamerViewer.exe?ref=$STREAMER_VIEWER_BRANCH" "https://github.com/tfelici/Streamer-Viewer/raw/$STREAMER_VIEWER_BRANCH/windows/dist/StreamerViewer.exe"
 
-# Check and download macOS executables
-check_and_download_executable "macOS" "Uploader-macos" "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/macos/dist/StreamerUploader?ref=$STREAMER_UPLOADER_BRANCH" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/macos/dist/StreamerUploader"
-check_and_download_executable "macOS" "Viewer-macos" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/macos/dist/StreamerViewer?ref=$STREAMER_UPLOADER_BRANCH" "https://github.com/tfelici/Streamer-Viewer/raw/$STREAMER_UPLOADER_BRANCH/macos/dist/StreamerViewer"
+# Check and download macOS executables  
+check_and_download_executable "macOS" "Viewer-macos" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/macos/dist/StreamerViewer?ref=$STREAMER_VIEWER_BRANCH" "https://github.com/tfelici/Streamer-Viewer/raw/$STREAMER_VIEWER_BRANCH/macos/dist/StreamerViewer"
 
 # Check and download Linux executables
-check_and_download_executable "Linux" "Uploader-linux" "https://api.github.com/repos/tfelici/Streamer-Uploader/contents/linux/dist/StreamerUploader?ref=$STREAMER_UPLOADER_BRANCH" "https://github.com/tfelici/Streamer-Uploader/raw/$STREAMER_UPLOADER_BRANCH/linux/dist/StreamerUploader"
-check_and_download_executable "Linux" "Viewer-linux" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/linux/dist/StreamerViewer?ref=$STREAMER_UPLOADER_BRANCH" "https://github.com/tfelici/Streamer-Viewer/raw/$STREAMER_UPLOADER_BRANCH/linux/dist/StreamerViewer"
+check_and_download_executable "Linux" "Viewer-linux" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/linux/dist/StreamerViewer?ref=$STREAMER_VIEWER_BRANCH" "https://github.com/tfelici/Streamer-Viewer/raw/$STREAMER_VIEWER_BRANCH/linux/dist/StreamerViewer"
 
-printf "StreamerUploader executable check completed.\n"
+printf "StreamerViewer executable check completed.\n"
 
 # Make the downloaded linux and macos executables executable
-[ -f "$HOME/executables/Uploader-linux" ] && chmod +x "$HOME/executables/Uploader-linux"
-[ -f "$HOME/executables/Uploader-macos" ] && chmod +x "$HOME/executables/Uploader-macos"
+[ -f "$HOME/executables/Viewer-linux" ] && chmod +x "$HOME/executables/Viewer-linux"
+[ -f "$HOME/executables/Viewer-macos" ] && chmod +x "$HOME/executables/Viewer-macos"
+
 # search and install latest version of mediamtx
 #only install MediaMTX if it does not exist or is not the latest version
 printf "Checking for existing MediaMTX installation...\n"
