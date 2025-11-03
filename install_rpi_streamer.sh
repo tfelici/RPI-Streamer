@@ -581,7 +581,7 @@ if [ ! -d "$HOME/executables" ]; then
     mkdir -p "$HOME/executables"
 fi
 
-# Clean up any old executables that don't begin with "Viewer-" from previous installations
+# Clean up any old executables and version tracking files from previous installations
 echo "🧹 Cleaning up old executables (keeping only Viewer- files)..."
 if [ -d "$HOME/executables" ]; then
     for file in "$HOME/executables"/*; do
@@ -593,11 +593,18 @@ if [ -d "$HOME/executables" ]; then
             fi
         fi
     done
+    
+    # Clean up old SHA files (legacy from when we used repository files)
+    for shafile in "$HOME/executables"/*.sha; do
+        if [ -f "$shafile" ]; then
+            rm -f "$shafile" && echo "  Removed legacy SHA file: $(basename "$shafile")"
+        fi
+    done 2>/dev/null || true
 fi
-echo "✅ Old executables cleanup completed (kept only Viewer- files)"
+echo "✅ Old executables cleanup completed (kept only Viewer- files and .version files)"
 
-# Function to check and download executable if needed
-# This function handles both SHA checking and downloading in one place
+# Function to check and download executable from GitHub Releases if needed
+# This function handles release version checking and downloading in one place
 # Returns 0 on success (up to date or downloaded), 1 on failure (but doesn't exit)
 
 # Check if jq is installed, if not, install it (needed for version comparison)
@@ -611,48 +618,58 @@ check_and_download_executable() {
     local api_path=$3
     local download_url=$4
     local local_file="$HOME/executables/$filename"
-    local sha_file="$HOME/executables/${filename}.sha"
+    local version_file="$HOME/executables/${filename}.version"
     
     printf "Checking %s executable...\n" "$platform"
     
-    # Get remote file SHA from GitHub API with cache busting
-    printf "  Fetching remote SHA from: %s\n" "$api_path"
-    remote_sha=$(curl -s -H "Cache-Control: no-cache" "$api_path" | jq -r ".sha")
+    # Get release information from GitHub Releases API with cache busting
+    printf "  Fetching release info from: %s\n" "$api_path"
+    release_info=$(curl -s -H "Cache-Control: no-cache" "$api_path")
     
-    if [ -z "$remote_sha" ] || [ "$remote_sha" = "null" ]; then
-        echo "Warning: Could not fetch remote SHA for $platform executable. Remote file may not exist or API is unavailable."
+    if [ -z "$release_info" ] || [ "$release_info" = "null" ]; then
+        echo "Warning: Could not fetch release info for $platform executable. Release may not exist or API is unavailable."
         echo "API path: $api_path"
         echo "Skipping $platform executable update check."
         return 0  # Return success to continue gracefully
     fi
     
-    printf "  Remote SHA: %s\n" "${remote_sha:0:7}..."
+    # Extract release date and tag name for version tracking
+    release_date=$(echo "$release_info" | jq -r ".published_at // .created_at")
+    release_tag=$(echo "$release_info" | jq -r ".tag_name")
     
-    # Check if local file exists and has a stored SHA
+    if [ -z "$release_date" ] || [ "$release_date" = "null" ]; then
+        echo "Warning: Could not parse release date for $platform executable."
+        echo "Skipping $platform executable update check."
+        return 0  # Return success to continue gracefully
+    fi
+    
+    printf "  Remote release: %s (%s)\n" "$release_tag" "${release_date:0:10}"
+    
+    # Check if local file exists and has stored version info
     local need_download=false
     
-    if [ -f "$local_file" ] && [ -f "$sha_file" ]; then
-        # Read the stored SHA
-        stored_sha=$(cat "$sha_file" 2>/dev/null || echo "")
-        printf "  Local SHA:  %s\n" "${stored_sha:0:7}..."
+    if [ -f "$local_file" ] && [ -f "$version_file" ]; then
+        # Read the stored version info
+        stored_version=$(cat "$version_file" 2>/dev/null || echo "")
+        printf "  Local version: %s\n" "${stored_version}"
         
-        if [ -z "$stored_sha" ]; then
-            echo "  No stored SHA found for $platform executable, will download."
+        if [ -z "$stored_version" ]; then
+            echo "  No stored version found for $platform executable, will download."
             need_download=true
-        elif [ "$stored_sha" = "$remote_sha" ]; then
-            echo "  $platform executable is up to date (SHA match)."
+        elif [ "$stored_version" = "$release_date" ]; then
+            echo "  $platform executable is up to date (version match)."
             return 0  # Already up to date
         else
             echo "  $platform executable needs update!"
-            echo "    Stored:  ${stored_sha:0:7}..."
-            echo "    Remote:  ${remote_sha:0:7}..."
+            echo "    Stored:  ${stored_version}"
+            echo "    Remote:  ${release_date:0:10}"
             need_download=true
         fi
     else
         if [ ! -f "$local_file" ]; then
             echo "  $platform executable file not found, will download."
         else
-            echo "  $platform executable SHA file not found, will download."
+            echo "  $platform executable version file not found, will download."
         fi
         need_download=true
     fi
@@ -663,9 +680,9 @@ check_and_download_executable() {
         printf "  URL: %s\n" "$download_url"
         if curl -H "Cache-Control: no-cache" -L "$download_url?$(date +%s)" -o "$local_file"; then
             echo "  $platform executable downloaded successfully."
-            # Store the remote SHA for future comparisons
-            echo "$remote_sha" > "$sha_file"
-            printf "  SHA %s stored for future comparisons.\n" "${remote_sha:0:7}..."
+            # Store the release date for future comparisons
+            echo "$release_date" > "$version_file"
+            printf "  Version %s stored for future comparisons.\n" "${release_date:0:10}"
             return 0  # Success
         else
             echo "  Warning: Failed to download $platform executable. This may be due to network issues or the file not existing."
@@ -679,21 +696,25 @@ check_and_download_executable() {
 # Download the StreamerViewer executables for different platforms
 printf "Checking StreamerViewer executables...\n"
 
-# Use the same branch as the main RPI Streamer installation
-STREAMER_VIEWER_BRANCH=$BRANCH_NAME
-printf "📦 Using Streamer-Viewer $STREAMER_VIEWER_BRANCH branch for executables...\n"
-printf "🔍 GitHub API will check branch: $STREAMER_VIEWER_BRANCH\n"
+printf "📦 Using Streamer-Viewer $BRANCH_NAME branch for executables...\n"
 
+# Determine release tag based on branch
+if [ "$BRANCH_NAME" = "main" ]; then
+    RELEASE_TAG="latest-main"
+else
+    RELEASE_TAG="latest-develop"
+fi
 
+printf "📦 Using Streamer-Viewer release: $RELEASE_TAG\n"
 
-# Check and download Windows executables
-check_and_download_executable "Windows" "Viewer-windows.exe" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/windows/dist/StreamerViewer.exe?ref=$STREAMER_VIEWER_BRANCH" "https://github.com/tfelici/Streamer-Viewer/raw/$STREAMER_VIEWER_BRANCH/windows/dist/StreamerViewer.exe"
+# Check and download Windows executables from GitHub Releases
+check_and_download_executable "Windows" "Viewer-windows.exe" "https://api.github.com/repos/tfelici/Streamer-Viewer/releases/tags/$RELEASE_TAG" "https://github.com/tfelici/Streamer-Viewer/releases/download/$RELEASE_TAG/StreamerViewer-windows.exe"
 
-# Check and download macOS executables  
-check_and_download_executable "macOS" "Viewer-macos" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/macos/dist/StreamerViewer?ref=$STREAMER_VIEWER_BRANCH" "https://github.com/tfelici/Streamer-Viewer/raw/$STREAMER_VIEWER_BRANCH/macos/dist/StreamerViewer"
+# Check and download macOS executables from GitHub Releases
+check_and_download_executable "macOS" "Viewer-macos" "https://api.github.com/repos/tfelici/Streamer-Viewer/releases/tags/$RELEASE_TAG" "https://github.com/tfelici/Streamer-Viewer/releases/download/$RELEASE_TAG/StreamerViewer-macos"
 
-# Check and download Linux executables
-check_and_download_executable "Linux" "Viewer-linux" "https://api.github.com/repos/tfelici/Streamer-Viewer/contents/linux/dist/StreamerViewer?ref=$STREAMER_VIEWER_BRANCH" "https://github.com/tfelici/Streamer-Viewer/raw/$STREAMER_VIEWER_BRANCH/linux/dist/StreamerViewer"
+# Check and download Linux executables from GitHub Releases  
+check_and_download_executable "Linux" "Viewer-linux" "https://api.github.com/repos/tfelici/Streamer-Viewer/releases/tags/$RELEASE_TAG" "https://github.com/tfelici/Streamer-Viewer/releases/download/$RELEASE_TAG/StreamerViewer-linux"
 
 printf "StreamerViewer executable check completed.\n"
 
