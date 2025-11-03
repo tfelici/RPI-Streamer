@@ -710,8 +710,9 @@ printf "📦 Using Streamer-Viewer release: $RELEASE_TAG\n"
 # Check and download Windows executables from GitHub Releases
 check_and_download_executable "Windows" "Viewer-windows.exe" "https://api.github.com/repos/tfelici/Streamer-Viewer/releases/tags/$RELEASE_TAG" "https://github.com/tfelici/Streamer-Viewer/releases/download/$RELEASE_TAG/StreamerViewer-windows.exe"
 
-# Check and download macOS executables from GitHub Releases
-check_and_download_executable "macOS" "Viewer-macos" "https://api.github.com/repos/tfelici/Streamer-Viewer/releases/tags/$RELEASE_TAG" "https://github.com/tfelici/Streamer-Viewer/releases/download/$RELEASE_TAG/StreamerViewer-macos"
+# Check and download macOS executables from GitHub Releases (architecture-specific)
+check_and_download_executable "macOS Intel" "Viewer-macos-x86_64" "https://api.github.com/repos/tfelici/Streamer-Viewer/releases/tags/$RELEASE_TAG" "https://github.com/tfelici/Streamer-Viewer/releases/download/$RELEASE_TAG/StreamerViewer-macos-x86_64"
+check_and_download_executable "macOS Apple Silicon" "Viewer-macos-arm64" "https://api.github.com/repos/tfelici/Streamer-Viewer/releases/tags/$RELEASE_TAG" "https://github.com/tfelici/Streamer-Viewer/releases/download/$RELEASE_TAG/StreamerViewer-macos-arm64"
 
 # Check and download Linux executables from GitHub Releases  
 check_and_download_executable "Linux" "Viewer-linux" "https://api.github.com/repos/tfelici/Streamer-Viewer/releases/tags/$RELEASE_TAG" "https://github.com/tfelici/Streamer-Viewer/releases/download/$RELEASE_TAG/StreamerViewer-linux"
@@ -720,7 +721,8 @@ printf "StreamerViewer executable check completed.\n"
 
 # Make the downloaded linux and macos executables executable
 [ -f "$HOME/executables/Viewer-linux" ] && chmod +x "$HOME/executables/Viewer-linux"
-[ -f "$HOME/executables/Viewer-macos" ] && chmod +x "$HOME/executables/Viewer-macos"
+[ -f "$HOME/executables/Viewer-macos-x86_64" ] && chmod +x "$HOME/executables/Viewer-macos-x86_64"
+[ -f "$HOME/executables/Viewer-macos-arm64" ] && chmod +x "$HOME/executables/Viewer-macos-arm64"
 
 # search and install latest version of mediamtx
 #only install MediaMTX if it does not exist or is not the latest version
