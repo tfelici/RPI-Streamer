@@ -581,36 +581,20 @@ if [ ! -d "$HOME/executables" ]; then
     mkdir -p "$HOME/executables"
 fi
 
-# Clean up any old executables and version tracking files from previous installations
-echo "🧹 Cleaning up old executables (keeping only Viewer- files)..."
-if [ -d "$HOME/executables" ]; then
-    for file in "$HOME/executables"/*; do
-        if [ -f "$file" ]; then
-            filename=$(basename "$file")
-            # Remove any file that doesn't start with "Viewer-"
-            if [[ ! "$filename" =~ ^Viewer- ]]; then
-                rm -f "$file" && echo "  Removed old executable: $filename"
-            fi
-        fi
-    done
-    
-    # Clean up old SHA files (legacy from when we used repository files)
-    for shafile in "$HOME/executables"/*.sha; do
-        if [ -f "$shafile" ]; then
-            rm -f "$shafile" && echo "  Removed legacy SHA file: $(basename "$shafile")"
-        fi
-    done 2>/dev/null || true
-fi
-echo "✅ Old executables cleanup completed (kept only Viewer- files and .version files)"
+
 
 # Function to check and download executable from GitHub Releases if needed
 # This function handles release version checking and downloading in one place
 # Returns 0 on success (up to date or downloaded), 1 on failure (but doesn't exit)
+# Adds successfully managed files to DOWNLOADED_FILES array
 
 # Check if jq is installed, if not, install it (needed for version comparison)
 if ! command -v jq &> /dev/null; then
     sudo apt-get install jq -y
 fi
+
+# Initialize array to track downloaded/managed files
+DOWNLOADED_FILES=()
 
 check_and_download_executable() {
     local platform=$1
@@ -658,6 +642,8 @@ check_and_download_executable() {
             need_download=true
         elif [ "$stored_version" = "$release_date" ]; then
             echo "  $platform executable is up to date (version match)."
+            # Add to managed files list (already up to date)
+            DOWNLOADED_FILES+=("$filename" "${filename}.version")
             return 0  # Already up to date
         else
             echo "  $platform executable needs update!"
@@ -683,6 +669,8 @@ check_and_download_executable() {
             # Store the release date for future comparisons
             echo "$release_date" > "$version_file"
             printf "  Version %s stored for future comparisons.\n" "${release_date:0:10}"
+            # Add to managed files list (newly downloaded)
+            DOWNLOADED_FILES+=("$filename" "${filename}.version")
             return 0  # Success
         else
             echo "  Warning: Failed to download $platform executable. This may be due to network issues or the file not existing."
@@ -718,6 +706,40 @@ check_and_download_executable "macOS Apple Silicon" "Viewer-macos-arm64" "https:
 check_and_download_executable "Linux" "Viewer-linux" "https://api.github.com/repos/tfelici/Streamer-Viewer/releases/tags/$RELEASE_TAG" "https://github.com/tfelici/Streamer-Viewer/releases/download/$RELEASE_TAG/StreamerViewer-linux"
 
 printf "StreamerViewer executable check completed.\n"
+
+# Clean up any files in executables directory that are NOT in our managed list
+echo "🧹 Cleaning up unmanaged files in executables directory..."
+if [ -d "$HOME/executables" ]; then
+    files_removed=0
+    for file in "$HOME/executables"/*; do
+        if [ -f "$file" ]; then
+            filename=$(basename "$file")
+            # Check if this file is in our managed list
+            file_managed=false
+            for managed_file in "${DOWNLOADED_FILES[@]}"; do
+                if [ "$filename" = "$managed_file" ]; then
+                    file_managed=true
+                    break
+                fi
+            done
+            
+            # Remove file if it's not in our managed list
+            if [ "$file_managed" = "false" ]; then
+                rm -f "$file" && echo "  Removed unmanaged file: $filename"
+                files_removed=$((files_removed + 1))
+            fi
+        fi
+    done
+    
+    if [ $files_removed -eq 0 ]; then
+        echo "  No unmanaged files found - directory is clean"
+    else
+        echo "  Removed $files_removed unmanaged files"
+    fi
+else
+    echo "  Executables directory not found - nothing to clean"
+fi
+echo "✅ Executables directory cleanup completed"
 
 # Make the downloaded linux and macos executables executable
 [ -f "$HOME/executables/Viewer-linux" ] && chmod +x "$HOME/executables/Viewer-linux"
