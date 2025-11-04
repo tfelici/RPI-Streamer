@@ -201,6 +201,13 @@ def settings():
                 settings['video_stabilization'] = val
             elif isinstance(val, str):
                 settings['video_stabilization'] = val.lower() == 'true'
+        if 'video_mirror_vertical' in data:
+            # Accept both boolean and string values from the form
+            val = data['video_mirror_vertical']
+            if isinstance(val, bool):
+                settings['video_mirror_vertical'] = val
+            elif isinstance(val, str):
+                settings['video_mirror_vertical'] = val.lower() == 'true'
         save_settings(settings)
         return '', 204
     else:

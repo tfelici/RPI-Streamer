@@ -79,6 +79,7 @@ DEFAULT_SETTINGS = {
     "audio_input": "auto-detect",
     "video_input": "auto-detect",
     "video_stabilization": False,
+    "video_mirror_vertical": False,
     "domain": "",
     "username": "",
     "vehicle": "",

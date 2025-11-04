@@ -86,7 +86,7 @@ def start(stream_name):
         # Device not found in available devices
         return None
 
-    def build_gstreamer_cmd(video_device, audio_device, framerate_val, resolution_val, crf_val, gop_val, vbitrate_val, ar_val, abitrate_val, volume_val, stream_name=None):
+    def build_gstreamer_cmd(video_device, audio_device, framerate_val, resolution_val, crf_val, gop_val, vbitrate_val, ar_val, abitrate_val, volume_val, mirror_vertical_val, stream_name=None):
         # Switch to control output format: True for WHIP, False for SRT
         usewhip = False
 
@@ -141,16 +141,23 @@ def start(stream_name):
         
         # Helper function to build video processing chain
         def build_video_processing_chain():
-            """Build the video processing pipeline with optional stabilization"""
+            """Build the video processing pipeline with optional stabilization and mirroring"""
             chain = 'videoconvert ! video/x-raw,format=I420'
             if stabilization:
                 # Add video stabilization - using videostabilize element
                 chain += ' ! videostabilize'
+            if mirror_vertical_val:
+                # Add vertical mirror (flip) - using videoflip element
+                chain += ' ! videoflip method=vertical-flip'
             return chain
         
         def build_static_video_processing_chain():
-            """Build the static image processing pipeline (no stabilization needed)"""
-            return 'videoconvert ! video/x-raw,format=I420'
+            """Build the static image processing pipeline (no stabilization needed, but mirroring if enabled)"""
+            chain = 'videoconvert ! video/x-raw,format=I420'
+            if mirror_vertical_val:
+                # Add vertical mirror (flip) - using videoflip element
+                chain += ' ! videoflip method=vertical-flip'
+            return chain
         
         if video_device and audio_device:
             # Both video and audio available
@@ -210,7 +217,7 @@ def start(stream_name):
 
         return cmd, env
 
-    def build_ffmpeg_cmd(video_device, audio_device, framerate_val, resolution_val, crf_val, gop_val, vbitrate_val, ar_val, abitrate_val, volume_val, stream_name=None):
+    def build_ffmpeg_cmd(video_device, audio_device, framerate_val, resolution_val, crf_val, gop_val, vbitrate_val, ar_val, abitrate_val, volume_val, mirror_vertical_val, stream_name=None):
         # Set hardware volume using amixer if audio_device and volume are set
         if audio_device and volume_val is not None:
             import re
@@ -387,6 +394,9 @@ def start(stream_name):
         if stabilization:
             # Add deshake filter for real-time stabilization
             video_filters.insert(0, 'deshake=x=-1:y=-1:w=-1:h=-1:rx=16:ry=16')
+        if mirror_vertical_val:
+            # Add vertical mirror (flip) filter
+            video_filters.append('vflip')
         
         output_opts = [
             '-vf', ','.join(video_filters),
@@ -410,7 +420,8 @@ def start(stream_name):
             'abitrate': get_setting('abitrate'),
             'volume': get_setting('volume'),
             'use_gstreamer': get_setting('use_gstreamer'),
-            'video_stabilization': get_setting('video_stabilization')
+            'video_stabilization': get_setting('video_stabilization'),
+            'video_mirror_vertical': get_setting('video_mirror_vertical')
         }
         
         while True:
@@ -428,7 +439,8 @@ def start(stream_name):
                 'abitrate': get_setting('abitrate'),
                 'volume': get_setting('volume'),
                 'use_gstreamer': get_setting('use_gstreamer'),
-                'video_stabilization': get_setting('video_stabilization')
+                'video_stabilization': get_setting('video_stabilization'),
+                'video_mirror_vertical': get_setting('video_mirror_vertical')
             }
             
             # Check for device changes
@@ -469,6 +481,7 @@ def start(stream_name):
         current_ar = get_setting('ar')
         current_abitrate = get_setting('abitrate')
         current_volume = get_setting('volume')
+        current_mirror_vertical = get_setting('video_mirror_vertical')
 
         video_device = find_video_device()
         audio_device = find_usb_audio_device()
@@ -481,14 +494,14 @@ def start(stream_name):
             cmd, env = build_gstreamer_cmd(
                 video_device, audio_device, current_framerate, current_resolution,
                 current_crf, current_gop, current_vbitrate, current_ar,
-                current_abitrate, current_volume, stream_name
+                current_abitrate, current_volume, current_mirror_vertical, stream_name
             )
             print("Using GStreamer pipeline")
         else:
             cmd, env = build_ffmpeg_cmd(
                 video_device, audio_device, current_framerate, current_resolution,
                 current_crf, current_gop, current_vbitrate, current_ar,
-                current_abitrate, current_volume, stream_name
+                current_abitrate, current_volume, current_mirror_vertical, stream_name
             )
             print("Using FFmpeg pipeline")
         

@@ -118,6 +118,12 @@
                     <option value="false" {% if not settings.video_stabilization %}selected{% endif %}>Disabled</option>
                     <option value="true" {% if settings.video_stabilization %}selected{% endif %}>TEST Enabled (reduces camera shake)</option>
                 </select>
+
+                <label for="video_mirror_vertical">Video Vertical Mirror</label>
+                <select id="video_mirror_vertical" name="video_mirror_vertical">
+                    <option value="false" {% if not settings.video_mirror_vertical %}selected{% endif %}>Disabled</option>
+                    <option value="true" {% if settings.video_mirror_vertical %}selected{% endif %}>Enabled (flip video upside-down)</option>
+                </select>
                 
                 <button type="submit" class="btn btn-primary">Save Settings</button>
                 <div id="msg" class="status-message" style="display: none;"></div>
@@ -143,6 +149,7 @@
                 document.getElementById('dynamicBitrate').value = data.dynamicBitrate === true ? 'true' : 'false';
                 document.getElementById('use_gstreamer').value = data.use_gstreamer === true ? 'true' : 'false';
                 document.getElementById('video_stabilization').value = data.video_stabilization === true ? 'true' : 'false';
+                document.getElementById('video_mirror_vertical').value = data.video_mirror_vertical === true ? 'true' : 'false';
                 // Update volume display on page load
                 document.getElementById('volume-display').textContent = (data.volume || 100) + '%';
             });
@@ -169,6 +176,7 @@
             const dynamicBitrate = document.getElementById('dynamicBitrate').value === 'true';
             const use_gstreamer = document.getElementById('use_gstreamer').value === 'true';
             const video_stabilization = document.getElementById('video_stabilization').value === 'true';
+            const video_mirror_vertical = document.getElementById('video_mirror_vertical').value === 'true';
             
             // Only validate if not empty
             if (stream_url) {
@@ -190,7 +198,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         stream_url, framerate, crf, gop, resolution, 
-                        vbitrate, abitrate, ar, audio_input, video_input, volume, dynamicBitrate, use_gstreamer, video_stabilization
+                        vbitrate, abitrate, ar, audio_input, video_input, volume, dynamicBitrate, use_gstreamer, video_stabilization, video_mirror_vertical
                     })
                 });
                 
