@@ -599,20 +599,15 @@ DOWNLOADED_FILES=()
 check_and_download_executable() {
     local platform=$1
     local filename=$2
-    local api_path=$3
+    local release_info=$3
     local download_url=$4
     local local_file="$HOME/executables/$filename"
     local version_file="$HOME/executables/${filename}.version"
     
     printf "Checking %s executable...\n" "$platform"
     
-    # Get release information from GitHub Releases API with cache busting
-    printf "  Fetching release info from: %s\n" "$api_path"
-    release_info=$(curl -s -H "Cache-Control: no-cache" "$api_path")
-    
     if [ -z "$release_info" ] || [ "$release_info" = "null" ]; then
-        echo "Warning: Could not fetch release info for $platform executable. Release may not exist or API is unavailable."
-        echo "API path: $api_path"
+        echo "Warning: Could not process release info for $platform executable. Release may not exist or be unavailable."
         echo "Skipping $platform executable update check."
         return 0  # Return success to continue gracefully
     fi
@@ -703,15 +698,28 @@ fi
 
 printf "📦 Using Streamer-Viewer release: $RELEASE_TAG\n"
 
-# Check and download Windows executables from GitHub Releases
-check_and_download_executable "Windows" "Viewer-windows.exe" "https://api.github.com/repos/tfelici/Streamer-Viewer/releases/tags/$RELEASE_TAG" "https://github.com/tfelici/Streamer-Viewer/releases/download/$RELEASE_TAG/StreamerViewer-windows.exe"
+# Fetch release information once from GitHub Releases API
+RELEASE_API_URL="https://api.github.com/repos/tfelici/Streamer-Viewer/releases/tags/$RELEASE_TAG"
+printf "📡 Fetching release info from: %s\n" "$RELEASE_API_URL"
+RELEASE_INFO=$(curl -s -H "Cache-Control: no-cache" "$RELEASE_API_URL")
 
-# Check and download macOS executables from GitHub Releases (architecture-specific)
-check_and_download_executable "macOS Intel" "Viewer-macos-x86_64" "https://api.github.com/repos/tfelici/Streamer-Viewer/releases/tags/$RELEASE_TAG" "https://github.com/tfelici/Streamer-Viewer/releases/download/$RELEASE_TAG/StreamerViewer-macos-x86_64"
-check_and_download_executable "macOS Apple Silicon" "Viewer-macos-arm64" "https://api.github.com/repos/tfelici/Streamer-Viewer/releases/tags/$RELEASE_TAG" "https://github.com/tfelici/Streamer-Viewer/releases/download/$RELEASE_TAG/StreamerViewer-macos-arm64"
+if [ -z "$RELEASE_INFO" ] || [ "$RELEASE_INFO" = "null" ]; then
+    echo "Warning: Could not fetch Streamer-Viewer release info. Release may not exist or API is unavailable."
+    echo "API URL: $RELEASE_API_URL"
+    echo "Skipping all executable update checks."
+else
+    printf "✅ Release info fetched successfully\n"
+    
+    # Check and download Windows executables from GitHub Releases
+    check_and_download_executable "Windows" "Viewer-windows.exe" "$RELEASE_INFO" "https://github.com/tfelici/Streamer-Viewer/releases/download/$RELEASE_TAG/StreamerViewer-windows.exe"
 
-# Check and download Linux executables from GitHub Releases  
-check_and_download_executable "Linux" "Viewer-linux" "https://api.github.com/repos/tfelici/Streamer-Viewer/releases/tags/$RELEASE_TAG" "https://github.com/tfelici/Streamer-Viewer/releases/download/$RELEASE_TAG/StreamerViewer-linux"
+    # Check and download macOS executables from GitHub Releases (architecture-specific)
+    check_and_download_executable "macOS Intel" "Viewer-macos-x86_64" "$RELEASE_INFO" "https://github.com/tfelici/Streamer-Viewer/releases/download/$RELEASE_TAG/StreamerViewer-macos-x86_64"
+    check_and_download_executable "macOS Apple Silicon" "Viewer-macos-arm64" "$RELEASE_INFO" "https://github.com/tfelici/Streamer-Viewer/releases/download/$RELEASE_TAG/StreamerViewer-macos-arm64"
+
+    # Check and download Linux executables from GitHub Releases  
+    check_and_download_executable "Linux" "Viewer-linux" "$RELEASE_INFO" "https://github.com/tfelici/Streamer-Viewer/releases/download/$RELEASE_TAG/StreamerViewer-linux"
+fi
 
 printf "StreamerViewer executable check completed.\n"
 
