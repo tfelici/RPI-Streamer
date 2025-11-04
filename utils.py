@@ -1009,41 +1009,125 @@ def copy_executables_to_usb(usb_path):
         'errors': []
     }
     
+    def get_file_checksum(filepath):
+        """Calculate MD5 checksum of a file"""
+        import hashlib
+        hash_md5 = hashlib.md5()
+        with open(filepath, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_md5.update(chunk)
+        return hash_md5.hexdigest()
+
+    def files_are_identical(file1, file2):
+        """Check if two files are identical using size and checksum"""
+        try:
+            # Quick size check first
+            if os.path.getsize(file1) != os.path.getsize(file2):
+                return False
+            # Detailed checksum comparison
+            return get_file_checksum(file1) == get_file_checksum(file2)
+        except Exception:
+            return False
+
     try:
-        # Copy executables if they don't exist or are outdated
-        print("Checking executables on USB drive...")
+        # Robust executable synchronization using staging process
+        print("Synchronizing executables to USB drive using staging process...")
         src_exec_dir = os.path.join(parent_dir, 'executables')
-        if os.path.isdir(src_exec_dir):
-            for fname in os.listdir(src_exec_dir):
-                src_f = os.path.join(src_exec_dir, fname)
-                dst_f = os.path.join(usb_path, fname)
-                if os.path.isfile(src_f) and not fname.endswith('.sha'):
-                    # Check if executable is missing or outdated
-                    copy_exec = False
-                    if not os.path.exists(dst_f):
-                        copy_exec = True
-                        print(f"Executable {fname} not found on USB, copying...")
+        
+        if not os.path.isdir(src_exec_dir):
+            print(f"Warning: {src_exec_dir} not found, skipping executables sync.")
+            result['errors'].append(f"Executables directory not found: {src_exec_dir}")
+            return result
+
+        # Step 1: Rename all existing files on USB by appending ".orig"
+        print("Step 1: Staging existing USB files...")
+        existing_files = []
+        if os.path.exists(usb_path):
+            for item in os.listdir(usb_path):
+                item_path = os.path.join(usb_path, item)
+                if os.path.isfile(item_path) and not item.endswith('.orig'):
+                    orig_path = f"{item_path}.orig"
+                    try:
+                        os.rename(item_path, orig_path)
+                        existing_files.append(item)
+                        print(f"  Staged: {item} -> {item}.orig")
+                    except Exception as e:
+                        print(f"  Warning: Could not stage {item}: {e}")
+
+        # Step 2: Process each executable from local directory
+        print("Step 2: Processing local executables...")
+        for fname in os.listdir(src_exec_dir):
+            src_f = os.path.join(src_exec_dir, fname)
+            dst_f = os.path.join(usb_path, fname)
+            orig_f = f"{dst_f}.orig"
+            
+            # Only process actual executables
+            if (os.path.isfile(src_f) and 
+                (not '.' in fname or fname.endswith('.exe')) and 
+                not fname.endswith('.sha') and 
+                not fname.endswith('.version')):
+                
+                action_taken = None
+                
+                # Check if we have a staged version to compare with
+                if os.path.exists(orig_f):
+                    if files_are_identical(src_f, orig_f):
+                        # Files are identical - restore the original
+                        try:
+                            os.rename(orig_f, dst_f)
+                            action_taken = "restored (identical)"
+                            print(f"  Restored: {fname} (identical to local)")
+                        except Exception as e:
+                            print(f"  Error restoring {fname}: {e}")
+                            action_taken = "error_restoring"
                     else:
-                        # Compare modification times
-                        src_mtime = os.path.getmtime(src_f)
-                        dst_mtime = os.path.getmtime(dst_f)
-                        if src_mtime > dst_mtime:
-                            copy_exec = True
-                            print(f"Local executable {fname} is newer, updating USB...")
-                    
-                    if copy_exec:
+                        # Files differ - copy new version and remove staged file
+                        try:
+                            shutil.copy2(src_f, dst_f)
+                            os.remove(orig_f)
+                            size_mb = os.path.getsize(dst_f) / (1024 * 1024)
+                            action_taken = "updated"
+                            result['executables_copied'] += 1
+                            print(f"  Updated: {fname} ({size_mb:.2f} MB) - content differs")
+                        except Exception as e:
+                            print(f"  Error updating {fname}: {e}")
+                            action_taken = "error_updating"
+                else:
+                    # No staged version - this is a new file
+                    try:
                         shutil.copy2(src_f, dst_f)
                         size_mb = os.path.getsize(dst_f) / (1024 * 1024)
-                        print(f"Copied executable {fname} ({size_mb:.2f} MB) to USB: {dst_f}")
+                        action_taken = "added"
                         result['executables_copied'] += 1
-                    else:
-                        print(f"USB executable {fname} is up to date")
+                        print(f"  Added: {fname} ({size_mb:.2f} MB) - new executable")
+                    except Exception as e:
+                        print(f"  Error adding {fname}: {e}")
+                        action_taken = "error_adding"
+
+        # Step 3: Clean up any remaining .orig files (these are obsolete)
+        print("Step 3: Cleaning up obsolete files...")
+        removed_count = 0
+        if os.path.exists(usb_path):
+            for item in os.listdir(usb_path):
+                if item.endswith('.orig'):
+                    orig_path = os.path.join(usb_path, item)
+                    try:
+                        os.remove(orig_path)
+                        removed_count += 1
+                        original_name = item[:-5]  # Remove '.orig' suffix
+                        print(f"  Removed obsolete: {original_name} (no longer needed)")
+                    except Exception as e:
+                        print(f"  Warning: Could not remove obsolete file {item}: {e}")
+        
+        if removed_count > 0:
+            print(f"Cleaned up {removed_count} obsolete files")
         else:
-            print(f"Warning: {src_exec_dir} not found, skipping executables copy.")
-            result['errors'].append(f"Executables directory not found: {src_exec_dir}")
+            print("No obsolete files to clean up")
+            
+        print("✅ USB executable synchronization completed successfully")
         
     except Exception as e:
-        error_msg = f"Error copying executables to USB: {str(e)}"
+        error_msg = f"Error synchronizing executables to USB: {str(e)}"
         print(error_msg)
         result['errors'].append(error_msg)
     
