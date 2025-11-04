@@ -617,9 +617,17 @@ check_and_download_executable() {
         return 0  # Return success to continue gracefully
     fi
     
-    # Extract release date and tag name for version tracking
-    release_date=$(echo "$release_info" | jq -r ".published_at // .created_at")
+    # Extract the specific asset's updated_at timestamp (more accurate than release published_at)
+    asset_updated_at=$(echo "$release_info" | jq -r ".assets[] | select(.browser_download_url | endswith(\"$(basename "$download_url")\")) | .updated_at")
     release_tag=$(echo "$release_info" | jq -r ".tag_name")
+    
+    # Fallback to release published_at if asset updated_at is not available
+    if [ -z "$asset_updated_at" ] || [ "$asset_updated_at" = "null" ]; then
+        asset_updated_at=$(echo "$release_info" | jq -r ".published_at // .created_at")
+        echo "  Note: Using release published_at as fallback for asset timestamp"
+    fi
+    
+    release_date="$asset_updated_at"
     
     if [ -z "$release_date" ] || [ "$release_date" = "null" ]; then
         echo "Warning: Could not parse release date for $platform executable."
