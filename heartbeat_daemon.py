@@ -31,6 +31,7 @@ Currently supported commands:
 - "gps-control" with actions "start" or "stop" to control GPS tracking
 - "stream-control" with actions "start" or "stop" to control video streaming
 - "system-control" with actions "shutdown" or "reboot" to control system power state
+- "settings-update" with action "update" to update device settings, or "reset" to reset to defaults
 """
 
 import os
@@ -799,13 +800,6 @@ def process_server_command(response_data):
     - Future commands can be added here (e.g., recording-control, system-control, etc.)
     """
     try:
-        # Load updated settings from server at the beginning to ensure we have latest configuration
-        logger.debug("Loading updated settings for command processing")
-        success, settings, server_response = get_streamer_settings(logger, poll_until_success=False)
-        if not success:
-            logger.warning("Failed to load updated settings for command processing, continuing with current settings")
-            settings = None
-        
         command = response_data.get('command')
         action = response_data.get('action')
         
@@ -815,11 +809,13 @@ def process_server_command(response_data):
         logger.info(f"Received command from server: {command}, action: {action}")
         
         if command == 'gps-control':
-            handle_gps_control_command(action, response_data, settings)
+            handle_gps_control_command(action, response_data)
         elif command == 'stream-control':
-            handle_stream_control_command(action, response_data, settings)
+            handle_stream_control_command(action, response_data)
         elif command == 'system-control':
-            handle_system_control_command(action, response_data, settings)
+            handle_system_control_command(action, response_data)
+        elif command == 'settings-update':
+            handle_settings_update_command(action, response_data)
         # Future command handlers can be added here:
         # elif command == 'recording-control':
         #     handle_recording_control_command(action, response_data, settings)
@@ -829,14 +825,13 @@ def process_server_command(response_data):
     except Exception as e:
         logger.error(f"Error processing server command: {e}")
 
-def handle_gps_control_command(action, command_data=None, settings=None):
+def handle_gps_control_command(action, command_data=None):
     """
     Handle GPS control commands received from the server.
     
     Args:
         action (str): The GPS control action ('start' or 'stop')
         command_data (dict): Full command data (for future use with additional parameters)
-        settings (dict): Updated settings from server (optional)
     """
     try:
         if action == 'start':
@@ -891,14 +886,13 @@ def handle_gps_control_command(action, command_data=None, settings=None):
     except Exception as e:
         logger.error(f"Error handling GPS control command: {e}")
 
-def handle_stream_control_command(action, command_data=None, settings=None):
+def handle_stream_control_command(action, command_data=None):
     """
     Handle stream control commands received from the server.
     
     Args:
         action (str): The stream control action ('start' or 'stop')
         command_data (dict): Full command data (for future use with additional parameters)
-        settings (dict): Updated settings from server (optional)
     """
     try:
         if action == 'start':
@@ -953,14 +947,13 @@ def handle_stream_control_command(action, command_data=None, settings=None):
     except Exception as e:
         logger.error(f"Error handling stream control command: {e}")
 
-def handle_system_control_command(action, command_data=None, settings=None):
+def handle_system_control_command(action, command_data=None):
     """
     Handle system control commands received from the server.
     
     Args:
         action (str): The system control action ('shutdown', 'reboot', etc.)
         command_data (dict): Full command data (for future use with additional parameters)
-        settings (dict): Updated settings from server (optional)
     """
     try:
         if action == 'shutdown':
@@ -1007,6 +1000,77 @@ def handle_system_control_command(action, command_data=None, settings=None):
             
     except Exception as e:
         logger.error(f"Error handling system control command: {e}")
+
+def handle_settings_update_command(action, command_data=None):
+    """
+    Handle settings update commands received from the server.
+    
+    Args:
+        action (str): The settings update action ('update', 'reset', etc.)
+        command_data (dict): Full command data containing settings to update
+    """
+    try:
+        from utils import load_settings, save_settings
+        
+        if action == 'update':
+            logger.info("Executing settings update command from server")
+            
+            # Get the settings data from the command
+            new_settings = command_data.get('settings', {})
+            if not new_settings:
+                logger.warning("No settings provided in update command")
+                return
+            
+            # Load current settings
+            current_settings = load_settings()
+            
+            # Update settings with new values
+            settings_updated = False
+            updated_keys = []
+            
+            for key, value in new_settings.items():
+                if key in current_settings:
+                    if current_settings[key] != value:
+                        old_value = current_settings[key]
+                        current_settings[key] = value
+                        updated_keys.append(f"{key}: {old_value} -> {value}")
+                        settings_updated = True
+                        logger.info(f"Updated setting {key}: {old_value} -> {value}")
+                else:
+                    # Add new setting
+                    current_settings[key] = value
+                    updated_keys.append(f"{key}: (new) -> {value}")
+                    settings_updated = True
+                    logger.info(f"Added new setting {key}: {value}")
+            
+            if settings_updated:
+                # Save updated settings
+                try:
+                    save_settings(current_settings)
+                    logger.info(f"Settings updated successfully. Changed: {', '.join(updated_keys)}")
+                except Exception as save_error:
+                    logger.error(f"Failed to save updated settings: {save_error}")
+            else:
+                logger.info("No setting changes needed - all values already match")
+                
+        elif action == 'reset':
+            logger.info("Executing settings reset command from server")
+            
+            try:
+                # Reset settings to defaults directly
+                from utils import DEFAULT_SETTINGS
+                save_settings(DEFAULT_SETTINGS.copy())
+                logger.info("Settings reset to defaults successfully")
+            except Exception as reset_error:
+                logger.error(f"Failed to reset settings to defaults: {reset_error}")
+                
+        else:
+            logger.warning(f"Unknown settings update action: {action}")
+            
+    except ImportError as e:
+        logger.error(f"Error importing settings functions: {e}")
+    except Exception as e:
+        logger.error(f"Error handling settings update command: {e}")
 
 def send_heartbeat():
     """Send heartbeat data to remote server and save stats locally (fire and forget)"""

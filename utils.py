@@ -9,6 +9,9 @@ import socket
 import glob
 import logging
 import serial
+import fcntl
+import shutil
+import hashlib
 from datetime import datetime
 from typing import Optional
 
@@ -289,9 +292,20 @@ def get_setting(key):
         
         # File changed or no cache yet - reload
         if os.path.exists(SETTINGS_FILE):
-            with open(SETTINGS_FILE, 'r') as f:
-                _settings_cache = json.load(f)
-            _settings_cache_mtime = current_mtime
+            try:
+                with open(SETTINGS_FILE, 'r') as f:
+                    # Acquire shared lock for reading
+                    fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                    try:
+                        _settings_cache = json.load(f)
+                        _settings_cache_mtime = current_mtime
+                    finally:
+                        # Release lock
+                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            except (OSError, IOError):
+                # Do not attempt to read without lock - use empty cache on lock error
+                _settings_cache = {}
+                _settings_cache_mtime = None
         else:
             # File doesn't exist - use empty cache
             _settings_cache = {}
@@ -396,25 +410,54 @@ def load_settings():
     """
     Load settings from the settings.json file, merging with DEFAULT_SETTINGS.
     Returns a dictionary with all settings, using defaults for any missing keys.
+    Uses file locking to prevent conflicts between processes.
     """
     settings = DEFAULT_SETTINGS.copy()
     if os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, 'r') as f:
-                settings.update(json.load(f))
+                # Acquire shared lock for reading
+                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                try:
+                    settings.update(json.load(f))
+                finally:
+                    # Release lock
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         except (json.JSONDecodeError, ValueError) as e:
             print(f"Warning: Could not parse settings.json: {e}")
             # Keep default settings
+        except (OSError, IOError) as e:
+            print(f"Warning: Could not lock settings.json for reading: {e}")
+            # Do not attempt to read without lock - keep default settings on lock error
     return settings
 
 def save_settings(settings):
     """
     Save settings to the settings.json file.
+    Uses file locking to prevent conflicts between processes.
     """
     # Ensure the directory exists
     os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
-    with open(SETTINGS_FILE, 'w') as f:
-        json.dump(settings, f, indent=2)
+    
+    try:
+        with open(SETTINGS_FILE, 'w') as f:
+            # Acquire exclusive lock for writing
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                json.dump(settings, f, indent=2)
+            finally:
+                # Release lock
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                
+    except (OSError, IOError) as e:
+        print(f"Warning: Could not lock settings file for writing: {e}")
+        # Try to write without lock as fallback
+        try:
+            with open(SETTINGS_FILE, 'w') as f:
+                json.dump(settings, f, indent=2)
+        except Exception as e:
+            print(f"Error: Could not save settings: {e}")
+            raise
 
 # =============================================================================
 # USB Storage Functions
