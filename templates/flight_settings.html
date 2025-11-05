@@ -36,6 +36,35 @@
                 <input type="text" id="vehicle" name="vehicle" value="{{ settings.vehicle }}" placeholder="e.g., N123AB, G-ABCD, D-EFGH">
                 <small>Enter your vehicle's registration number.</small>
 
+                <label for="gps_source">GPS Data Source</label>
+                <select id="gps_source" name="gps_source">
+                    <option value="hardware" {% if settings.gps_source == 'hardware' %}selected{% endif %}>SIM7600G-H Hardware GPS (Default)</option>
+                    <option value="xplane" {% if settings.gps_source == 'xplane' %}selected{% endif %}>X-Plane Simulator UDP Broadcast</option>
+                    <option value="simulation" {% if settings.gps_source == 'simulation' %}selected{% endif %}>Built-in GPS Simulation (Testing)</option>
+                </select>
+                <small>
+                    <strong>Hardware GPS:</strong> Uses the SIM7600G-H modem's GPS receiver for real flight data.<br>
+                    <strong>X-Plane UDP:</strong> Receives GPS data from X-Plane flight simulator on the same network.<br>
+                    <strong>Simulation:</strong> Generates simulated flight pattern for testing purposes.
+                </small>
+
+                <div id="xplane_settings" style="margin-top: 15px; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #007bff; border-radius: 4px; display: none;">
+                    <strong>X-Plane UDP Configuration</strong>
+                    <div style="margin-top: 10px;">
+                        <label for="xplane_udp_port" style="font-weight: normal;">UDP Port:</label>
+                        <input type="number" id="xplane_udp_port" name="xplane_udp_port" value="{{ settings.xplane_udp_port or 49003 }}" min="1024" max="65535" style="width: 120px; margin-left: 10px;">
+                        <small style="display: block; margin-top: 5px;">Port to listen for X-Plane UDP data (default: 49003)</small>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <label for="xplane_bind_address" style="font-weight: normal;">Bind Address:</label>
+                        <input type="text" id="xplane_bind_address" name="xplane_bind_address" value="{{ settings.xplane_bind_address or '0.0.0.0' }}" style="width: 120px; margin-left: 10px;">
+                        <small style="display: block; margin-top: 5px;">IP address to bind UDP listener (0.0.0.0 for all interfaces)</small>
+                    </div>
+                    <small style="color: #6c757d; margin-top: 10px; display: block;">
+                        <strong>X-Plane Setup:</strong> In X-Plane, go to Settings → Data Output and enable "GPS position" data output to this device's IP address and port.
+                    </small>
+                </div>
+
                 <label for="gps_stream_link">Video Streaming Control</label>
                 <select id="gps_stream_link" name="gps_stream_link">
                     <option value="off" {% if not settings.gps_stream_link %}selected{% endif %}>Independent control (manual start/stop)</option>
@@ -190,6 +219,9 @@
             const timeoutLabel = timeoutInput.previousElementSibling;
             const timeoutHelp = timeoutInput.nextElementSibling;
             
+            const gpsSourceSelect = document.getElementById('gps_source');
+            const xplaneSettings = document.getElementById('xplane_settings');
+            
             function updateTimeoutFieldState() {
                 const isEnabled = powerLossSelect.value === 'on';
                 
@@ -206,11 +238,30 @@
                 }
             }
             
-            // Set initial state
+            function updateGpsSourceSettings() {
+                const isXPlane = gpsSourceSelect.value === 'xplane';
+                xplaneSettings.style.display = isXPlane ? 'block' : 'none';
+                
+                // Make X-Plane fields required when X-Plane is selected
+                const xplanePort = document.getElementById('xplane_udp_port');
+                const xplaneAddress = document.getElementById('xplane_bind_address');
+                
+                if (isXPlane) {
+                    xplanePort.required = true;
+                    xplaneAddress.required = true;
+                } else {
+                    xplanePort.required = false;
+                    xplaneAddress.required = false;
+                }
+            }
+            
+            // Set initial states
             updateTimeoutFieldState();
+            updateGpsSourceSettings();
             
             // Listen for changes
             powerLossSelect.addEventListener('change', updateTimeoutFieldState);
+            gpsSourceSelect.addEventListener('change', updateGpsSourceSettings);
         });
     </script>
 </body>

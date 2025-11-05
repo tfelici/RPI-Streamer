@@ -87,7 +87,10 @@ DEFAULT_SETTINGS = {
     "gps_start_mode": "manual",
     "gps_stop_on_power_loss": False,
     "gps_stop_power_loss_minutes": 1,
-    "power_monitor_sleep_time": 60
+    "power_monitor_sleep_time": 60,
+    "gps_source": "hardware",
+    "xplane_udp_port": 49003,
+    "xplane_bind_address": "0.0.0.0"
 }
 
 def get_streamer_settings(logger, poll_until_success=False, poll_interval=30):

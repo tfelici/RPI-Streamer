@@ -81,6 +81,28 @@ sudo systemctl start gps-startup.service
 sudo systemctl stop gps-startup.service
 ```
 
+## GPS Data Sources
+
+The GPS daemon supports multiple data sources through a unified configuration system:
+
+### Hardware GPS (Default)
+- **Real GPS Data**: Uses SIM7600G-H modem or other GNSS hardware
+- **High Accuracy**: Real satellite positioning with HDOP accuracy metrics
+- **Multi-Constellation**: GPS + GLONASS + Galileo + BeiDou support
+- **Use Case**: Actual flight operations, real-world tracking
+
+### X-Plane Simulator
+- **Flight Simulation**: Receives GPS data from X-Plane via UDP broadcast
+- **Network Integration**: Works with X-Plane on the same local network
+- **Realistic Data**: Position, altitude, speed, and heading from simulator
+- **Use Case**: Flight training, route testing, development work
+
+### Built-in Simulation
+- **Test Pattern**: Generates circular flight around Oxford Airport, UK
+- **Realistic Profile**: Takeoff, cruise, and landing altitude simulation
+- **Configurable**: Adjustable delay before movement starts
+- **Use Case**: System testing, development, demonstration
+
 ## GPS Tracking Modes
 
 ### Manual Mode (Default)
@@ -100,6 +122,44 @@ sudo systemctl stop gps-startup.service
 - **Smart Activation**: Reduces unnecessary tracking during ground operations
 - **Service State**: `gps-startup.service` enabled with motion detection
 - **Use Case**: Efficient power usage, automatic flight detection
+
+## GPS Source Configuration
+
+### Web Interface (Recommended)
+1. Navigate to **Flight Settings** (`/flight-settings`)
+2. Select GPS Data Source from dropdown:
+   - **SIM7600G-H Hardware GPS** (Default)
+   - **X-Plane Simulator UDP Broadcast**  
+   - **Built-in GPS Simulation** (Testing)
+3. Configure X-Plane UDP settings if needed:
+   - **UDP Port**: Default 49003
+   - **Bind Address**: Default 0.0.0.0 (all interfaces)
+4. Save settings - GPS daemon restarts automatically
+
+### Command Line Configuration
+```bash
+# Hardware GPS (default)
+python3 gps_daemon.py --gps-source=hardware
+
+# X-Plane simulator mode  
+python3 gps_daemon.py --gps-source=xplane --xplane-port=49003
+
+# Built-in simulation mode
+python3 gps_daemon.py --gps-source=simulation --delay 30
+
+# Run as daemon service
+sudo python3 gps_daemon.py --daemon --gps-source=simulation
+```
+
+### Settings File
+Configuration stored in `../streamerData/settings.json`:
+```json
+{
+  "gps_source": "hardware",
+  "xplane_udp_port": 49003,
+  "xplane_bind_address": "0.0.0.0"
+}
+```
 
 ## Hardware Requirements
 
@@ -139,11 +199,10 @@ cd ~/flask_app
 python3 gps_tracker.py your_username --domain gyropilots.org --interval 2.0
 ```
 
-#### GPS Simulation Testing (Legacy)
+#### GPS Simulation Testing
 ```bash
-# Note: Simulation is now handled by gps_daemon.py instead of gps_tracker.py
 # Start GPS daemon with simulation first:
-python3 gps_daemon.py --simulate --delay 30
+python3 gps_daemon.py --gps-source=simulation --delay 30
 
 # Then run GPS tracker (will use simulated data from daemon):
 python3 gps_tracker.py your_username --domain gyropilots.org --duration 60
@@ -162,27 +221,21 @@ tracker.add_location(40.7128, -74.0060, 10.0, 5.0, 90.0, 25.0)
 
 ### GPS Daemon Usage (Advanced)
 
-The GPS daemon provides low-level GPS hardware access and supports both real GPS hardware and simulation mode.
+The GPS daemon provides low-level GPS hardware access and supports multiple GPS data sources.
 
-#### Start GPS Daemon with Real Hardware
+#### Start GPS Daemon with Different Sources
 ```bash
-# Start GPS daemon for hardware access
-sudo python3 gps_daemon.py --daemon
+# Hardware GPS (default)
+sudo python3 gps_daemon.py --daemon --gps-source=hardware
+
+# X-Plane simulator
+sudo python3 gps_daemon.py --daemon --gps-source=xplane --xplane-port=49003
+
+# Built-in simulation
+sudo python3 gps_daemon.py --daemon --gps-source=simulation --delay 30
 
 # Start in foreground for debugging
-python3 gps_daemon.py
-```
-
-#### Start GPS Daemon in Simulation Mode
-```bash
-# Start GPS daemon with simulated Oxford Airport circular flight pattern
-python3 gps_daemon.py --simulate
-
-# Start with delayed movement (30 seconds stationary before flight)
-python3 gps_daemon.py --simulate --delay 30
-
-# Run simulation in background with delay
-sudo python3 gps_daemon.py --simulate --delay 60 --daemon
+python3 gps_daemon.py --gps-source=simulation
 ```
 
 #### GPS Daemon Simulation Features
@@ -281,9 +334,9 @@ sudo minicom -D /dev/ttyUSB2 -b 115200
 # Check internet connectivity
 ping -c 3 gyropilots.org
 
-# Test GPS tracker directly
+# Test GPS tracker directly (uses GPS daemon for data)
 cd ~/flask_app
-python3 gps_tracker.py test_user --domain gyropilots.org --simulate --duration 30
+python3 gps_tracker.py test_user --domain gyropilots.org --duration 30
 
 # View GPS tracker logs
 sudo journalctl -u gps-startup.service | grep -i error

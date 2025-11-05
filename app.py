@@ -277,17 +277,47 @@ def flight_settings_save():
         except (ValueError, TypeError):
             settings['gps_stop_power_loss_minutes'] = DEFAULT_SETTINGS['gps_stop_power_loss_minutes']  # Default fallback
     
+    # Handle GPS source settings
+    old_gps_source = settings.get('gps_source', 'hardware')
+    if 'gps_source' in (data if request.is_json else request.form):
+        gps_source = get_value('gps_source', 'hardware')
+        if gps_source in ['hardware', 'xplane', 'simulation']:
+            settings['gps_source'] = gps_source
+        else:
+            settings['gps_source'] = 'hardware'  # Default fallback
+    
+    # Handle X-Plane UDP settings (only when X-Plane is selected)
+    if settings.get('gps_source') == 'xplane':
+        if 'xplane_udp_port' in (data if request.is_json else request.form):
+            try:
+                udp_port = int(get_value('xplane_udp_port', DEFAULT_SETTINGS['xplane_udp_port']))
+                if 1024 <= udp_port <= 65535:
+                    settings['xplane_udp_port'] = udp_port
+                else:
+                    settings['xplane_udp_port'] = DEFAULT_SETTINGS['xplane_udp_port']  # Default fallback
+            except (ValueError, TypeError):
+                settings['xplane_udp_port'] = DEFAULT_SETTINGS['xplane_udp_port']  # Default fallback
+        
+        if 'xplane_bind_address' in (data if request.is_json else request.form):
+            bind_address = get_value('xplane_bind_address', DEFAULT_SETTINGS['xplane_bind_address']).strip()
+            # Basic validation for IP address format
+            if bind_address and (bind_address == '0.0.0.0' or bind_address.count('.') == 3):
+                settings['xplane_bind_address'] = bind_address
+            else:
+                settings['xplane_bind_address'] = DEFAULT_SETTINGS['xplane_bind_address']  # Default fallback
+    
     # Save settings
     save_settings(settings)
     
-    # Restart GPS startup service if the start mode changed
+    # Restart GPS startup service if the start mode or GPS source changed
     # Service is always enabled but will check settings to determine behavior
     new_gps_start_mode = settings['gps_start_mode']
-    if old_gps_start_mode != new_gps_start_mode:
+    new_gps_source = settings.get('gps_source', 'hardware')
+    if old_gps_start_mode != new_gps_start_mode or old_gps_source != new_gps_source:
         try:
             # Always restart the service to pick up new settings
             subprocess.run(['sudo', 'systemctl', 'restart', 'gps-startup.service'], check=False)
-            print(f"GPS startup service restarted for mode: {new_gps_start_mode}")
+            print(f"GPS startup service restarted for mode: {new_gps_start_mode}, source: {new_gps_source}")
         except Exception as e:
             print(f"Warning: Could not restart GPS startup service: {e}")
     

@@ -165,7 +165,7 @@ ping -c 3 [your-configured-domain]
 
 # Check GPS tracker operation with your platform
 cd ~/flask_app
-python3 gps_tracker.py [username] --domain [your-configured-domain] --simulate --duration 30
+python3 gps_tracker.py [username] --domain [your-configured-domain] --duration 30
 
 # Verify platform credentials
 # Ensure username exists on tracking platform

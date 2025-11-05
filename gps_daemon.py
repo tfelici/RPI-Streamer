@@ -22,6 +22,20 @@ from datetime import datetime
 from pathlib import Path
 import math
 import random
+import struct
+
+# Add parent directory to path to import utils
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    from utils import load_settings
+except ImportError:
+    # Fallback if utils not available
+    def load_settings():
+        return {
+            'gps_source': 'hardware',
+            'xplane_udp_port': 49003,
+            'xplane_bind_address': '0.0.0.0'
+        }
 
 def simulate_gps_data(delay_seconds=0):
     """
@@ -119,8 +133,164 @@ def simulate_gps_data(delay_seconds=0):
         'speed': flight_speed_kmh * speed_variation  # km/h
     }
 
+class XPlaneUDPParser:
+    """
+    Parser for X-Plane UDP data output.
+    Handles the DREF data format that X-Plane sends when "Data Output" is enabled.
+    """
+    
+    def __init__(self):
+        # X-Plane data indices for GPS position data
+        # These correspond to the "GPS position" data output in X-Plane
+        self.GPS_LATITUDE_INDEX = 0    # sim/flightmodel/position/latitude (degrees)
+        self.GPS_LONGITUDE_INDEX = 1   # sim/flightmodel/position/longitude (degrees)  
+        self.GPS_ALTITUDE_INDEX = 2    # sim/flightmodel/position/elevation (meters MSL)
+        self.GPS_HEADING_INDEX = 3     # sim/flightmodel/position/psi (degrees true)
+        self.GPS_GROUNDSPEED_INDEX = 4 # sim/flightmodel/position/groundspeed (m/s)
+        
+    def parse_udp_packet(self, data):
+        """
+        Parse X-Plane UDP packet and extract GPS data.
+        
+        X-Plane UDP format:
+        - Header: 4 bytes ("DATA" for data packets, "DREF" for dataref packets)
+        - For DATA packets: Multiple 36-byte records, each containing:
+          - 4 bytes: data type index (int)
+          - 8 x 4 bytes: 8 float values
+        
+        Args:
+            data: Raw UDP packet data (bytes)
+            
+        Returns:
+            dict: GPS location data or None if packet cannot be parsed
+        """
+        try:
+            if len(data) < 4:
+                return None
+                
+            # Check packet type
+            header = data[:4]
+            
+            if header == b'DATA':
+                return self._parse_data_packet(data[4:])
+            elif header == b'DREF':
+                return self._parse_dref_packet(data[4:])
+            else:
+                # Unknown packet type
+                return None
+                
+        except Exception as e:
+            # Silently ignore parse errors - X-Plane sends various packet types
+            return None
+    
+    def _parse_data_packet(self, payload):
+        """Parse DATA packet format"""
+        try:
+            # Each DATA record is 36 bytes (4 + 8*4)
+            record_size = 36
+            if len(payload) < record_size:
+                return None
+            
+            gps_data = {}
+            
+            # Parse all records in the packet
+            for offset in range(0, len(payload), record_size):
+                if offset + record_size > len(payload):
+                    break
+                    
+                record = payload[offset:offset + record_size]
+                data_type = struct.unpack('<I', record[:4])[0]  # Little endian unsigned int
+                values = struct.unpack('<8f', record[4:])       # 8 little endian floats
+                
+                # Check for GPS position data (typically index 20 in X-Plane)
+                if data_type == 20:  # GPS position data type
+                    # X-Plane GPS position data format:
+                    # [0] = latitude (degrees)
+                    # [1] = longitude (degrees) 
+                    # [2] = altitude MSL (meters)
+                    # [3] = altitude AGL (meters)
+                    # [4] = on runway flag (0 or 1)
+                    # [5] = altitude indicator (?)
+                    # [6] = latitude (degrees, duplicate?)
+                    # [7] = longitude (degrees, duplicate?)
+                    
+                    latitude = values[0] if values[0] != -999.0 else None
+                    longitude = values[1] if values[1] != -999.0 else None
+                    altitude = values[2] if values[2] != -999.0 else None
+                    
+                    if latitude is not None and longitude is not None:
+                        gps_data.update({
+                            'latitude': latitude,
+                            'longitude': longitude,
+                            'altitude': altitude if altitude is not None else 0,
+                            'fix_status': 'valid'
+                        })
+                
+                # Check for velocities data (typically index 18)
+                elif data_type == 18:  # Velocities data type
+                    # [0] = indicated airspeed (kt)
+                    # [1] = equivalent airspeed (kt)
+                    # [2] = true airspeed (kt) 
+                    # [3] = ground speed (kt)
+                    # [4] = vertical velocity (ft/min)
+                    # [5] = mach number
+                    # [6] = g-load normal
+                    # [7] = g-load axial
+                    
+                    groundspeed_kts = values[3] if values[3] != -999.0 else None
+                    if groundspeed_kts is not None:
+                        # Convert knots to km/h
+                        gps_data['speed'] = groundspeed_kts * 1.852
+                
+                # Check for attitude data (typically index 17)  
+                elif data_type == 17:  # Attitude data type
+                    # [0] = pitch (degrees)
+                    # [1] = roll (degrees)
+                    # [2] = true heading (degrees)
+                    # [3] = magnetic heading (degrees)
+                    # [4-7] = various other attitude data
+                    
+                    heading = values[2] if values[2] != -999.0 else None
+                    if heading is not None:
+                        gps_data['heading'] = heading
+            
+            # Return GPS data if we have at least position
+            if 'latitude' in gps_data and 'longitude' in gps_data:
+                # Add simulated accuracy values
+                gps_data.update({
+                    'accuracy': 5.0,  # Simulated GPS accuracy in meters
+                    'altitudeAccuracy': 10.0,  # Simulated altitude accuracy
+                    'fix_type': '3D' if gps_data.get('altitude', 0) > 0 else '2D',
+                    'satellites': {
+                        'used': 8,
+                        'total': 12,
+                        'constellations': {
+                            'GPS': {'visible': 8, 'used': 6, 'max_snr': 45},
+                            'GLONASS': {'visible': 4, 'used': 2, 'max_snr': 42},
+                            'Galileo': {'visible': 0, 'used': 0, 'max_snr': 0},
+                            'BeiDou': {'visible': 0, 'used': 0, 'max_snr': 0}
+                        }
+                    }
+                })
+                return gps_data
+                
+        except struct.error:
+            pass
+        except Exception:
+            pass
+            
+        return None
+    
+    def _parse_dref_packet(self, payload):
+        """Parse DREF packet format (not typically used for GPS data but included for completeness)"""
+        # DREF packets contain dataref values but are less structured
+        # For now, we'll focus on DATA packets which are more reliable
+        return None
+
 class GPSDaemon:
-    def __init__(self, socket_path='/tmp/gps_daemon.sock', baudrate=115200, daemon_mode=False, simulate=False, delay_seconds=30):
+    def __init__(self, socket_path='/tmp/gps_daemon.sock', baudrate=115200, daemon_mode=False, 
+                 gps_source='hardware', delay_seconds=30, xplane_udp_port=49003, 
+                 xplane_bind_address='0.0.0.0'):
         """
         Initialize GPS daemon.
         
@@ -128,15 +298,26 @@ class GPSDaemon:
             socket_path: Unix socket path for client communication
             baudrate: Serial communication baudrate
             daemon_mode: Whether running in daemon mode (affects logging)
-            simulate: Whether to run in GPS simulation mode
+            gps_source: GPS data source ('hardware', 'xplane', 'simulation')
             delay_seconds: Delay in seconds before starting movement in simulation mode
+            xplane_udp_port: UDP port to listen for X-Plane data
+            xplane_bind_address: IP address to bind UDP listener
         """
         self.socket_path = socket_path
         self.device_paths = ['/dev/ttyUSB0', '/dev/ttyUSB1', '/dev/ttyUSB2', '/dev/ttyUSB3', '/dev/ttyUSB4', '/dev/ttyUSB5', '/dev/ttyACM0', '/dev/ttyACM1']
         self.baudrate = baudrate
         self.daemon_mode = daemon_mode
-        self.simulate = simulate
+        
+        # GPS source configuration
+        self.gps_source = gps_source if gps_source in ['hardware', 'xplane', 'simulation'] else 'hardware'
+        
         self.delay_seconds = delay_seconds
+        
+        # X-Plane UDP configuration  
+        self.xplane_udp_port = xplane_udp_port
+        self.xplane_bind_address = xplane_bind_address
+        self.xplane_parser = XPlaneUDPParser()  # Always create parser for potential use
+        self.udp_socket = None
         
         # Initialize logging
         # Use a named logger and avoid adding duplicate handlers if multiple
@@ -525,11 +706,14 @@ class GPSDaemon:
         """Main GPS parsing worker thread - handles both real GPS and simulation"""
         self.log("Starting GPS worker thread")
         
-        if self.simulate:
+        if self.gps_source == 'simulation':
             self.log("GPS simulation mode enabled")
             self.simulation_worker()
+        elif self.gps_source == 'xplane':
+            self.log("X-Plane GPS mode enabled")
+            self.xplane_worker()
         else:
-            self.log("Real GPS mode enabled")
+            self.log("Real GPS hardware mode enabled")
             self.real_gps_worker()
     
     def simulation_worker(self):
@@ -576,6 +760,133 @@ class GPSDaemon:
                 time.sleep(5)
         
         self.log("GPS simulation worker stopped")
+    
+    def xplane_worker(self):
+        """Worker for X-Plane UDP GPS data mode"""
+        self.location_data['daemon_status'] = 'xplane_connecting'
+        self.log(f"X-Plane GPS mode starting - listening on {self.xplane_bind_address}:{self.xplane_udp_port}")
+        
+        connection_attempts = 0
+        
+        while self.running:
+            try:
+                connection_attempts += 1
+                
+                # Create UDP socket for X-Plane data
+                self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                self.udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                self.udp_socket.settimeout(5.0)  # 5 second timeout
+                
+                # Bind to the specified address and port
+                self.udp_socket.bind((self.xplane_bind_address, self.xplane_udp_port))
+                
+                # Reset connection attempts on successful bind
+                connection_attempts = 0
+                
+                self.location_data['daemon_status'] = 'xplane_listening'
+                self.log(f"Successfully bound to UDP port {self.xplane_udp_port}, waiting for X-Plane data...")
+                
+                # Main UDP listening loop
+                while self.running and self.udp_socket:
+                    try:
+                        # Receive UDP packet
+                        data, addr = self.udp_socket.recvfrom(1024)
+                        
+                        if not data:
+                            continue
+                        
+                        # Parse X-Plane UDP packet
+                        gps_data = self.xplane_parser.parse_udp_packet(data)
+                        
+                        if gps_data:
+                            # Update location data with parsed X-Plane data
+                            self.location_data.update({
+                                'timestamp': time.time(),
+                                'latitude': gps_data.get('latitude'),
+                                'longitude': gps_data.get('longitude'),
+                                'altitude': gps_data.get('altitude', 0),
+                                'accuracy': gps_data.get('accuracy', 5.0),
+                                'altitudeAccuracy': gps_data.get('altitudeAccuracy', 10.0),
+                                'heading': gps_data.get('heading'),
+                                'speed': gps_data.get('speed'),
+                                'fix_status': gps_data.get('fix_status', 'valid'),
+                                'fix_type': gps_data.get('fix_type', '3D'),
+                                'daemon_status': 'xplane_data_valid',
+                                'satellites': gps_data.get('satellites', {
+                                    'total': 8,
+                                    'used': 6,
+                                    'constellations': {
+                                        'GPS': {'visible': 6, 'used': 4, 'max_snr': 45},
+                                        'GLONASS': {'visible': 2, 'used': 2, 'max_snr': 40},
+                                        'Galileo': {'visible': 0, 'used': 0, 'max_snr': 0},
+                                        'BeiDou': {'visible': 0, 'used': 0, 'max_snr': 0}
+                                    }
+                                })
+                            })
+                            
+                            self.last_fix_time = time.time()
+                        
+                    except socket.timeout:
+                        # Check if we've lost X-Plane connection
+                        if self.last_fix_time and (time.time() - self.last_fix_time) > 30:
+                            self.location_data['daemon_status'] = 'xplane_timeout'
+                            self.location_data['fix_status'] = 'no_fix'
+                        continue
+                        
+                    except Exception as e:
+                        self.log(f"Error receiving X-Plane UDP data: {e}")
+                        continue
+                        
+            except OSError as e:
+                if self.running:  # Only log if we're still supposed to be running
+                    self.log(f"UDP socket error (attempt {connection_attempts}): {e}")
+                    
+                    # Use progressive retry intervals
+                    if connection_attempts <= 6:  # First minute: 10-second intervals
+                        retry_interval = 10
+                        self.log(f"X-Plane UDP not available, retrying in {retry_interval} seconds...")
+                    elif connection_attempts <= 18:  # Next 2 minutes: 10-second intervals
+                        retry_interval = 10
+                        self.log(f"X-Plane UDP still unavailable (attempt {connection_attempts}), continuing search every {retry_interval} seconds...")
+                    else:  # After 3 minutes: 30-second intervals
+                        retry_interval = 30
+                        self.log(f"X-Plane UDP unavailable (attempt {connection_attempts}), long-term scanning every {retry_interval} seconds...")
+                    
+                    self.location_data['daemon_status'] = 'xplane_no_connection'
+                    
+                    # Close socket before retrying
+                    if self.udp_socket:
+                        try:
+                            self.udp_socket.close()
+                        except:
+                            pass
+                        self.udp_socket = None
+                    
+                    time.sleep(retry_interval)
+                    
+            except Exception as e:
+                if self.running:
+                    self.log(f"X-Plane worker error: {e}")
+                    self.location_data['daemon_status'] = 'xplane_error'
+                    
+                    # Close socket on error
+                    if self.udp_socket:
+                        try:
+                            self.udp_socket.close()
+                        except:
+                            pass
+                        self.udp_socket = None
+                    
+                    time.sleep(5)  # Wait before retrying
+        
+        # Cleanup
+        if self.udp_socket:
+            try:
+                self.udp_socket.close()
+            except:
+                pass
+        
+        self.log("X-Plane GPS worker thread stopped")
     
     def real_gps_worker(self):
         """Worker for real GPS hardware"""
@@ -787,10 +1098,7 @@ class GPSDaemon:
     
     def start(self):
         """Start the GPS daemon"""        
-        if self.simulate:
-            self.log("Starting GPS Daemon in simulation mode")
-        else:
-            self.log("Starting GPS Daemon in real GPS mode")        
+        self.log(f"Starting GPS Daemon in {self.gps_source} mode")        
         # Start GPS worker thread
         self.gps_thread = threading.Thread(target=self.gps_worker, daemon=True)
         self.gps_thread.start()
@@ -810,6 +1118,13 @@ class GPSDaemon:
         if self.serial_connection:
             try:
                 self.serial_connection.close()
+            except:
+                pass
+        
+        # Close UDP socket
+        if self.udp_socket:
+            try:
+                self.udp_socket.close()
             except:
                 pass
         
@@ -845,10 +1160,14 @@ def main():
                         help='PID file path (default: /tmp/gps_daemon.pid)')
     parser.add_argument('--daemon', action='store_true', default=False,
                         help='Run in daemon mode (use syslog/journal for logging)')
-    parser.add_argument('--simulate', action='store_true', default=False,
-                        help='Run in GPS simulation mode for testing')
     parser.add_argument('--delay', type=int, default=0,
                         help='Delay in seconds before starting movement in simulation mode (default: 0)')
+    parser.add_argument('--gps-source', choices=['hardware', 'xplane', 'simulation'], 
+                        help='GPS data source (overrides settings file)')
+    parser.add_argument('--xplane-port', type=int, default=49003,
+                        help='UDP port for X-Plane data (default: 49003)')
+    parser.add_argument('--xplane-bind', default='0.0.0.0',
+                        help='IP address to bind UDP listener for X-Plane (default: 0.0.0.0)')
     
     args = parser.parse_args()
     
@@ -903,14 +1222,39 @@ def main():
     except Exception as e:
         logging.error(f"Failed to write PID file: {e}")
     
+    # Load settings from file
+    try:
+        settings = load_settings()
+        logging.info("GPS daemon loaded settings from file")
+    except Exception as e:
+        logging.warning(f"Could not load settings, using defaults: {e}")
+        settings = {
+            'gps_source': 'hardware',
+            'xplane_udp_port': 49003,
+            'xplane_bind_address': '0.0.0.0'
+        }
+    
+    # Determine GPS source (command line overrides settings file)
+    gps_source = getattr(args, 'gps_source', None) or settings.get('gps_source', 'hardware')
+    
+    # Get X-Plane settings (command line overrides settings file)
+    xplane_port = getattr(args, 'xplane_port', None) or settings.get('xplane_udp_port', 49003)
+    xplane_bind = getattr(args, 'xplane_bind', None) or settings.get('xplane_bind_address', '0.0.0.0')
+    
+    logging.info(f"GPS daemon starting with source: {gps_source}")
+    if gps_source == 'xplane':
+        logging.info(f"X-Plane UDP configuration: {xplane_bind}:{xplane_port}")
+
     # Create and start daemon
     global daemon
     daemon = GPSDaemon(
         socket_path=args.socket,
         baudrate=args.baudrate,
         daemon_mode=args.daemon,
-        simulate=args.simulate,
-        delay_seconds=args.delay
+        gps_source=gps_source,
+        delay_seconds=args.delay,
+        xplane_udp_port=xplane_port,
+        xplane_bind_address=xplane_bind
     )
     
     try:
