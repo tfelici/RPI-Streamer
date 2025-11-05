@@ -66,20 +66,37 @@ Configure GPS tracking through the web interface:
 5. **Enable Stream Integration**: Optionally link GPS tracking with video streaming
 
 ### Service Management
+
+#### GPS Startup Manager
 ```bash
-# Check GPS service status
+# Check GPS startup service status
 sudo systemctl status gps-startup.service
 
-# View GPS service logs
+# View GPS startup service logs
 sudo journalctl -u gps-startup.service -f
-
-# Check GPS auto-enable status (for all supported GPS hardware)
-sudo journalctl -u gps-daemon.service -f
 
 # Manual service control (when configured for manual mode)
 sudo systemctl start gps-startup.service
 sudo systemctl stop gps-startup.service
 ```
+
+#### GPS Daemon Service
+```bash
+# Check GPS daemon status
+sudo systemctl status gps-daemon.service
+
+# View GPS daemon logs
+sudo journalctl -u gps-daemon.service -f
+
+# Manual GPS daemon control
+sudo systemctl start gps-daemon.service
+sudo systemctl stop gps-daemon.service
+```
+
+#### Service Startup Behavior
+- **Hardware GPS Source**: GPS daemon started/stopped by udev rules when SIM7600G-H is inserted/removed
+- **X-Plane/Simulation GPS**: GPS daemon started/stopped by GPS startup manager based on settings
+- **GPS Startup Manager**: Always enabled at boot, manages GPS daemon for non-hardware sources
 
 ## GPS Data Sources
 

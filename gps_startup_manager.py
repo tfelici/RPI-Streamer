@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 GPS Startup Manager - Handles automatic GPS tracking startup based on flight settings
+Also manages GPS daemon startup for non-hardware GPS sources (X-Plane, simulation)
 """
 import sys
 import os
@@ -9,12 +10,13 @@ import json
 import signal
 import logging
 import requests
+import subprocess
 from datetime import datetime
 
 # Add the RPI Streamer directory to the path so we can import utils
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils import is_gps_tracking, is_streaming, calculate_distance, get_streamer_settings
+from utils import is_gps_tracking, is_streaming, calculate_distance, get_streamer_settings, load_settings
 from gps_client import get_gnss_location
 import math
 
@@ -59,6 +61,65 @@ def start_flight_via_api():
 # Module logger (configured in main)
 logger = logging.getLogger('gps-startup')
 
+
+def is_gps_daemon_running():
+    """Check if GPS daemon service is currently running"""
+    try:
+        result = subprocess.run(['systemctl', 'is-active', '--quiet', 'gps-daemon.service'],
+                                capture_output=True, timeout=10)
+        return result.returncode == 0
+    except Exception as e:
+        logger.warning(f"Failed to check GPS daemon status: {e}")
+        return False
+
+
+def start_gps_daemon():
+    """Start the GPS daemon service"""
+    try:
+        logger.info("Starting GPS daemon service...")
+        result = subprocess.run(['systemctl', 'start', 'gps-daemon.service'],
+                                capture_output=True, timeout=30, text=True)
+        if result.returncode == 0:
+            logger.info("GPS daemon service started successfully")
+            return True
+        else:
+            logger.error(f"Failed to start GPS daemon service: {result.stderr}")
+            return False
+    except Exception as e:
+        logger.error(f"Error starting GPS daemon service: {e}")
+        return False
+
+
+def stop_gps_daemon():
+    """Stop the GPS daemon service"""
+    try:
+        logger.info("Stopping GPS daemon service...")
+        result = subprocess.run(['systemctl', 'stop', 'gps-daemon.service'],
+                                capture_output=True, timeout=30, text=True)
+        if result.returncode == 0:
+            logger.info("GPS daemon service stopped successfully")
+            return True
+        else:
+            logger.error(f"Failed to stop GPS daemon service: {result.stderr}")
+            return False
+    except Exception as e:
+        logger.error(f"Error stopping GPS daemon service: {e}")
+        return False
+
+
+def should_manage_gps_daemon():
+    """
+    Determine if GPS startup manager should manage the GPS daemon
+    Returns True if GPS source is NOT 'hardware' (since hardware case is handled by udev)
+    """
+    try:
+        settings = load_settings()
+        gps_source = settings.get('gps_source', 'hardware')
+        logger.debug(f"GPS source from settings: {gps_source}")
+        return gps_source != 'hardware'
+    except Exception as e:
+        logger.warning(f"Failed to load GPS source setting, defaulting to hardware: {e}")
+        return False
 
 
 def calculate_bearing(lat1, lon1, lat2, lon2):
@@ -250,6 +311,23 @@ def main():
     """Main startup logic"""
     logger.info("GPS Startup Manager starting...")
 
+    # GPS Daemon Management: Start GPS daemon for non-hardware sources
+    # Hardware sources are managed by udev rules, but X-Plane and simulation need manual control
+    if should_manage_gps_daemon():
+        logger.info("GPS source is not 'hardware' - GPS startup manager will manage GPS daemon")
+        
+        if not is_gps_daemon_running():
+            logger.info("GPS daemon is not running, starting it for non-hardware GPS source...")
+            if start_gps_daemon():
+                # Wait a moment for daemon to initialize
+                time.sleep(2)
+            else:
+                logger.error("Failed to start GPS daemon - GPS functionality may not work")
+        else:
+            logger.info("GPS daemon is already running")
+    else:
+        logger.info("GPS source is 'hardware' - GPS daemon will be managed by udev rules")
+
     # Check if GPS tracking or streaming are already active
     if is_gps_tracking():
         logger.info("GPS tracking is already active, exiting startup manager")
@@ -303,6 +381,12 @@ def main():
 def signal_handler(signum, frame):
     """Handle shutdown signals gracefully"""
     logger.info("GPS Startup Manager shutting down...")
+    
+    # Stop GPS daemon if we started it (non-hardware sources only)
+    if should_manage_gps_daemon() and is_gps_daemon_running():
+        logger.info("Stopping GPS daemon (managed by GPS startup manager)")
+        stop_gps_daemon()
+    
     sys.exit(0)
 
 
