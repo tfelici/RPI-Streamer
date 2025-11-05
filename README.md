@@ -1,22 +1,40 @@
-# RPI Streamer v3.00
+# RPI Streamer v3.10
 
-A comprehensive Flask-based web application and streaming server for Raspberry Pi, featuring automatic 4G connectivity, GPS tracking, multi-device management, professional streaming capabilities, and complete WiFi management system with centralized hardware console integration.
+A comprehensive Flask-based web application and streaming platform for Raspberry Pi, delivering professional-grade video streaming, GPS flight tracking, cellular connectivity, and centralized device management. Built for pilots, content creators, and professionals requiring reliable remote streaming and tracking solutions.
 
-## Quick Start
+## 🎯 Overview
+
+The RPI Streamer transforms any Raspberry Pi into a professional streaming and tracking device with cellular connectivity, GPS tracking, video recording, and remote management capabilities. Perfect for aviation, surveillance, live events, and remote monitoring applications.
+
+## ⚡ Quick Start
+
+### One-Line Installation
 
 Run the following commands in your home directory (do **not** use superuser/root):
 
-### Latest Development Version
-```sh
+#### Latest Development Version (Recommended)
+```bash
 curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/develop/install_rpi_streamer.sh?$(date +%s)
 bash install_rpi_streamer.sh --develop
 ```
 
-### Stable Release Version
-```sh
+#### Stable Release Version
+```bash
 curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_rpi_streamer.sh?$(date +%s)
 bash install_rpi_streamer.sh --main
 ```
+
+#### Automated Deployment (No Prompts)
+```bash
+curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/develop/install_rpi_streamer.sh?$(date +%s)
+bash install_rpi_streamer.sh --develop --daemon
+```
+
+### Access Your Device
+After installation, access the control panel at:
+- **Local Network**: `http://[raspberry-pi-ip]/`
+- **Direct Connection**: Enable WiFi hotspot mode for standalone access
+- **Remote Access**: Configure cellular connectivity for anywhere access
 
 ## Installation Options
 
@@ -141,43 +159,155 @@ chmod +x rpiconfig.sh && ./rpiconfig.sh
 
 This tool streamlines common development workflows and eliminates the need to remember complex systemd commands during development and testing.
 
-## Core Features
+## 🚀 Core Features
 
-### 🌐 Connectivity & Remote Access
-- **Complete WiFi Management**: Modern network scanner interface with one-click connections and real-time status
-- **WiFi Hotspot Mode**: Create standalone hostname-based access point for isolated operation with full routing
-- **Cellular Internet**: Universal support for USB cellular modems with automatic carrier detection
-- **Reverse SSH Tunnels**: Secure remote access through central server with AutoSSH reliability
-- **Tailscale VPN**: Mesh networking for seamless device access anywhere
-- **Multi-Device Management**: Centralized hardware console with automatic device registration
+### 📡 Professional Video Streaming
+- **Dual Streaming Engines**: Choose between FFmpeg and GStreamer for optimal performance
+- **Multi-Protocol Support**: RTMP, WebRTC, HLS, and SRT streaming via MediaMTX server  
+- **Advanced Video Controls**: Resolution (480p-1080p), framerate (15-60fps), bitrate optimization
+- **Video Enhancement Features**:
+  - **Video Stabilization**: Software stabilization to reduce camera shake
+  - **Video Vertical Mirror**: Flip video upside-down for inverted camera mounting
+  - **Dynamic Bitrate**: Automatic bitrate adjustment based on network conditions
+  - **Hardware Acceleration**: RPi hardware encoder support for efficient streaming
+- **Audio Processing**: Multi-format audio capture with volume control and noise reduction
+- **Device Auto-Detection**: Automatic detection and configuration of USB cameras and microphones
 
-### 📡 Streaming & Recording
-- **MediaMTX Streaming Server**: Professional RTMP, WebRTC, and HLS streaming
-- **Audio/Video Device Control**: Web-based selection and configuration of capture devices
-- **USB Storage Integration**: Automatic detection and recording to USB drives
-- **Recording Management**: Organized storage with automatic directory structure
+### 🌐 Connectivity & Network Management
+- **Complete WiFi Management**: Modern network scanner with one-click connections and real-time status
+- **WiFi Hotspot Mode**: Standalone hostname-based access point with full NAT routing via Ethernet
+- **Universal Cellular Support**: Compatible with most USB 4G/LTE modems via ModemManager
+  - Automatic APN detection and carrier configuration
+  - RNDIS/NON-RNDIS mode switching with USB power cycling recovery
+  - Hardware reset capabilities via `uhubctl` for robust connection recovery
+- **Multi-Connection Priority**: Intelligent network priority management (Ethernet → WiFi → Cellular)
+- **Remote Access Solutions**:
+  - Reverse SSH tunnels through central server with AutoSSH reliability
+  - Tailscale VPN mesh networking for seamless device access
+  - Port forwarding and firewall management
 
-### 🛰️ GPS & Flight Tracking
-- **Real-time GPS Tracking**: Modern GPS daemon architecture with integrated initialization and multi-client support
-- **Enhanced GPS Simulation**: Oxford Airport circular flight pattern with realistic altitude profiles and motion detection
-- **Flight Settings Configuration**: Web-based username, vehicle registration, and tracking mode setup
-- **Multiple Start Modes**: Manual, auto-start on boot, or auto-start on motion detection with intelligent motion detection
-- **Universal GPS Support**: USB GPS receivers, GPS HATs, and cellular modem GPS with automatic detection
-- **Enhanced GNSS**: GPS + GLONASS + Galileo + BeiDou constellation support with detailed metrics and real-time display
+### �️ GPS Flight Tracking System
+- **Modern GPS Daemon**: Streamlined architecture with integrated initialization and multi-client support
+- **Universal GPS Hardware Support**:
+  - USB GPS receivers with automatic detection
+  - GPS HATs and expansion boards
+  - Cellular modem integrated GPS (SIM7600G-H and compatible)
+- **Enhanced GNSS Constellation Support**:
+  - GPS + GLONASS + Galileo + BeiDou satellites
+  - Real-time constellation display with satellite metrics
+  - Signal quality monitoring and positioning accuracy
+- **Intelligent Tracking Modes**:
+  - Manual start/stop control
+  - Auto-start on device boot
+  - Auto-start on motion detection with configurable sensitivity
+  - GPS-linked streaming (start/stop streaming with GPS tracking)
+- **Advanced GPS Features**:
+  - **GPS Simulation Mode**: Oxford Airport circular flight pattern with realistic altitude profiles
+  - **Power Loss Protection**: Configurable auto-stop on power loss with timeout settings
+  - **Track Export**: Standard format track files for flight analysis
+  - **Real-time Web Display**: Live GPS status and tracking information
 
-### 🔧 System Management
-- **Real-time Diagnostics**: System health monitoring with hardware status display and mobile-responsive interface
-- **Service Management**: Systemd integration for all components with automatic startup and heartbeat monitoring
-- **Centralized Console**: Hardware device management through web-based console with device settings and status monitoring
-- **Automatic Updates**: Branch-aware GitHub repository synchronization with development branch support
-- **Hardware Registration**: Unique device identification and server registration with automatic hostname generation
-- **SSH Key Management**: Automatic RSA key generation and server deployment
+### 📹 Recording & Storage Management
+- **Intelligent Storage System**: 
+  - Automatic USB storage detection and mounting (FAT32, exFAT, NTFS, ext4)
+  - Hierarchical recording organization by domain/device/timestamp
+  - Fallback to local storage when USB unavailable
+- **Recording Features**:
+  - Continuous recording with automatic segment management
+  - Real-time recording status and active file monitoring
+  - Automatic storage space management
+- **USB Drive Support**:
+  - Hot-plug detection with multiple detection methods
+  - Safe mounting/unmounting with proper filesystem support
+  - Executable synchronization for portable operation
 
-### ⚡ Power & Hardware
-- **UPS Monitoring**: Optional UPS HAT support with battery status and safe shutdown
-- **Power Management**: AC power detection and graceful shutdown capabilities
-- **Hardware Detection**: Automatic recognition of connected devices and dongles
-- **GPIO Integration**: Raspberry Pi GPIO support for hardware interfacing
+### 🔧 Device Management & Monitoring
+- **Centralized Hardware Console**: Web-based fleet management with device settings and status
+- **Real-time System Diagnostics**:
+  - **Heartbeat Monitoring**: Independent daemon collecting system metrics every 5 seconds
+  - **Hardware Status**: CPU, memory, temperature, and storage monitoring
+  - **Service Health**: Real-time status of all system services
+  - **UPS Integration**: Battery status, AC power detection, and safe shutdown management
+- **Mobile-Responsive Interface**: Modern web interface optimized for smartphones and tablets
+- **Device Registration**: Automatic hardware ID generation and server registration
+- **Remote Configuration**: Apply settings changes remotely via queued command system
+
+### ⚡ Power & Hardware Management
+- **UPS Monitoring System** (Optional):
+  - X1200 UPS HAT and compatible I2C-based UPS devices
+  - Real-time battery voltage, capacity, and health monitoring
+  - Configurable grace periods and critical shutdown thresholds
+  - AC power detection with automatic power loss response
+- **GPIO Integration**: Full Raspberry Pi GPIO access for custom hardware interfacing
+- **Hardware Auto-Detection**: Automatic recognition of connected cameras, microphones, and dongles
+- **System Integration**: Seamless integration with NetworkManager and ModemManager
+
+### 🛠️ Development & Maintenance Tools
+- **Interactive Configuration Menu** (`rpiconfig`):
+  - Service management without memorizing systemd commands
+  - GPS mode switching (simulation/real hardware)
+  - System status overview with color-coded indicators
+  - Quick restart and update capabilities
+- **Automatic Updates**: Branch-aware GitHub synchronization with development/stable branches
+- **Service Management**: Comprehensive systemd integration for all components
+- **Logging & Diagnostics**: Centralized logging with real-time log viewing capabilities
+
+## 🎥 Advanced Video Processing Features
+
+### Video Enhancement Controls
+The RPI Streamer includes professional video processing capabilities accessible through all device settings interfaces:
+
+#### **Video Stabilization**
+- **Software Stabilization**: Reduces camera shake during flight or vehicle movement
+- **Real-time Processing**: Applied during streaming with minimal latency impact
+- **Configurable**: Enable/disable via web interface or remote device management
+- **Engine Support**: Available in both FFmpeg (`deshake` filter) and GStreamer (`videostabilize` element)
+
+#### **Video Vertical Mirror**  
+- **Upside-Down Flip**: Vertically mirrors video for inverted camera mounting scenarios
+- **Common Use Cases**: 
+  - Cameras mounted upside-down in aircraft installations
+  - Ceiling-mounted surveillance cameras
+  - Inverted action cameras on drones or vehicles
+- **Real-time Operation**: Applied during streaming without affecting recording quality
+- **Universal Support**: Works with both FFmpeg (`vflip` filter) and GStreamer (`videoflip method=vertical-flip`) engines
+
+#### **Dynamic Bitrate Adjustment**
+- **Network-Adaptive**: Automatically adjusts video quality based on available bandwidth
+- **Connection Monitoring**: Real-time network performance assessment
+- **Quality Optimization**: Maintains best possible quality within bandwidth constraints
+- **Cellular-Optimized**: Particularly useful for cellular streaming with variable signal strength
+
+#### **Hardware Acceleration**
+- **Raspberry Pi GPU**: Utilizes VideoCore GPU for efficient H.264 encoding
+- **Automatic Detection**: Probes and selects optimal encoder (hardware vs. software)
+- **Fallback Support**: Gracefully falls back to software encoding if hardware unavailable
+- **Performance Benefits**: Reduced CPU usage and improved streaming performance
+
+### Video Configuration Options
+
+All video processing features are configurable through:
+- **Local Web Interface**: Direct device configuration via browser
+- **Streamer Admin Console**: Remote fleet management and settings deployment  
+- **API Endpoints**: Programmatic configuration for automated deployments
+- **Real-time Updates**: Settings changes applied immediately without restart required
+
+### Technical Implementation
+
+#### **Dual Engine Architecture**
+```bash
+# FFmpeg Pipeline (with vertical mirror and stabilization)
+ffmpeg -i /dev/video0 -vf "deshake=x=-1:y=-1:w=-1:h=-1:rx=16:ry=16,vflip,scale=1280:-2" -c:v h264_v4l2m2m
+
+# GStreamer Pipeline (with vertical mirror and stabilization)
+gst-launch-1.0 v4l2src device=/dev/video0 ! videostabilize ! videoflip method=vertical-flip ! h264enc
+```
+
+#### **Real-time Configuration**
+- **Settings Detection**: Automatic detection of configuration changes
+- **Pipeline Restart**: Intelligent pipeline restart when settings modified
+- **State Preservation**: Maintains streaming connections during configuration updates
+- **Error Recovery**: Automatic fallback and error recovery mechanisms
 
 ## UPS Management (Optional)
 
