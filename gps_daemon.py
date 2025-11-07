@@ -221,13 +221,15 @@ class XPlaneUDPParser:
                         
                         latitude = values[0] if abs(values[0]) < 90 and values[0] != -999.0 else None
                         longitude = values[1] if abs(values[1]) < 180 and values[1] != -999.0 else None
-                        altitude = values[2] if values[2] != -999.0 else None
+                        altitude_feet = values[2] if values[2] != -999.0 else None  # X-Plane altitude in feet
                         
                         if latitude is not None and longitude is not None:
+                            # Convert feet to meters (1 foot = 0.3048 meters)
+                            altitude = altitude_feet * 0.3048 if altitude_feet is not None else 0
                             gps_data.update({
                                 'latitude': latitude,
                                 'longitude': longitude,
-                                'altitude': altitude if altitude is not None else 0,
+                                'altitude': altitude,
                                 'fix_status': 'valid'
                             })
                     
