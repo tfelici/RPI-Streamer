@@ -21,7 +21,7 @@ import fcntl
 from datetime import datetime
 from pathlib import Path
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR,HEARTBEAT_FILE, is_streaming, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, get_hardwareid, get_app_version, get_active_recording_info, add_files_from_path, load_wifi_settings, save_wifi_settings, get_wifi_mode_status, reset_modem_at_command, load_cellular_settings, save_cellular_settings, get_cellular_status, update_cellular_connection
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR,HEARTBEAT_FILE, is_streaming, is_recording, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, get_hardwareid, get_app_version, get_active_recording_info, add_files_from_path, load_wifi_settings, save_wifi_settings, get_wifi_mode_status, reset_modem_at_command, load_cellular_settings, save_cellular_settings, get_cellular_status
 
 # Use pymediainfo for fast video duration extraction - now imported in utils.py
 #this is a test
@@ -73,6 +73,7 @@ def read_stats_file_with_lock(stats_file):
 @app.route('/')
 def home():
     streaming = is_streaming()
+    recording = is_recording()
     gps_tracking = is_gps_tracking()
     gps_status = get_gps_tracking_status()
     settings = load_settings()
@@ -90,7 +91,8 @@ def home():
     return render_template(
         'index.html', 
         active_tab='home', 
-        streaming=streaming, 
+        is_streaming=streaming,
+        is_recording=recording,
         gps_tracking=gps_tracking,
         gps_status=gps_status,
         recording_files=recording_files, 
@@ -212,7 +214,8 @@ def settings():
         return '', 204
     else:
         settings = load_settings()
-        settings['streaming'] = is_streaming()
+        settings['is_streaming'] = is_streaming()
+        settings['is_recording'] = is_recording()
         return jsonify(settings)
 
 @app.route('/stream-settings')
@@ -258,7 +261,12 @@ def flight_settings_save():
     if 'domain' in (data if request.is_json else request.form):
         settings['domain'] = get_value('domain').strip()
     if 'gps_stream_link' in (data if request.is_json else request.form):
-        settings['gps_stream_link'] = is_checked('gps_stream_link')
+        gps_stream_value = get_value('gps_stream_link', 'off')
+        # Handle backward compatibility: convert old boolean values
+        if gps_stream_value == 'on':
+            settings['gps_stream_link'] = 'stream'  # Default to streaming for backward compatibility
+        else:
+            settings['gps_stream_link'] = gps_stream_value  # 'off', 'stream', or 'record'
     
     old_gps_start_mode = settings['gps_start_mode']
     if 'gps_start_mode' in (data if request.is_json else request.form):
@@ -373,54 +381,115 @@ def video_resolutions():
     except Exception as e:
         return jsonify([])
 
-def start_streaming():
-    """Helper function to start streaming. Returns (success, message, status_code)"""
-    # Check if already streaming
-    if is_streaming():
-        return False, 'Streaming is already active.', 200
+def start_streaming(mode="both"):
+    """
+    Helper function to start streaming/recording. Returns (success, message, status_code)
     
-    settings = load_settings()
-    stream_url = settings['stream_url'].strip()
-    if not stream_url:
-        return False, 'Remote Streaming URL is not set. Please configure it in Settings.', 400
+    Args:
+        mode (str): Operation mode - "both", "stream", "record"
+    """
+    # Validate mode parameter
+    if mode not in ["both", "stream", "record"]:
+        return False, f'Invalid mode: {mode}. Must be "both", "stream", or "record".', 400
     
-    # Start relay-ffmpeg.py asynchronously with log output (unbuffered)
-    relay_log = open('/tmp/relay-ffmpeg.log', 'w')
-    subprocess.Popen(['python', '-u', 'relay-ffmpeg.py', 'webcam'], 
-                    stdout=relay_log, stderr=subprocess.STDOUT)
-    # Also start relay-ffmpeg-record.py asynchronously with log output (unbuffered)
-    record_log = open('/tmp/relay-ffmpeg-record.log', 'w')
-    subprocess.Popen(['python', '-u', 'relay-ffmpeg-record.py', 'webcam'], 
-                    stdout=record_log, stderr=subprocess.STDOUT)
+    # Determine what needs to be started based on mode and current state
+    need_streaming = mode in ["both", "stream"] and not is_streaming()
+    need_recording = mode in ["both", "record"] and not is_recording()
     
-    return True, 'started', 200
+    # Start streaming if needed
+    if need_streaming:
+        settings = load_settings()
+        stream_url = settings['stream_url'].strip()
+        if not stream_url:
+            return False, 'Remote Streaming URL is not set. Please configure it in Settings.', 400
+        
+        # Start relay-ffmpeg.py asynchronously with log output (unbuffered)
+        relay_log = open('/tmp/relay-ffmpeg.log', 'w')
+        subprocess.Popen(['python', '-u', 'relay-ffmpeg.py', 'webcam'], 
+                        stdout=relay_log, stderr=subprocess.STDOUT)
+    
+    # Start recording if needed
+    if need_recording:
+        record_log = open('/tmp/relay-ffmpeg-record.log', 'w')
+        subprocess.Popen(['python', '-u', 'relay-ffmpeg-record.py', 'webcam'], 
+                        stdout=record_log, stderr=subprocess.STDOUT)
+    
+    # Return appropriate success message based on what was actually started
+    started_components = []
+    if need_streaming:
+        started_components.append("streaming")
+    if need_recording:
+        started_components.append("recording")
+    
+    if need_streaming and need_recording:
+        return True, 'started', 200  # Both started
+    elif need_streaming:
+        return True, 'streaming_started', 200
+    elif need_recording:
+        return True, 'recording_started', 200
+    else:
+        # Nothing needed to be started - services already active
+        if mode == "stream":
+            return True, 'streaming_already_active', 200
+        elif mode == "record":
+            return True, 'recording_already_active', 200
+        else:  # mode == "both"
+            return True, 'already_active', 200
 
 def stop_streaming():
     """Helper function to stop streaming. Returns (success, message, status_code)"""
-    if is_streaming():
-        # Stop both relay-ffmpeg.py and relay-ffmpeg-record.py processes
-        print("Stopping stream...")
+    if is_streaming() or is_recording():
+        print("Stopping stream and/or recording...")
+        
+        # Initialize variables for tracking PIDs
+        stream_pid = None
+        recording_pid = None
+        
+        # Try to get streaming PID (relay-ffmpeg.py) if it exists
         try:
-            with open(STREAM_PIDFILE, 'r') as f:
-                pid = int(f.read().strip())
-            print(f"Stopping stream with PID {pid}")
-            if is_pid_running(pid):
-                os.kill(pid, 15)  # SIGTERM
-            # Also stop the recording process if it exists
-            active_pid, _ = get_active_recording_info()
-            if active_pid and is_pid_running(active_pid):
-                print(f"Stopping recording with PID {active_pid}")
-                os.kill(active_pid, 15)  # SIGTERM
-            # Loop until both processes are no longer running
-            while active_pid and is_pid_running(active_pid) or pid and is_pid_running(pid):
-                # Print status
-                print(f"Waiting for stream and recording to stop... (stream PID: {pid}={is_pid_running(pid)}, recording PID: {active_pid}={is_pid_running(active_pid)})")
-                time.sleep(0.5)  # Give it a moment to terminate
-            print("Stream and recording stopped successfully.")
+            if os.path.exists(STREAM_PIDFILE):
+                with open(STREAM_PIDFILE, 'r') as f:
+                    stream_pid = int(f.read().strip())
+                print(f"Found stream PID: {stream_pid}")
         except Exception as e:
-            print(f"Error stopping stream: {e}")
+            print(f"Error reading stream PID file: {e}")
+        
+        # Get recording PID (relay-ffmpeg-record.py) if it exists
+        try:
+            recording_pid, _ = get_active_recording_info()
+            if recording_pid:
+                print(f"Found recording PID: {recording_pid}")
+        except Exception as e:
+            print(f"Error getting recording PID: {e}")
+        
+        # Stop streaming process if running
+        if stream_pid and is_pid_running(stream_pid):
+            print(f"Stopping stream with PID {stream_pid}")
+            try:
+                os.kill(stream_pid, 15)  # SIGTERM
+            except Exception as e:
+                print(f"Error stopping stream process: {e}")
+        
+        # Stop recording process if running
+        if recording_pid and is_pid_running(recording_pid):
+            print(f"Stopping recording with PID {recording_pid}")
+            try:
+                os.kill(recording_pid, 15)  # SIGTERM
+            except Exception as e:
+                print(f"Error stopping recording process: {e}")
+        
+        # Wait for both processes to stop
+        while ((stream_pid and is_pid_running(stream_pid)) or 
+               (recording_pid and is_pid_running(recording_pid))):
+            # Print status
+            stream_status = is_pid_running(stream_pid) if stream_pid else False
+            recording_status = is_pid_running(recording_pid) if recording_pid else False
+            print(f"Waiting for processes to stop... (stream: {stream_status}, recording: {recording_status})")
+            time.sleep(0.5)  # Give it a moment to terminate
+        
+        print("Stream and recording stopped successfully.")
     else:
-        print("No active stream to stop.")
+        print("No active stream or recording to stop.")
     
     return True, 'stopped', 200
 
@@ -456,14 +525,20 @@ def start_flight():
     except Exception as e:
         return False, f'Failed to start GPS tracker process: {e}', 500
     
-    # If gps_stream_link is enabled, also start video streaming
-    if settings['gps_stream_link']:
-        print("Auto-starting video streaming with GPS tracking...")
-        success, message, status_code = start_streaming()
+    # If gps_stream_link is enabled, also start video recording
+    gps_link_mode = settings.get('gps_stream_link', 'off')
+    if gps_link_mode in ['stream', 'record']:
+        if gps_link_mode == 'stream':
+            print("Auto-starting video streaming + recording with GPS tracking...")
+            success, message, status_code = start_streaming(mode="both")
+        else:  # gps_link_mode == 'record'
+            print("Auto-starting video recording only with GPS tracking...")
+            success, message, status_code = start_streaming(mode="record")
+        
         if success:
-            print("Video streaming started automatically with GPS tracking.")
+            print(f"Video {'streaming + recording' if gps_link_mode == 'stream' else 'recording only'} started automatically with GPS tracking.")
         else:
-            return False, f'Failed to auto-start video streaming: {message}', status_code
+            return False, f'Failed to auto-start video {"streaming" if gps_link_mode == "stream" else "recording"}: {message}', status_code
     
     return True, 'started', 200
 
@@ -491,14 +566,15 @@ def stop_flight():
         except Exception as e:
             print(f"Error stopping GPS tracking: {e}")
             
-        # If gps_stream_link is enabled, also stop video streaming
-        if settings['gps_stream_link']:
-            print("Auto-stopping video streaming with GPS tracking...")
+        # If gps_stream_link is enabled, also stop video recording
+        gps_link_mode = settings.get('gps_stream_link', 'off')
+        if gps_link_mode in ['stream', 'record']:
+            print(f"Auto-stopping video {'streaming + recording' if gps_link_mode == 'stream' else 'recording only'} with GPS tracking...")
             success, message, status_code = stop_streaming()
             if success:
-                print("Video streaming stopped automatically with GPS tracking.")
+                print(f"Video {'streaming + recording' if gps_link_mode == 'stream' else 'recording only'} stopped automatically with GPS tracking.")
             else:
-                print(f"Warning: Failed to auto-stop video streaming: {message}")
+                print(f"Warning: Failed to auto-stop video {'streaming' if gps_link_mode == 'stream' else 'recording'}: {message}")
     else:
         print("No active GPS tracking to stop.")
     
@@ -510,7 +586,9 @@ def stream_control():
     action = data.get('action')
     
     if action == 'start':
-        success, message, status_code = start_streaming()
+        mode = data.get('mode', 'both')  # Default to 'both' if no mode specified
+        success, message, status_code = start_streaming(mode=mode)
+        
         if success:
             return jsonify({'status': message})
         else:
@@ -520,6 +598,13 @@ def stream_control():
         return jsonify({'status': message})
     else:
         return jsonify({'error': 'Invalid action'}), 400
+
+@app.route('/stream-status')
+def stream_status():
+    """Get current streaming/recording status"""
+    streaming = is_streaming()
+    recording = is_recording()
+    return jsonify({'streaming': streaming, 'recording': recording})
 
 @app.route('/gps-control', methods=['POST'])
 def gps_control():
@@ -910,7 +995,8 @@ def upload_progress_stream(upload_id):
 @app.route('/camera-viewer')
 def camera_viewer():
     streaming = is_streaming()
-    return render_template('camera_viewer.html', active_tab='camera', streaming=streaming, app_version=get_app_version())
+    recording = is_recording()
+    return render_template('camera_viewer.html', active_tab='camera', is_streaming=streaming, is_recording=recording, app_version=get_app_version())
 
 # --- Basic HTTP Auth ---
 import json
@@ -2105,51 +2191,49 @@ def delete_recording():
     except Exception as e:
         return jsonify({'error': f'Failed to delete: {e}'}), 500
 
-#sse entry point to return relay_status_webcam data
-@app.route('/relay-status-sse')
-def relay_status_sse():
-    import json, time
-    def event_stream():
-        last_status = None
-        connection_timeout = 0
-        while True:
-            # Exit if streaming is stopped and we've been disconnected for a while
-            if not is_streaming():
-                connection_timeout += 1
-                if connection_timeout > 3:  # Exit after 3 seconds of no streaming
-                    break
-            else:
-                connection_timeout = 0
-                
-            try:
-                # Read the relay status file
-                with open('/tmp/relay_status_webcam.json', 'r') as f:
-                    status = f.read().strip()
-                
-                if status != last_status:
-                    yield f"data: {json.dumps({'status': status})}\n\n"
-                    last_status = status
-                
-                time.sleep(1)  # Update every second
-            except FileNotFoundError:
-                # File doesn't exist yet, send basic status if streaming
-                if is_streaming():
-                    fallback_status = json.dumps({
-                        'bitrate': 'initializing',
-                        'network_status': 'starting',
-                        'pipeline_status': 'starting',
-                        'stream_health': 'initializing'
-                    })
-                    if fallback_status != last_status:
-                        yield f"data: {json.dumps({'status': fallback_status})}\n\n"
-                        last_status = fallback_status
-                time.sleep(2)  # Check less frequently when file doesn't exist
-            except Exception as e:
-                print(f"Error reading relay status: {e}")
-                time.sleep(2)
-                break
-        print("Closing SSE stream for relay status")
-    return Response(event_stream(), mimetype='text/event-stream')
+# HTTP endpoint to return relay_status_webcam data
+@app.route('/relay-status')
+def relay_status():
+    import json
+    try:
+        # Check if streaming is active first
+        if not is_streaming():
+            # Return a valid response indicating streaming is not active
+            not_streaming_status = json.dumps({
+                'bitrate': 'not streaming',
+                'network_status': 'inactive',
+                'pipeline_status': 'stopped',
+                'stream_health': 'inactive'
+            })
+            return jsonify({'status': not_streaming_status})
+        
+        # Read the relay status file
+        with open('/tmp/relay_status_webcam.json', 'r') as f:
+            status = f.read().strip()
+        
+        return jsonify({'status': status})
+        
+    except FileNotFoundError:
+        # File doesn't exist yet, send basic status if streaming
+        if is_streaming():
+            fallback_status = json.dumps({
+                'bitrate': 'initializing',
+                'network_status': 'starting',
+                'pipeline_status': 'starting',
+                'stream_health': 'initializing'
+            })
+            return jsonify({'status': fallback_status})
+        else:
+            # File not found and not streaming - return inactive status
+            not_streaming_status = json.dumps({
+                'bitrate': 'not streaming',
+                'network_status': 'inactive',
+                'pipeline_status': 'stopped',
+                'stream_health': 'inactive'
+            })
+            return jsonify({'status': not_streaming_status})
+    except Exception as e:
+        return jsonify({'error': f'Error reading relay status: {e}'}), 500
 
 @app.route('/active-recordings')
 def active_recordings():
@@ -2635,8 +2719,8 @@ def handle_process_control(process, action):
             
             # Start the process
             if process == 'relay-ffmpeg.py':
-                # Use the existing streaming start function
-                success, message, status_code = start_streaming()
+                # Use the existing streaming start function (default to both streaming and recording)
+                success, message, status_code = start_streaming(mode="both")
                 if success:
                     return jsonify({
                         'success': True, 

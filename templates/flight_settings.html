@@ -65,12 +65,17 @@
                     </small>
                 </div>
 
-                <label for="gps_stream_link">Video Streaming Control</label>
+                <label for="gps_stream_link">Video Recording Control</label>
                 <select id="gps_stream_link" name="gps_stream_link">
                     <option value="off" {% if not settings.gps_stream_link %}selected{% endif %}>Independent control (manual start/stop)</option>
-                    <option value="on" {% if settings.gps_stream_link %}selected{% endif %}>Auto start/stop streaming with GPS tracking</option>
+                    <option value="stream" {% if settings.gps_stream_link == 'stream' or (settings.gps_stream_link and settings.gps_stream_link != 'record') %}selected{% endif %}>Auto start/stop streaming + recording with GPS tracking</option>
+                    <option value="record" {% if settings.gps_stream_link == 'record' %}selected{% endif %}>Auto start/stop recording only with GPS tracking</option>
                 </select>
-                <small>When enabled, video streaming will automatically start when GPS tracking starts and stop when GPS tracking stops.</small>
+                <small>
+                    <strong>Independent:</strong> Video recording is controlled manually, separate from GPS tracking.<br>
+                    <strong>Streaming + Recording:</strong> Automatically starts streaming and recording when GPS tracking starts.<br>
+                    <strong>Recording Only:</strong> Automatically starts recording only (no streaming) when GPS tracking starts.
+                </small>
 
                 <label for="gps_start_mode">GPS Tracking Start Mode</label>
                 <select id="gps_start_mode" name="gps_start_mode" required>

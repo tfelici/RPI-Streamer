@@ -20,8 +20,10 @@
             
             <div style="text-align: center; margin-top: 1.5rem;">
                 <div class="status-message" id="camera-status">
-                    {% if streaming %}
+                    {% if is_streaming %}
                         <span style="color: var(--success-color);">● Live Stream Active</span>
+                    {% elif is_recording %}
+                        <span style="color: var(--success-color);">● Recording Active</span>
                     {% else %}
                         <span style="color: var(--text-secondary);">● Camera Preview</span>
                     {% endif %}
@@ -32,7 +34,8 @@
     
     <script>
     // eslint-disable-next-line no-unused-vars, no-undef
-    var streaming = {{ streaming | tojson | safe }};
+    var is_streaming = {{ is_streaming | tojson | safe }};
+    var is_recording = {{ is_recording | tojson | safe }};
     </script>
 </body>
 </html>

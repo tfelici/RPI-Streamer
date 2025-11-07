@@ -16,7 +16,7 @@ from datetime import datetime
 # Add the RPI Streamer directory to the path so we can import utils
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils import is_gps_tracking, is_streaming, calculate_distance, get_streamer_settings, load_settings
+from utils import is_gps_tracking, calculate_distance, get_streamer_settings, load_settings
 from gps_client import get_gnss_location
 import math
 
@@ -328,13 +328,9 @@ def main():
     else:
         logger.info("GPS source is 'hardware' - GPS daemon will be managed by udev rules")
 
-    # Check if GPS tracking or streaming are already active
+    # Check if GPS tracking is already active
     if is_gps_tracking():
         logger.info("GPS tracking is already active, exiting startup manager")
-        return
-    
-    if is_streaming():
-        logger.info("Video streaming is already active, exiting startup manager")
         return
 
     try:

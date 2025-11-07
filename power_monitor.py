@@ -22,7 +22,7 @@ from subprocess import call
 from x120x import X120X
 
 import fcntl
-from utils import is_streaming, is_gps_tracking, load_settings
+from utils import is_streaming, is_recording, is_gps_tracking, load_settings
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='UPS Power Monitor for RPI Streamer')
@@ -130,11 +130,13 @@ try:
                 else:
                     logging.info(f"Power monitoring active - grace period set to {sleep_time} seconds")
                 
-                # Check if streaming or GPS tracking is active
+                # Check if streaming, recording, or GPS tracking is active
                 streaming_active = is_streaming()
+                recording_active = is_recording()
                 gps_active = is_gps_tracking()
+                is_active = streaming_active or recording_active or gps_active
                 
-                if streaming_active or gps_active:                    
+                if is_active:                    
                     # Check if GPS tracking should be stopped after timeout
                     #only do this if power was not already lost at startup
                     if (gps_active and 

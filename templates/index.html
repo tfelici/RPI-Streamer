@@ -949,7 +949,12 @@
                         {% endif %}
                     </div>
                     <div>
-                        <strong>Stream Link:</strong> {{ 'Enabled' if settings.gps_stream_link else 'Disabled' }}
+                        <strong>Video Control:</strong> 
+                        {% if settings.gps_stream_link == 'stream' %}Auto Stream + Record
+                        {% elif settings.gps_stream_link == 'record' %}Auto Record Only
+                        {% elif settings.gps_stream_link %}Auto Stream + Record
+                        {% else %}Independent
+                        {% endif %}
                     </div>
                 </div>
                 {% if not settings.username %}
@@ -983,8 +988,12 @@
                         <p><em style="color: #6c757d;">{{ gps_status.status_message }}</em></p>
                     {% endif %}
                     
-                    {% if settings.gps_stream_link %}
-                    <p><em>Video streaming will automatically control with GPS tracking</em></p>
+                    {% if settings.gps_stream_link == 'stream' %}
+                    <p><em>Video streaming + recording will automatically control with GPS tracking</em></p>
+                    {% elif settings.gps_stream_link == 'record' %}
+                    <p><em>Video recording only will automatically control with GPS tracking</em></p>
+                    {% elif settings.gps_stream_link %}
+                    <p><em>Video streaming + recording will automatically control with GPS tracking</em></p>
                     {% endif %}
                     
                     {% if gps_status.last_update %}
@@ -1053,14 +1062,21 @@
                 <a href="/stream-settings" class="btn btn-secondary" style="font-size: 1em; padding: 10px 18px;">⚙️ Settings</a>
             </div>
             <div style="text-align: center; margin-bottom: 1.5rem;">
-                <button id="stream-btn" class="btn btn-primary">
-                    {{ 'Stop Streaming' if streaming else 'Start Streaming' }}
+                <!-- Always render all buttons, use JavaScript to show/hide -->
+                <button id="start-stream-btn" class="btn btn-success" style="margin-right: 0.5rem; display: {{ 'none' if (is_streaming or is_recording) else 'inline-block' }};">
+                    📡 Start Stream + Recording
+                </button>
+                <button id="start-record-only-btn" class="btn btn-primary" style="display: {{ 'none' if (is_streaming or is_recording) else 'inline-block' }};">
+                    📹 Start Recording Only
+                </button>
+                <button id="stop-btn" class="btn btn-danger" style="display: {{ 'inline-block' if (is_streaming or is_recording) else 'none' }};">
+                    ⏹️ Stop
                 </button>
             </div>
             <div id="stream-status" class="status-message" style="display: none;"></div>
 
             <!-- Streaming Information Panel -->
-            <div id="streaming-info-panel" style="margin-top: 1rem; display: {{ 'block' if streaming else 'none' }};">
+            <div id="streaming-info-panel" style="margin-top: 1rem; display: {{ 'block' if is_streaming else 'none' }};">
                 <h3>Streaming Information</h3>
                 <div class="stats-grid">
                     <div class="stat-item">
@@ -1091,7 +1107,7 @@
         {% endif %}
 
         <!-- Upload Recordings -->
-        {% if (recording_files and not streaming) or uploadrecordingsonly %}
+        {% if (recording_files and not is_recording) or uploadrecordingsonly %}
         <div class="frame" id="upload-frame">
             <h2>Upload Recordings</h2>
             <form id="upload-form">
@@ -1129,12 +1145,18 @@
     </div>
 
     <script>
-        // Ensure streaming variable is available before any script uses it
+        // Ensure variables are available before any script uses them
         // eslint-disable-next-line no-unused-vars, no-undef
-        var streaming = {{ streaming | tojson | safe }};
+        var is_streaming = {{ is_streaming | tojson | safe }};
+        var is_recording = {{ is_recording | tojson | safe }};
     </script>
 
     <script>
+        // Global polling interval variables - declared at top to avoid initialization errors
+        let streamingStatusPollingInterval = null;
+        let activeRecordingsPollingInterval = null;
+        // Note: is_streaming and is_recording are set from template variables above
+        
         document.addEventListener('DOMContentLoaded', function () {
             const uploadForm = document.getElementById('upload-form');
             const uploadBtn = document.getElementById('upload-btn');
@@ -2374,8 +2396,11 @@
         if (activeRecordingsPollingInterval) {
             clearInterval(activeRecordingsPollingInterval);
         }
-        if (streamingStatusEventSource) {
-            streamingStatusEventSource.close();
+        if (streamingStatusPollingInterval) {
+            clearInterval(streamingStatusPollingInterval);
+        }
+        if (stopVerificationPollingInterval) {
+            clearInterval(stopVerificationPollingInterval);
         }
         if (serviceMonitoringEventSource) {
             serviceMonitoringEventSource.close();
@@ -2390,13 +2415,13 @@
             let frame = document.getElementById('active-recordings-frame');
             if (!frame) return;
             
-            // Show/hide the panel based on streaming status and active files
-            if (!streaming) {
+            // Show/hide the panel based on recording status and active files
+            if (!is_recording) {
                 frame.style.display = 'none';
                 return;
             }
             
-            // Only show if streaming is active
+            // Only show if active (streaming or recording)
             frame.style.display = '';
             const listDiv = frame.querySelector('#active-recordings-list');
             listDiv.innerHTML = '';
@@ -2430,15 +2455,13 @@
                     div.innerHTML = `<label style="word-break:break-all;"><b>Active recording:</b> ${file.name}<br>Size: ${filesizeStr}<br>Duration: ${durationStr}<br>Bitrate: ${bitrateStr}<br>Location: ${file.location}</label>`;
                     listDiv.appendChild(div);
                 });
-            } else if (streaming) {
+            } else if (is_recording) {
                 const div = document.createElement('div');
                 div.style.marginBottom = '0.5em';
-                div.innerHTML = '<label>No active recordings yet. Streaming is running...</label>';
+                div.innerHTML = '<label>No active recordings yet. Recording is starting...</label>';
                 listDiv.appendChild(div);
             }
         }
-        let activeRecordingsPollingInterval = null;
-        let streamingStatusEventSource = null;
 
         function startActiveRecordingsRefresh() {
             // Use polling for active recordings
@@ -2453,14 +2476,14 @@
         }
         
         function fetchActiveRecordings() {
-            // Only fetch if streaming (since active recordings only matter when streaming)
-            if (!streaming) {
-                // If streaming stopped, hide the active recordings panel
+            // Only fetch if recording is active (since active recordings only matter when recording)
+            if (!is_recording) {
+                // If recording stopped, hide the active recordings panel
                 const frame = document.getElementById('active-recordings-frame');
                 if (frame) {
                     frame.style.display = 'none';
                 }
-                return; // Skip polling if not streaming
+                return; // Skip polling if not recording
             }
             
             fetch('/active-recordings')
@@ -2482,11 +2505,17 @@
             }
         }
         
-        // Always start the active recordings refresh if streaming is active
-        if (streaming) {
+        // Always start the active recordings refresh if recording is active
+        if (is_recording) {
             startActiveRecordingsRefresh();
+        }
+        
+        // Start streaming status refresh only if streaming is active
+        if (is_streaming) {
             startStreamingStatusRefresh();
-        }        // Streaming status functionality
+        }
+        
+        // Streaming status functionality
         function updateStreamStatusWithRelayInfo(relayData) {
             try {
                 // Update bitrate
@@ -2551,126 +2580,308 @@
             }
         }
 
-        function startStreamingStatusRefresh() {
-            // Use SSE for real-time streaming status updates
-            if (streamingStatusEventSource) {
-                streamingStatusEventSource.close();
+        function handleStreamingStopped() {
+            // Common cleanup function called when streaming/recording stops
+            
+            // Stop all refresh intervals
+            stopStreamingStatusRefresh();
+            stopActiveRecordingsRefresh();
+            
+            // Hide active recordings panel since streaming stopped
+            const activeFrame = document.getElementById('active-recordings-frame');
+            if (activeFrame) {
+                activeFrame.style.display = 'none';
             }
-            streamingStatusEventSource = new EventSource('/relay-status-sse');
-            streamingStatusEventSource.onmessage = function(event) {
-                try {
-                    const data = JSON.parse(event.data);
-                    if (data.status) {
-                        const relayData = JSON.parse(data.status);
-                        updateStreamStatusWithRelayInfo(relayData);
-                    }
-                } catch (e) {
-                    console.error('Error parsing relay status:', e);
-                }
-            };
-            streamingStatusEventSource.onerror = function() {
-                // SSE has terminated, stop the refresh
-                stopStreamingStatusRefresh();
-                
-                // Stop active recordings polling
-                stopActiveRecordingsRefresh();
-                
-                // Hide active recordings panel since streaming stopped
-                const activeFrame = document.getElementById('active-recordings-frame');
-                if (activeFrame) {
-                    activeFrame.style.display = 'none';
-                }
-                
-                // Update streaming state
-                streaming = false;
-                streamBtn.textContent = 'Start Streaming';
-                streamStatus.textContent = 'Streaming is stopped.';
-                streamStatus.style.display = '';
-                streamStatus.style.color = '';
-                streamStatus.style.backgroundColor = '';
-                streamStatus.style.padding = '';
-                streamStatus.style.borderRadius = '';
-                streamStatus.style.fontWeight = '';
-                streamBtn.disabled = false;
+            
+            // Update state variables
+            is_streaming = false;
+            is_recording = false;
+            streamStatus.textContent = 'System is stopped.';
+            streamStatus.style.display = '';
+            streamStatus.style.color = '';
+            streamStatus.style.backgroundColor = '';
+            streamStatus.style.padding = '';
+            streamStatus.style.borderRadius = '';
+            streamStatus.style.fontWeight = '';
 
-                // Hide streaming info panel
-                const streamingInfoPanel = document.getElementById('streaming-info-panel');
-                if (streamingInfoPanel) {
-                    streamingInfoPanel.style.display = 'none';
-                }
-                
-                // Update and show the upload recordings list
-                updateUploadRecordingsList();
-            };
+            // Show start buttons, hide stop button
+            const startStreamBtn = document.getElementById('start-stream-btn');
+            const startRecordOnlyBtn = document.getElementById('start-record-only-btn');
+            const stopBtn = document.getElementById('stop-btn');
+            startStreamBtn.style.display = 'inline-block';
+            startRecordOnlyBtn.style.display = 'inline-block';
+            stopBtn.style.display = 'none';
+            
+            // Reset stop button to enabled state for next use
+            stopBtn.disabled = false;
+            stopBtn.innerHTML = '⏹️ Stop';
+
+            // Hide streaming info panel
+            const streamingInfoPanel = document.getElementById('streaming-info-panel');
+            if (streamingInfoPanel) {
+                streamingInfoPanel.style.display = 'none';
+            }
+            
+            // Update and show the upload recordings list
+            updateUploadRecordingsList();
+        }
+
+        // Global polling interval for stop verification
+        let stopVerificationPollingInterval = null;
+
+        function waitForStreamingToStop() {
+            // Start polling to verify streaming/recording has actually stopped
+            if (stopVerificationPollingInterval) {
+                clearInterval(stopVerificationPollingInterval);
+            }
+            
+            stopVerificationPollingInterval = setInterval(() => {
+                // Check if streaming is actually stopped on the backend
+                fetch('/stream-status')
+                    .then(response => response.json())
+                    .then(data => {
+                        const isActuallyStreaming = data.streaming || false;
+                        const isActuallyRecording = data.recording || false;
+                        
+                        if (!isActuallyStreaming && !isActuallyRecording) {
+                            // Streaming has actually stopped, update UI
+                            clearInterval(stopVerificationPollingInterval);
+                            stopVerificationPollingInterval = null;
+                            
+                            handleStreamingStopped();
+                            streamStatus.textContent = 'Stopped.';
+                        }
+                        // If still streaming, continue polling
+                    })
+                    .catch(error => {
+                        console.error('Error checking streaming status:', error);
+                        // Continue polling on network errors to allow for temporary issues
+                    });
+            }, 500); // Poll every 500ms
+        }
+
+        function startStreamingStatusRefresh() {
+            // Use polling for streaming status updates
+            if (streamingStatusPollingInterval) {
+                clearInterval(streamingStatusPollingInterval);
+            }
+            
+            // Start polling every 3 seconds for streaming status
+            streamingStatusPollingInterval = setInterval(fetchStreamingStatus, 3000);
+            // Fetch immediately on start
+            fetchStreamingStatus();
+        }
+
+        function fetchStreamingStatus() {
+            // Only fetch if streaming (for stream + recording mode) and polling is active
+            if (!is_streaming || !streamingStatusPollingInterval) {
+                return;
+            }
+            
+            fetch('/relay-status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status) {
+                        try {
+                            const relayData = JSON.parse(data.status);
+                            updateStreamStatusWithRelayInfo(relayData);
+                        } catch (e) {
+                            console.error('Error parsing relay status:', e);
+                            // On parse error, consider streaming stopped
+                            handleStreamingStopped();
+                        }
+                    } else if (data.error && data.error.includes('not running')) {
+                        // Streaming process is not running, trigger cleanup
+                        handleStreamingStopped();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching streaming status:', error);
+                    // On network error, check if streaming is still supposed to be active
+                    // Don't immediately stop on network errors to avoid false positives
+                });
         }
 
         function stopStreamingStatusRefresh() {
-            if (streamingStatusEventSource) {
-                streamingStatusEventSource.close();
-                streamingStatusEventSource = null;
+            if (streamingStatusPollingInterval) {
+                clearInterval(streamingStatusPollingInterval);
+                streamingStatusPollingInterval = null;
             }
         }
 
         // Streaming control
-        const streamBtn = document.getElementById('stream-btn');
+        const startStreamBtn = document.getElementById('start-stream-btn');
+        const startRecordOnlyBtn = document.getElementById('start-record-only-btn');
+        const stopBtn = document.getElementById('stop-btn');
         const streamStatus = document.getElementById('stream-status');
-        streamBtn.addEventListener('click', function () {
-            // Remove upload box if present when starting streaming
-            if (!streaming) {
+        
+        // Start Stream + Recording button
+        startStreamBtn.addEventListener('click', function () {
+                // Remove upload box if present when starting streaming
                 const uploadFrame = document.getElementById('upload-frame');
                 if (uploadFrame) uploadFrame.remove();
-            }
-            streamBtn.disabled = true;
-            streamStatus.textContent = streaming ? 'Stopping...' : 'Starting...';
-            streamStatus.style.display = '';
-            fetch('/stream-control', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: streaming ? 'stop' : 'start' })
-            })
-                .then(r => r.json().then(data => ({ status: r.status, data })))
-                .then(result => {
-                    if (result.status !== 200 && result.data && result.data.error) {
-                        streamStatus.textContent = result.data.error;
+                
+                streamStatus.textContent = 'Starting stream + recording...';
+                streamStatus.style.display = '';
+                
+                fetch('/stream-control', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        action: 'start',
+                        mode: 'both'
+                    })
+                })
+                    .then(r => r.json().then(data => ({ status: r.status, data })))
+                    .then(result => {
+                        if (result.status !== 200 && result.data && result.data.error) {
+                            streamStatus.textContent = result.data.error;
+                            streamStatus.style.display = '';
+                            streamStatus.style.color = '#fff';
+                            streamStatus.style.backgroundColor = '#d9534f';
+                            streamStatus.style.padding = '0.5em 1em';
+                            streamStatus.style.borderRadius = '6px';
+                            streamStatus.style.fontWeight = 'bold';
+                            return;
+                        }
+                        is_streaming = true; // We're in streaming mode
+                        is_recording = true; // Recording is also active when streaming
+                        streamStatus.textContent = 'Stream + recording is running.';
                         streamStatus.style.display = '';
-                        streamStatus.style.color = '#fff';
-                        streamStatus.style.backgroundColor = '#d9534f'; // Bootstrap danger
-                        streamStatus.style.padding = '0.5em 1em';
-                        streamStatus.style.borderRadius = '6px';
-                        streamStatus.style.fontWeight = 'bold';
-                        streamBtn.disabled = false;
-                        return;
-                    }
-                    streaming = !streaming;
-                    streamBtn.textContent = streaming ? 'Stop Streaming' : 'Start Streaming';
-                    streamStatus.textContent = streaming ? 'Streaming is running.' : 'Streaming is stopped.';
-                    streamStatus.style.display = '';
-                    streamStatus.style.color = '';
-                    streamStatus.style.backgroundColor = '';
-                    streamStatus.style.padding = '';
-                    streamStatus.style.borderRadius = '';
-                    streamStatus.style.fontWeight = '';
-                    streamBtn.disabled = false;
+                        streamStatus.style.color = '';
+                        streamStatus.style.backgroundColor = '';
+                        streamStatus.style.padding = '';
+                        streamStatus.style.borderRadius = '';
+                        streamStatus.style.fontWeight = '';
 
-                    // Show/hide streaming info panel
-                    const streamingInfoPanel = document.getElementById('streaming-info-panel');
-                    if (streamingInfoPanel) {
-                        streamingInfoPanel.style.display = streaming ? 'block' : 'none';
-                    }
+                        // Show/hide streaming info panel
+                        const streamingInfoPanel = document.getElementById('streaming-info-panel');
+                        if (streamingInfoPanel) {
+                            streamingInfoPanel.style.display = 'block';
+                        }
 
-                    if (streaming) {
-                        // Ensure the active recordings panel is visible again
+                        // Hide start buttons, show stop button
+                        startStreamBtn.style.display = 'none';
+                        startRecordOnlyBtn.style.display = 'none';
+                        stopBtn.style.display = 'inline-block';
+                        stopBtn.disabled = false;
+                        stopBtn.innerHTML = '⏹️ Stop';
+
+                        // Start active recordings refresh and streaming status
                         const activeFrame = document.getElementById('active-recordings-frame');
                         if (activeFrame) activeFrame.style.display = '';
                         startActiveRecordingsRefresh();
                         startStreamingStatusRefresh();
-                    }
-                    // Note: Cleanup when streaming stops is now handled by the SSE error handler
+                    })
+                    .catch(() => {
+                        streamStatus.textContent = 'Error starting stream + recording.';
+                    });
+        });
+        
+        // Start Recording Only button
+        startRecordOnlyBtn.addEventListener('click', function () {
+                // Remove upload box if present when starting recording
+                const uploadFrame = document.getElementById('upload-frame');
+                if (uploadFrame) uploadFrame.remove();
+                
+                streamStatus.textContent = 'Starting recording only...';
+                streamStatus.style.display = '';
+                
+                fetch('/stream-control', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        action: 'start',
+                        mode: 'record'
+                    })
                 })
-                .catch(() => {
-                    streamStatus.textContent = 'Error.';
-                    streamBtn.disabled = false;
-                });
+                    .then(r => r.json().then(data => ({ status: r.status, data })))
+                    .then(result => {
+                        if (result.status !== 200 && result.data && result.data.error) {
+                            streamStatus.textContent = result.data.error;
+                            streamStatus.style.display = '';
+                            streamStatus.style.color = '#fff';
+                            streamStatus.style.backgroundColor = '#d9534f';
+                            streamStatus.style.padding = '0.5em 1em';
+                            streamStatus.style.borderRadius = '6px';
+                            streamStatus.style.fontWeight = 'bold';
+                            return;
+                        }
+                        is_streaming = false; // We're in recording-only mode (not streaming)
+                        is_recording = true; // Recording is active
+                        streamStatus.textContent = 'Recording only is running.';
+                        streamStatus.style.display = '';
+                        streamStatus.style.color = '';
+                        streamStatus.style.backgroundColor = '';
+                        streamStatus.style.padding = '';
+                        streamStatus.style.borderRadius = '';
+                        streamStatus.style.fontWeight = '';
+
+                        // Don't show streaming info panel for recording-only mode
+                        const streamingInfoPanel = document.getElementById('streaming-info-panel');
+                        if (streamingInfoPanel) {
+                            streamingInfoPanel.style.display = 'none';
+                        }
+
+                        // Hide start buttons, show stop button
+                        startStreamBtn.style.display = 'none';
+                        startRecordOnlyBtn.style.display = 'none';
+                        stopBtn.style.display = 'inline-block';
+                        stopBtn.disabled = false;
+                        stopBtn.innerHTML = '⏹️ Stop';
+
+                        // Start active recordings refresh but not streaming status
+                        const activeFrame = document.getElementById('active-recordings-frame');
+                        if (activeFrame) activeFrame.style.display = '';
+                        startActiveRecordingsRefresh();
+                        // Don't start streaming status refresh for recording-only mode
+                    })
+                    .catch(() => {
+                        streamStatus.textContent = 'Error starting recording only.';
+                    });
+        });
+        
+        // Stop button
+        stopBtn.addEventListener('click', function () {
+                // Disable stop button to prevent multiple clicks
+                stopBtn.disabled = true;
+                stopBtn.innerHTML = '⏳ Stopping...';
+                
+                streamStatus.textContent = 'Stopping...';
+                streamStatus.style.display = '';
+                
+                fetch('/stream-control', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'stop' })
+                })
+                    .then(r => r.json().then(data => ({ status: r.status, data })))
+                    .then(result => {
+                        if (result.status !== 200 && result.data && result.data.error) {
+                            streamStatus.textContent = result.data.error;
+                            streamStatus.style.display = '';
+                            streamStatus.style.color = '#fff';
+                            streamStatus.style.backgroundColor = '#d9534f';
+                            streamStatus.style.padding = '0.5em 1em';
+                            streamStatus.style.borderRadius = '6px';
+                            streamStatus.style.fontWeight = 'bold';
+                            
+                            // Re-enable stop button on error
+                            stopBtn.disabled = false;
+                            stopBtn.innerHTML = '⏹️ Stop';
+                            return;
+                        }
+                        
+                        // Wait for streaming/recording to actually stop before updating UI
+                        waitForStreamingToStop();
+                    })
+                    .catch(() => {
+                        streamStatus.textContent = 'Error stopping.';
+                        
+                        // Re-enable stop button on network error
+                        stopBtn.disabled = false;
+                        stopBtn.innerHTML = '⏹️ Stop';
+                    });
         });
 
         // Function to update GPS status display

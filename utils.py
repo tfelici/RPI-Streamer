@@ -83,7 +83,7 @@ DEFAULT_SETTINGS = {
     "domain": "",
     "username": "",
     "vehicle": "",
-    "gps_stream_link": False,
+    "gps_stream_link": "off",
     "gps_start_mode": "manual",
     "gps_stop_on_power_loss": False,
     "gps_stop_power_loss_minutes": 1,
@@ -338,15 +338,27 @@ def is_pid_running(pid):
         return False
 
 def is_streaming():
-    """Return True if streaming is currently active."""
+    """Return True if streaming is currently active (relay-ffmpeg.py only)."""
+    # Check if streaming is active (relay-ffmpeg.py)
     if os.path.exists(STREAM_PIDFILE):
         try:
             with open(STREAM_PIDFILE) as f:
                 pid = int(f.read().strip())
             # Check if the process is still running
-            return is_pid_running(pid)
+            if is_pid_running(pid):
+                return True
         except Exception:
             pass
+    
+    return False
+
+def is_recording():
+    """Return True if recording is currently active (relay-ffmpeg-record.py only)."""
+    # Check if recording is active (relay-ffmpeg-record.py)
+    active_pid, _ = get_active_recording_info()
+    if active_pid and is_pid_running(active_pid):
+        return True
+    
     return False
 
 def get_gps_tracking_status():

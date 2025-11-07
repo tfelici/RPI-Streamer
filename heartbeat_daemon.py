@@ -60,7 +60,7 @@ logger.propagate = True
 
 # Import functions from the main app to avoid duplication
 try:
-    from utils import get_hardwareid, get_app_version, HEARTBEAT_FILE, add_files_from_path, is_streaming, is_gps_tracking, find_usb_storage, STREAMER_DATA_DIR, get_wifi_mode_status, get_streamer_settings
+    from utils import get_hardwareid, get_app_version, HEARTBEAT_FILE, add_files_from_path, is_streaming, is_recording, is_gps_tracking, find_usb_storage, STREAMER_DATA_DIR, get_wifi_mode_status
     logger.info("Successfully imported from utils.py")
 except ImportError as e:
     logger.error(f"Error importing functions from utils.py: {e}")
@@ -1087,8 +1087,9 @@ def send_heartbeat():
             # Create enhanced payload for server with additional information
             server_payload = stats_data.copy()
             
-            # Add streaming status
+            # Add streaming and recording status
             server_payload['is_streaming'] = is_streaming()
+            server_payload['is_recording'] = is_recording()
             
             # Add GPS tracking status
             server_payload['is_gps_tracking'] = is_gps_tracking()
