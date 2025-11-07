@@ -153,10 +153,10 @@ class XPlaneUDPParser:
         Parse X-Plane UDP packet and extract GPS data.
         
         X-Plane UDP format:
-        - Header: 4 bytes ("DATA" for data packets, "DREF" for dataref packets)
+        - Header: 5 bytes (b"DATA\x00" for data packets)
         - For DATA packets: Multiple 36-byte records, each containing:
-          - 4 bytes: data type index (int)
-          - 8 x 4 bytes: 8 float values
+          - 4 bytes: data type index (little-endian int32)
+          - 8 x 4 bytes: 8 float values (little-endian float32)
         
         Args:
             data: Raw UDP packet data (bytes)
@@ -168,91 +168,96 @@ class XPlaneUDPParser:
             if len(data) < 4:
                 return None
                 
-            # Check packet type
-            header = data[:4]
-            
-            if header == b'DATA':
-                return self._parse_data_packet(data[4:])
-            elif header == b'DREF':
-                return self._parse_dref_packet(data[4:])
+            # Check if this starts with DATA header  
+            if data.startswith(b'DATA'):
+                return self._parse_data_packet(data)
             else:
-                # Unknown packet type
+                # Unknown packet type - silently ignore
                 return None
                 
         except Exception as e:
             # Silently ignore parse errors - X-Plane sends various packet types
             return None
     
-    def _parse_data_packet(self, payload):
-        """Parse DATA packet format"""
+    def _parse_data_packet(self, data):
+        """Parse X-Plane DATA packet based on official UDP format"""
         try:
-            # Each DATA record is 36 bytes (4 + 8*4)
-            record_size = 36
-            if len(payload) < record_size:
+            # Official X-Plane UDP format:
+            # 5-byte MESSAGE PROLOGUE: "DATA" + index_byte
+            # Multiple data_struct entries: int index + float data[8] = 36 bytes each
+            
+            if len(data) < 5:
                 return None
             
-            gps_data = {}
+            # Parse the 5-byte prologue
+            prologue = data[:5]
+            if not prologue.startswith(b'DATA'):
+                return None
             
-            # Parse all records in the packet
-            for offset in range(0, len(payload), record_size):
-                if offset + record_size > len(payload):
+            # Parse payload containing multiple data_struct entries
+            payload = data[5:]
+            gps_data = {}
+            offset = 0
+            record_size = 36  # sizeof(int) + 8*sizeof(float) = 4 + 32 = 36
+            
+            while offset + record_size <= len(payload):
+                record_data = payload[offset:offset + record_size]
+                
+                try:
+                    # Parse data_struct: int index + float data[8]
+                    data_index, *values = struct.unpack('<i8f', record_data)
+                    
+                    # Check for GPS position data (typically index 20 in X-Plane Data Output)
+                    if data_index == 20:  # GPS position data
+                        # X-Plane GPS position data format:
+                        # [0] = latitude (degrees)
+                        # [1] = longitude (degrees) 
+                        # [2] = altitude MSL (meters)
+                        # [3] = altitude AGL (meters)
+                        # [4] = on runway flag (0 or 1)
+                        # [5] = altitude indicator (?)
+                        # [6] = latitude (degrees, duplicate?)
+                        # [7] = longitude (degrees, duplicate?)
+                        
+                        latitude = values[0] if abs(values[0]) < 90 and values[0] != -999.0 else None
+                        longitude = values[1] if abs(values[1]) < 180 and values[1] != -999.0 else None
+                        altitude = values[2] if values[2] != -999.0 else None
+                        
+                        if latitude is not None and longitude is not None:
+                            gps_data.update({
+                                'latitude': latitude,
+                                'longitude': longitude,
+                                'altitude': altitude if altitude is not None else 0,
+                                'fix_status': 'valid'
+                            })
+                    
+                    # Check for velocities data (typically index 18)
+                    elif data_index == 18:  # Velocities data
+                        groundspeed_kts = values[3] if values[3] != -999.0 and values[3] >= 0 else None
+                        if groundspeed_kts is not None:
+                            # Convert knots to km/h
+                            gps_data['speed'] = groundspeed_kts * 1.852
+                    
+                    # Check for attitude data (typically index 17)  
+                    elif data_index == 17:  # Attitude data
+                        heading = values[2] if values[2] != -999.0 else None
+                        if heading is not None:
+                            # Ensure heading is 0-360
+                            heading = heading % 360
+                            gps_data['heading'] = heading
+                    
+                    # Check for speeds data (typically index 3)
+                    elif data_index == 3:  # Speeds data
+                        groundspeed_kts = values[3] if values[3] != -999.0 and values[3] >= 0 else None
+                        if groundspeed_kts is not None:
+                            # Convert knots to km/h
+                            gps_data['speed'] = groundspeed_kts * 1.852
+                            
+                except struct.error:
                     break
-                    
-                record = payload[offset:offset + record_size]
-                data_type = struct.unpack('<I', record[:4])[0]  # Little endian unsigned int
-                values = struct.unpack('<8f', record[4:])       # 8 little endian floats
                 
-                # Check for GPS position data (typically index 20 in X-Plane)
-                if data_type == 20:  # GPS position data type
-                    # X-Plane GPS position data format:
-                    # [0] = latitude (degrees)
-                    # [1] = longitude (degrees) 
-                    # [2] = altitude MSL (meters)
-                    # [3] = altitude AGL (meters)
-                    # [4] = on runway flag (0 or 1)
-                    # [5] = altitude indicator (?)
-                    # [6] = latitude (degrees, duplicate?)
-                    # [7] = longitude (degrees, duplicate?)
-                    
-                    latitude = values[0] if values[0] != -999.0 else None
-                    longitude = values[1] if values[1] != -999.0 else None
-                    altitude = values[2] if values[2] != -999.0 else None
-                    
-                    if latitude is not None and longitude is not None:
-                        gps_data.update({
-                            'latitude': latitude,
-                            'longitude': longitude,
-                            'altitude': altitude if altitude is not None else 0,
-                            'fix_status': 'valid'
-                        })
-                
-                # Check for velocities data (typically index 18)
-                elif data_type == 18:  # Velocities data type
-                    # [0] = indicated airspeed (kt)
-                    # [1] = equivalent airspeed (kt)
-                    # [2] = true airspeed (kt) 
-                    # [3] = ground speed (kt)
-                    # [4] = vertical velocity (ft/min)
-                    # [5] = mach number
-                    # [6] = g-load normal
-                    # [7] = g-load axial
-                    
-                    groundspeed_kts = values[3] if values[3] != -999.0 else None
-                    if groundspeed_kts is not None:
-                        # Convert knots to km/h
-                        gps_data['speed'] = groundspeed_kts * 1.852
-                
-                # Check for attitude data (typically index 17)  
-                elif data_type == 17:  # Attitude data type
-                    # [0] = pitch (degrees)
-                    # [1] = roll (degrees)
-                    # [2] = true heading (degrees)
-                    # [3] = magnetic heading (degrees)
-                    # [4-7] = various other attitude data
-                    
-                    heading = values[2] if values[2] != -999.0 else None
-                    if heading is not None:
-                        gps_data['heading'] = heading
+                # Move to next data_struct
+                offset += record_size
             
             # Return GPS data if we have at least position
             if 'latitude' in gps_data and 'longitude' in gps_data:
@@ -272,6 +277,7 @@ class XPlaneUDPParser:
                         }
                     }
                 })
+                
                 return gps_data
                 
         except struct.error:
@@ -390,29 +396,6 @@ class GPSDaemon:
     def log(self, message):
         """Log message using Python logging system"""
         self.logger.info(message)
-    
-    def run_command(self, command, description=None):
-        """Run shell command and return success status"""
-        if description:
-            self.log(description)
-        
-        try:
-            result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
-            if result.returncode == 0:
-                if description:
-                    self.log(f"✓ {description} - Success")
-                return True
-            else:
-                self.log(f"✗ Command failed: {command}")
-                if result.stderr:
-                    self.log(f"Error: {result.stderr.strip()}")
-                return False
-        except subprocess.TimeoutExpired:
-            self.log(f"✗ Command timed out: {command}")
-            return False
-        except Exception as e:
-            self.log(f"✗ Command exception: {e}")
-            return False
            
     def validate_nmea_checksum(self, line):
         """Validate NMEA sentence checksum"""
@@ -799,6 +782,7 @@ class GPSDaemon:
                         gps_data = self.xplane_parser.parse_udp_packet(data)
                         
                         if gps_data:
+                            
                             # Update location data with parsed X-Plane data
                             self.location_data.update({
                                 'timestamp': time.time(),
