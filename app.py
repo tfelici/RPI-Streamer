@@ -396,13 +396,13 @@ def start_streaming(mode="both"):
     need_streaming = mode in ["both", "stream"] and not is_streaming()
     need_recording = mode in ["both", "record"] and not is_recording()
     
+    settings = load_settings()
+    stream_url = settings['stream_url'].strip()
+    if not stream_url:
+        return False, 'Remote Streaming URL is not set. Please configure it in Settings.', 400
+    
     # Start streaming if needed
     if need_streaming:
-        settings = load_settings()
-        stream_url = settings['stream_url'].strip()
-        if not stream_url:
-            return False, 'Remote Streaming URL is not set. Please configure it in Settings.', 400
-        
         # Start relay-ffmpeg.py asynchronously with log output (unbuffered)
         relay_log = open('/tmp/relay-ffmpeg.log', 'w')
         subprocess.Popen(['python', '-u', 'relay-ffmpeg.py', 'webcam'], 
