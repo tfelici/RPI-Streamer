@@ -16,7 +16,7 @@ from datetime import datetime
 # Add the RPI Streamer directory to the path so we can import utils
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils import is_gps_tracking, calculate_distance, load_settings
+from utils import calculate_distance, load_settings
 from gps_client import get_gnss_location
 
 logger = logging.getLogger(__name__)
@@ -170,11 +170,6 @@ class AutoStopMonitor:
         
         try:
             while self.running:
-                # Check if GPS tracking is still active
-                if not is_gps_tracking():
-                    logger.info("GPS tracking is no longer active, stopping auto-stop monitor")
-                    break
-                
                 # Load current settings (allows for dynamic updates)
                 enabled, auto_stop_minutes = self.load_auto_stop_settings()
                 
