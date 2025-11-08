@@ -1157,7 +1157,7 @@ def main():
                         help='PID file path (default: /tmp/gps_daemon.pid)')
     parser.add_argument('--daemon', action='store_true', default=False,
                         help='Run in daemon mode (use syslog/journal for logging)')
-    parser.add_argument('--delay', type=int, default=60,
+    parser.add_argument('--delay', type=int, default=120,
                         help='Delay in seconds before starting movement in simulation mode (default: 0)')
     parser.add_argument('--gps-source', choices=['hardware', 'xplane', 'simulation'], 
                         help='GPS data source (overrides settings file)')

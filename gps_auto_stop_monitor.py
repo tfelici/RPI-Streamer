@@ -55,9 +55,9 @@ class AutoStopMonitor:
     def get_current_gps_position(self):
         """Get current GPS position with accuracy check"""
         try:
-            location_data = get_gnss_location()
+            success, location_data = get_gnss_location()
             
-            if not location_data or 'latitude' not in location_data or 'longitude' not in location_data:
+            if not success or not location_data or 'latitude' not in location_data or 'longitude' not in location_data:
                 return None
             
             # Check GPS accuracy if available
