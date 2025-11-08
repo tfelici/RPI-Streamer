@@ -42,7 +42,7 @@ def simulate_gps_data(delay_seconds=0):
     Simulate GPS coordinates for circular flight path from Oxford Airport UK
     
     Args:
-        delay_seconds: Delay before starting movement (aircraft remains stationary)
+        delay_seconds: Delay in seconds between each completed loop (aircraft stops at Oxford Airport)
     """
     
     # Oxford Airport (Kidlington) coordinates
@@ -56,9 +56,26 @@ def simulate_gps_data(delay_seconds=0):
     # Calculate elapsed time since simulation started
     total_elapsed_time = time.time() - simulate_gps_data.start_time
     
-    # Check if we're still in delay period
-    if total_elapsed_time < delay_seconds:
-        # Aircraft is stationary at Oxford Airport during delay
+    # Flight parameters
+    circle_radius_km = 2.5  # 5km diameter = 2.5km radius
+    flight_duration = 60.0  # 60 seconds for complete circle
+    max_altitude_meters = 304.8  # 1000 feet = 304.8 meters
+    flight_speed_kmh = 94.2  # ~2.5km radius * 2 * pi / 60 seconds * 3.6 = 94.2 km/h
+    
+    # Total cycle time = flight duration + delay between loops
+    cycle_duration = flight_duration + delay_seconds
+    
+    # Calculate which cycle we're in and position within that cycle
+    if cycle_duration > 0:
+        current_cycle = int(total_elapsed_time / cycle_duration)
+        time_in_cycle = total_elapsed_time % cycle_duration
+    else:
+        current_cycle = 0
+        time_in_cycle = total_elapsed_time
+    
+    # Check if we're in the delay period (stationary phase) of the current cycle
+    if time_in_cycle >= flight_duration:
+        # Aircraft is stationary at Oxford Airport during delay between loops
         ground_accuracy = random.uniform(2, 5)  # Good GPS accuracy on ground
         return {
             'latitude': oxford_lat,
@@ -70,16 +87,10 @@ def simulate_gps_data(delay_seconds=0):
             'speed': 0  # No movement
         }
     
-    # Calculate elapsed flight time (after delay)
-    flight_elapsed_time = total_elapsed_time - delay_seconds
+    # We're in the flight phase of the current cycle
+    flight_elapsed_time = time_in_cycle
     
-    # Flight parameters
-    circle_radius_km = 2.5  # 5km diameter = 2.5km radius
-    flight_duration = 60.0  # 60 seconds for complete circle
-    max_altitude_meters = 304.8  # 1000 feet = 304.8 meters
-    flight_speed_kmh = 94.2  # ~2.5km radius * 2 * pi / 60 seconds * 3.6 = 94.2 km/h
-    
-    # Calculate angle (0 to 2π over 60 seconds)
+    # Calculate angle (0 to 2π over flight_duration seconds)
     angle_radians = (flight_elapsed_time / flight_duration) * 2 * math.pi
     
     # Calculate altitude profile based on flight phase
@@ -1146,7 +1157,7 @@ def main():
                         help='PID file path (default: /tmp/gps_daemon.pid)')
     parser.add_argument('--daemon', action='store_true', default=False,
                         help='Run in daemon mode (use syslog/journal for logging)')
-    parser.add_argument('--delay', type=int, default=0,
+    parser.add_argument('--delay', type=int, default=60,
                         help='Delay in seconds before starting movement in simulation mode (default: 0)')
     parser.add_argument('--gps-source', choices=['hardware', 'xplane', 'simulation'], 
                         help='GPS data source (overrides settings file)')
