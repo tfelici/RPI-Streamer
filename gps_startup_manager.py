@@ -253,7 +253,7 @@ def detect_motion():
         return None  # GPS error - ignore this result
 
 
-def monitor_motion(updated_settings):
+def monitor_motion():
     """Monitor for aircraft motion and start GPS tracking when detected"""
     logger.info("Motion detection monitoring started...")
     motion_threshold_count = 3  # Require motion detected 3 times to start
@@ -362,7 +362,7 @@ def main():
 
         elif gps_start_mode == 'motion':
             logger.info("Starting motion detection monitoring...")
-            monitor_motion(settings)
+            monitor_motion()
 
         elif gps_start_mode == 'manual':
             logger.info("Manual mode - GPS tracking will be started via web interface")
@@ -388,51 +388,26 @@ def signal_handler(signum, frame):
 
 if __name__ == '__main__':
     import argparse
-    from logging.handlers import RotatingFileHandler
 
     parser = argparse.ArgumentParser(description='GPS Startup Manager')
     parser.add_argument('--daemon', action='store_true', default=False,
-                        help='Run in daemon mode (no console output, log to runtime/journal)')
-    parser.add_argument('--debug', action='store_true', default=False,
-                        help='Enable debug logging')
+                        help='Run in daemon mode (systemd service)')
     args = parser.parse_args()
 
-    # Basic logging configuration - set level based on debug flag
-    log_level = logging.DEBUG if args.debug else logging.INFO
-    log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    
-    # Configure logging with both console and rotating file output
-    # Use /var/log for system services or current directory for development
-    log_file = '/var/log/gps_startup_manager.log' if args.daemon else 'gps_startup_manager.log'
-    
-    # Create rotating file handler to keep logs under 1MB
-    file_handler = RotatingFileHandler(
-        log_file,
-        maxBytes=1024*1024,  # 1MB max size
-        backupCount=3        # Keep 3 backup files
-    )
-    file_handler.setFormatter(logging.Formatter(log_format))
-    
-    logging.basicConfig(
-        level=log_level,
-        format=log_format,
-        handlers=[
-            file_handler,
-            logging.StreamHandler()
-        ]
-    )
-
-    # If running interactively (not daemon) and stdout is a TTY, ensure logs print to console
-    try:
-        if not args.daemon and sys.stdout.isatty():
-            root_logger = logging.getLogger()
-            has_stream = any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers)
-            if not has_stream:
-                sh = logging.StreamHandler(sys.stdout)
-                sh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-                root_logger.addHandler(sh)
-    except Exception:
-        pass
+    # Configure logging based on daemon mode
+    if args.daemon:
+        # Daemon mode: output to systemd journal (stdout/stderr)
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s'
+        )
+    else:
+        # Interactive mode: output to console with cleaner format
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(levelname)s: %(message)s',
+            stream=sys.stdout
+        )
 
     # Install signal handlers
     signal.signal(signal.SIGTERM, signal_handler)

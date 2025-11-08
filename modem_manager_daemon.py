@@ -23,11 +23,6 @@ from datetime import datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils import send_at_command, find_working_at_port, load_cellular_settings
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger('modem_manager')
 
 # Configuration
@@ -602,16 +597,9 @@ def main_loop():
 
 def main():
     """Main entry point"""
-    parser = argparse.ArgumentParser(description='Modem Recovery Daemon for NON-RNDIS mode')
-    parser.add_argument('--daemon', action='store_true', help='Run as daemon')
-    args = parser.parse_args()
-    
     # Set up signal handlers
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
-    
-    if args.daemon:
-        logger.info("Running in daemon mode")
     
     try:
         main_loop()
@@ -620,4 +608,27 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
+    import argparse
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Modem Recovery Daemon for NON-RNDIS mode')
+    parser.add_argument('--daemon', action='store_true', default=False,
+                        help='Run in daemon mode (systemd service)')
+    args = parser.parse_args()
+    
+    # Configure logging based on daemon mode
+    if args.daemon:
+        # Daemon mode: output to systemd journal (stdout/stderr)
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s'
+        )
+    else:
+        # Interactive mode: output to console with cleaner format
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(levelname)s: %(message)s',
+            stream=sys.stdout
+        )
+    
     main()

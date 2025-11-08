@@ -1145,16 +1145,6 @@ def cleanup_on_shutdown():
 
 def main():
     """Main daemon loop"""
-    # Ensure we declare globals before any use in this function
-    global logger
-
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description='RPI Streamer Heartbeat Daemon')    
-    parser.add_argument('--daemon', action='store_true', default=False,
-                        help='Run in daemon mode (no console output, log to runtime dir/syslog)')
-    args = parser.parse_args()
-
-    # Logging removed - logger is a no-op to keep the rest of the code working.
     logger.info("RPI Streamer Heartbeat Daemon starting...")
     
     # Set up signal handlers for graceful shutdown
@@ -1179,45 +1169,27 @@ def main():
         logger.info("Heartbeat daemon stopped")
 
 if __name__ == '__main__':
-    # Avoid parsing arguments here because systemd may pass other flags
-    # whether we're running in daemon mode by inspecting sys.argv so
-    # we can configure interactive logging appropriately.
-    daemon_mode = '--daemon' in sys.argv
+    import argparse
     
-    # Import RotatingFileHandler for log rotation
-    from logging.handlers import RotatingFileHandler
-
-    # Configure logging with rotation to keep logs under 1MB
-    log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    log_file = '/var/log/heartbeat_daemon.log' if daemon_mode else 'heartbeat_daemon.log'
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='RPI Streamer Heartbeat Daemon')
+    parser.add_argument('--daemon', action='store_true', default=False,
+                        help='Run in daemon mode (systemd service)')
+    args = parser.parse_args()
     
-    # Create rotating file handler
-    file_handler = RotatingFileHandler(
-        log_file,
-        maxBytes=1024*1024,  # 1MB max size
-        backupCount=3        # Keep 3 backup files
-    )
-    file_handler.setFormatter(logging.Formatter(log_format))
-    
-    logging.basicConfig(
-        level=logging.INFO, 
-        format=log_format,
-        handlers=[
-            file_handler,
-            logging.StreamHandler()
-        ]
-    )
-
-    # If running interactively (not daemon) and stdout is a TTY, ensure logs print to console
-    try:
-        if not daemon_mode and sys.stdout.isatty():
-            root_logger = logging.getLogger()
-            has_stream = any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers)
-            if not has_stream:
-                sh = logging.StreamHandler(sys.stdout)
-                sh.setFormatter(logging.Formatter(log_format))
-                root_logger.addHandler(sh)
-    except Exception:
-        pass
+    # Configure logging based on daemon mode
+    if args.daemon:
+        # Daemon mode: output to systemd journal (stdout/stderr)
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s'
+        )
+    else:
+        # Interactive mode: output to console with cleaner format
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(levelname)s: %(message)s',
+            stream=sys.stdout
+        )
 
     main()
