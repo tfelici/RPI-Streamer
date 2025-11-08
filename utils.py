@@ -92,7 +92,8 @@ DEFAULT_SETTINGS = {
     "power_monitor_sleep_time": 60,
     "gps_source": "hardware",
     "xplane_udp_port": 49003,
-    "xplane_bind_address": "0.0.0.0"
+    "xplane_bind_address": "0.0.0.0",
+    "gps_simulation_delay_seconds": 120
 }
 
 def get_streamer_settings(logger, poll_until_success=False, poll_interval=30):

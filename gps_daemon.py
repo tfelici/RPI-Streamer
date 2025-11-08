@@ -1238,9 +1238,14 @@ def main():
     xplane_port = getattr(args, 'xplane_port', None) or settings.get('xplane_udp_port', 49003)
     xplane_bind = getattr(args, 'xplane_bind', None) or settings.get('xplane_bind_address', '0.0.0.0')
     
+    # Get simulation delay setting (command line overrides settings file)
+    delay_seconds = getattr(args, 'delay', None) or settings.get('gps_simulation_delay_seconds', 120)
+    
     logging.info(f"GPS daemon starting with source: {gps_source}")
     if gps_source == 'xplane':
         logging.info(f"X-Plane UDP configuration: {xplane_bind}:{xplane_port}")
+    elif gps_source == 'simulation':
+        logging.info(f"GPS simulation delay: {delay_seconds} seconds between flight loops")
 
     # Create and start daemon
     global daemon
@@ -1249,7 +1254,7 @@ def main():
         baudrate=args.baudrate,
         daemon_mode=args.daemon,
         gps_source=gps_source,
-        delay_seconds=args.delay,
+        delay_seconds=delay_seconds,
         xplane_udp_port=xplane_port,
         xplane_bind_address=xplane_bind
     )

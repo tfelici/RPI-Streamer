@@ -65,6 +65,18 @@
                     </small>
                 </div>
 
+                <div id="simulation_settings" style="margin-top: 15px; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #28a745; border-radius: 4px; display: none;">
+                    <strong>GPS Simulation Configuration</strong>
+                    <div style="margin-top: 10px;">
+                        <label for="gps_simulation_delay_seconds" style="font-weight: normal;">Delay Between Flight Loops (seconds):</label>
+                        <input type="number" id="gps_simulation_delay_seconds" name="gps_simulation_delay_seconds" value="{{ settings.gps_simulation_delay_seconds or 120 }}" min="0" max="3600" style="width: 120px; margin-left: 10px;">
+                        <small style="display: block; margin-top: 5px;">Time aircraft stays stationary at Oxford Airport between circular flight loops (0-3600 seconds)</small>
+                    </div>
+                    <small style="color: #6c757d; margin-top: 10px; display: block;">
+                        <strong>Simulation Pattern:</strong> The simulation creates a circular flight pattern around Oxford Airport. After each 60-second flight loop, the aircraft lands and remains stationary for the specified delay period before starting the next loop.
+                    </small>
+                </div>
+
                 <label for="gps_stream_link">Video Recording Control</label>
                 <select id="gps_stream_link" name="gps_stream_link">
                     <option value="off" {% if not settings.gps_stream_link %}selected{% endif %}>Independent control (manual start/stop)</option>
@@ -244,6 +256,7 @@
             
             const gpsSourceSelect = document.getElementById('gps_source');
             const xplaneSettings = document.getElementById('xplane_settings');
+            const simulationSettings = document.getElementById('simulation_settings');
             
             function updateTimeoutFieldState() {
                 const isEnabled = powerLossSelect.value === 'on';
@@ -279,7 +292,10 @@
             
             function updateGpsSourceSettings() {
                 const isXPlane = gpsSourceSelect.value === 'xplane';
+                const isSimulation = gpsSourceSelect.value === 'simulation';
+                
                 xplaneSettings.style.display = isXPlane ? 'block' : 'none';
+                simulationSettings.style.display = isSimulation ? 'block' : 'none';
                 
                 // Make X-Plane fields required when X-Plane is selected
                 const xplanePort = document.getElementById('xplane_udp_port');
@@ -291,6 +307,15 @@
                 } else {
                     xplanePort.required = false;
                     xplaneAddress.required = false;
+                }
+                
+                // Make simulation fields required when simulation is selected
+                const simulationDelay = document.getElementById('gps_simulation_delay_seconds');
+                
+                if (isSimulation) {
+                    simulationDelay.required = true;
+                } else {
+                    simulationDelay.required = false;
                 }
             }
             

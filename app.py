@@ -329,6 +329,18 @@ def flight_settings_save():
             else:
                 settings['xplane_bind_address'] = DEFAULT_SETTINGS['xplane_bind_address']  # Default fallback
     
+    # Handle GPS simulation settings (only when simulation is selected)
+    if settings.get('gps_source') == 'simulation':
+        if 'gps_simulation_delay_seconds' in (data if request.is_json else request.form):
+            try:
+                delay_seconds = int(get_value('gps_simulation_delay_seconds', DEFAULT_SETTINGS['gps_simulation_delay_seconds']))
+                if 0 <= delay_seconds <= 3600:
+                    settings['gps_simulation_delay_seconds'] = delay_seconds
+                else:
+                    settings['gps_simulation_delay_seconds'] = DEFAULT_SETTINGS['gps_simulation_delay_seconds']  # Default fallback
+            except (ValueError, TypeError):
+                settings['gps_simulation_delay_seconds'] = DEFAULT_SETTINGS['gps_simulation_delay_seconds']  # Default fallback
+    
     # Save settings
     save_settings(settings)
     
