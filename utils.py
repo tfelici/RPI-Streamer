@@ -87,6 +87,8 @@ DEFAULT_SETTINGS = {
     "gps_start_mode": "manual",
     "gps_stop_on_power_loss": False,
     "gps_stop_power_loss_minutes": 1,
+    "gps_auto_stop_enabled": False,
+    "gps_auto_stop_minutes": 10,
     "power_monitor_sleep_time": 60,
     "gps_source": "hardware",
     "xplane_udp_port": 49003,

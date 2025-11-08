@@ -101,6 +101,19 @@
                        value="{{ settings.gps_stop_power_loss_minutes }}" 
                        min="1" max="60" step="1" required>
                 <small>GPS tracking will stop after this many minutes of continuous UPS power loss (1-60 minutes).</small>
+
+                <label for="gps_auto_stop_enabled">Auto-Stop GPS Tracking on No Movement</label>
+                <select id="gps_auto_stop_enabled" name="gps_auto_stop_enabled">
+                    <option value="off" {% if not settings.gps_auto_stop_enabled %}selected{% endif %}>No - Continue GPS tracking regardless of movement</option>
+                    <option value="on" {% if settings.gps_auto_stop_enabled %}selected{% endif %}>Yes - Stop GPS tracking after aircraft stops moving</option>
+                </select>
+                <small>When enabled, GPS tracking will stop automatically when no aircraft movement is detected for the specified duration.</small>
+
+                <label for="gps_auto_stop_minutes">Auto-Stop Timeout (minutes)</label>
+                <input type="number" id="gps_auto_stop_minutes" name="gps_auto_stop_minutes" 
+                       value="{{ settings.gps_auto_stop_minutes }}" 
+                       min="1" max="120" step="1" required>
+                <small>GPS tracking will stop after this many minutes of no aircraft movement (1-120 minutes).</small>
                 
                 <button type="submit" class="btn btn-primary">Save Flight Settings</button>
             </form>
@@ -224,6 +237,11 @@
             const timeoutLabel = timeoutInput.previousElementSibling;
             const timeoutHelp = timeoutInput.nextElementSibling;
             
+            const autoStopSelect = document.getElementById('gps_auto_stop_enabled');
+            const autoStopTimeoutInput = document.getElementById('gps_auto_stop_minutes');
+            const autoStopTimeoutLabel = autoStopTimeoutInput.previousElementSibling;
+            const autoStopTimeoutHelp = autoStopTimeoutInput.nextElementSibling;
+            
             const gpsSourceSelect = document.getElementById('gps_source');
             const xplaneSettings = document.getElementById('xplane_settings');
             
@@ -240,6 +258,22 @@
                 } else {
                     timeoutLabel.classList.add('field-disabled');
                     timeoutHelp.classList.add('field-disabled');
+                }
+            }
+            
+            function updateAutoStopTimeoutFieldState() {
+                const isEnabled = autoStopSelect.value === 'on';
+                
+                autoStopTimeoutInput.disabled = !isEnabled;
+                autoStopTimeoutInput.required = isEnabled;
+                
+                // Add visual indication for disabled state
+                if (isEnabled) {
+                    autoStopTimeoutLabel.classList.remove('field-disabled');
+                    autoStopTimeoutHelp.classList.remove('field-disabled');
+                } else {
+                    autoStopTimeoutLabel.classList.add('field-disabled');
+                    autoStopTimeoutHelp.classList.add('field-disabled');
                 }
             }
             
@@ -262,10 +296,12 @@
             
             // Set initial states
             updateTimeoutFieldState();
+            updateAutoStopTimeoutFieldState();
             updateGpsSourceSettings();
             
             // Listen for changes
             powerLossSelect.addEventListener('change', updateTimeoutFieldState);
+            autoStopSelect.addEventListener('change', updateAutoStopTimeoutFieldState);
             gpsSourceSelect.addEventListener('change', updateGpsSourceSettings);
         });
     </script>

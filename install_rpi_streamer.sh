@@ -1054,6 +1054,33 @@ EOF
 
 echo "✅ GPS Auto-Enable System installed"
 
+# Create the GPS auto-stop service
+printf "Creating systemd service for GPS Auto-Stop Monitor...\n"
+sudo tee /etc/systemd/system/gps-auto-stop.service >/dev/null << EOF
+[Unit]
+Description=GPS Auto-Stop Monitor
+After=network-online.target NetworkManager-wait-online.service
+Wants=network-online.target
+Requires=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=$HOME/flask_app
+ExecStart=/usr/bin/python3 $HOME/flask_app/gps_auto_stop_monitor.py --daemon
+Restart=no
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+# GPS auto-stop service is controlled by GPS tracking functions
+# It is NOT enabled at boot - only started when GPS tracking starts with auto-stop enabled
+EOF
+
+echo "✅ GPS Auto-Stop Monitor service installed (controlled by GPS tracking)"
+
 # Install GPS Daemon
 printf "🛰️ Installing GPS Daemon...\n"
 

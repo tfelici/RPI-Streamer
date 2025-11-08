@@ -686,6 +686,15 @@
                             <button class="btn btn-sm btn-warning service-disable-btn" data-service="gps-startup" style="display: none;">⏹️ Stop</button>
                         </div>
                     </div>
+                    <div class="stat-item service-item" data-service="gps-auto-stop">
+                        <span class="stat-value connection-status" id="service-gps-auto-stop">--</span>
+                        <div class="stat-label">GPS Auto-Stop</div>
+                        <div class="service-controls">
+                            <button class="btn btn-sm btn-secondary service-log-btn" data-service="gps-auto-stop">📋 View Logs</button>
+                            <button class="btn btn-sm btn-success service-enable-btn" data-service="gps-auto-stop" style="display: none;">▶️ Start</button>
+                            <button class="btn btn-sm btn-warning service-disable-btn" data-service="gps-auto-stop" style="display: none;">⏹️ Stop</button>
+                        </div>
+                    </div>
                     <div class="stat-item service-item" data-service="mediamtx">
                         <span class="stat-value connection-status" id="service-mediamtx">--</span>
                         <div class="stat-label">MediaMTX</div>
@@ -2964,7 +2973,7 @@
         }
         
         function updateServiceStatusUI(data) {
-            const services = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon', 'modem-manager', 'ups-monitor', 'gps_tracker.py', 'relay-ffmpeg.py', 'relay-ffmpeg-record.py'];
+            const services = ['gps-daemon', 'gps-startup', 'gps-auto-stop', 'mediamtx', 'heartbeat-daemon', 'modem-manager', 'ups-monitor', 'gps_tracker.py', 'relay-ffmpeg.py', 'relay-ffmpeg-record.py'];
             const processes = ['gps_tracker.py', 'relay-ffmpeg.py', 'relay-ffmpeg-record.py']; // Python processes (not systemd services)
             
             services.forEach(service => {

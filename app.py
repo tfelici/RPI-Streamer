@@ -285,6 +285,21 @@ def flight_settings_save():
         except (ValueError, TypeError):
             settings['gps_stop_power_loss_minutes'] = DEFAULT_SETTINGS['gps_stop_power_loss_minutes']  # Default fallback
     
+    # Handle auto-stop settings
+    if 'gps_auto_stop_enabled' in (data if request.is_json else request.form):
+        settings['gps_auto_stop_enabled'] = is_checked('gps_auto_stop_enabled')
+    
+    # Handle auto-stop timeout with validation
+    if 'gps_auto_stop_minutes' in (data if request.is_json else request.form):
+        try:
+            auto_stop_minutes = int(get_value('gps_auto_stop_minutes', DEFAULT_SETTINGS['gps_auto_stop_minutes']))
+            if 1 <= auto_stop_minutes <= 120:
+                settings['gps_auto_stop_minutes'] = auto_stop_minutes
+            else:
+                settings['gps_auto_stop_minutes'] = DEFAULT_SETTINGS['gps_auto_stop_minutes']  # Default fallback
+        except (ValueError, TypeError):
+            settings['gps_auto_stop_minutes'] = DEFAULT_SETTINGS['gps_auto_stop_minutes']  # Default fallback
+    
     # Handle GPS source settings
     old_gps_source = settings.get('gps_source', 'hardware')
     if 'gps_source' in (data if request.is_json else request.form):
@@ -540,6 +555,20 @@ def start_flight():
         else:
             return False, f'Failed to auto-start video {"streaming" if gps_link_mode == "stream" else "recording"}: {message}', status_code
     
+    # If auto-stop is enabled, start the auto-stop monitor service
+    auto_stop_enabled = settings.get('gps_auto_stop_enabled', False)
+    if auto_stop_enabled:
+        try:
+            print("Starting GPS auto-stop monitor service...")
+            subprocess.run(['sudo', 'systemctl', 'start', 'gps-auto-stop.service'], check=True)
+            print("GPS auto-stop monitor service started successfully")
+        except subprocess.CalledProcessError as e:
+            print(f"Warning: Failed to start GPS auto-stop monitor service: {e}")
+            # Don't fail the GPS start for this, just log the warning
+        except Exception as e:
+            print(f"Warning: Error starting GPS auto-stop monitor service: {e}")
+            # Don't fail the GPS start for this, just log the warning
+    
     return True, 'started', 200
 
 def stop_flight():
@@ -575,6 +604,39 @@ def stop_flight():
                 print(f"Video {'streaming + recording' if gps_link_mode == 'stream' else 'recording only'} stopped automatically with GPS tracking.")
             else:
                 print(f"Warning: Failed to auto-stop video {'streaming' if gps_link_mode == 'stream' else 'recording'}: {message}")
+        
+        # Stop the auto-stop monitor service if it's running
+        try:
+            # Check if the service is active before trying to stop it
+            check_result = subprocess.run(['sudo', 'systemctl', 'is-active', 'gps-auto-stop.service'], 
+                                        capture_output=True, text=True)
+            if check_result.returncode == 0:  # Service is active
+                print("Stopping GPS auto-stop monitor service...")
+                subprocess.run(['sudo', 'systemctl', 'stop', 'gps-auto-stop.service'], check=True)
+                print("GPS auto-stop monitor service stopped successfully.")
+            else:
+                print("GPS auto-stop monitor service was not running.")
+        except subprocess.CalledProcessError as e:
+            print(f"Warning: Could not stop GPS auto-stop monitor service: {e}")
+        except Exception as e:
+            print(f"Warning: Error stopping GPS auto-stop monitor service: {e}")
+        
+        # Restart GPS startup daemon only for motion detection mode
+        # (Not for 'boot' mode as that would immediately restart the flight!)
+        gps_start_mode = settings.get('gps_start_mode', 'manual')
+        if gps_start_mode == 'motion':
+            try:
+                print(f"Restarting GPS startup daemon for '{gps_start_mode}' start mode...")
+                subprocess.run(['sudo', 'systemctl', 'restart', 'gps-startup.service'], check=True)
+                print("GPS startup daemon restarted successfully - monitoring for next aircraft movement.")
+            except subprocess.CalledProcessError as e:
+                print(f"Warning: Could not restart GPS startup daemon: {e}")
+            except Exception as e:
+                print(f"Warning: Error restarting GPS startup daemon: {e}")
+        elif gps_start_mode == 'boot':
+            print("GPS start mode is 'boot' - not restarting GPS startup daemon to avoid immediate restart loop.")
+        else:
+            print(f"GPS start mode is '{gps_start_mode}' - no automatic restart needed.")
     else:
         print("No active GPS tracking to stop.")
     
@@ -2281,7 +2343,7 @@ def ups_monitor_log():
         return f"Error reading UPS monitor log: {str(e)}", 500
 
 # Global list of monitored services
-MONITORED_SERVICES = ['gps-daemon', 'gps-startup', 'mediamtx', 'heartbeat-daemon', 'modem-manager', 'ups-monitor']
+MONITORED_SERVICES = ['gps-daemon', 'gps-startup', 'gps-auto-stop', 'mediamtx', 'heartbeat-daemon', 'modem-manager', 'ups-monitor']
 
 # List of Python processes to monitor (separate from systemd services)
 MONITORED_PROCESSES = ['relay-ffmpeg.py', 'relay-ffmpeg-record.py', 'gps_tracker.py']
