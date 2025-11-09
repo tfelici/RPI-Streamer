@@ -171,7 +171,7 @@ def simulate_gps_data():
         
         current_lat = oxford_lat + lat_offset
         current_lon = oxford_lon + lon_offset
-        current_altitude = progress * max_altitude_meters  # Climbing
+        current_altitude = progress * (max_altitude_meters * 0.5)  # Climb to half altitude (750ft)
         heading = 10  # 010°
         speed = flight_speed_kmh
     
@@ -201,7 +201,14 @@ def simulate_gps_data():
         
         current_lat = turn_center_lat + lat_offset
         current_lon = turn_center_lon + lon_offset
-        current_altitude = max_altitude_meters  # Maintain altitude during turn
+        # Continue climbing: start at 750ft (half altitude), reach 1500ft (full altitude) halfway through turn
+        if turn_progress <= 0.5:
+            # First half of turn: climb from 750ft to 1500ft
+            climb_progress = turn_progress * 2  # Scale 0-0.5 to 0-1
+            current_altitude = (max_altitude_meters * 0.5) + (climb_progress * max_altitude_meters * 0.5)
+        else:
+            # Second half of turn: maintain 1500ft
+            current_altitude = max_altitude_meters
         heading = (10 + (turn_progress * 180)) % 360  # Turn from 010° to 190°
         speed = flight_speed_kmh
     
@@ -278,7 +285,14 @@ def simulate_gps_data():
         
         current_lat = turn_center_lat + lat_offset
         current_lon = turn_center_lon + lon_offset
-        current_altitude = max_altitude_meters  # Maintain altitude during turn
+        # Start descending halfway through second turn: maintain 1500ft first half, then descend to 750ft
+        if turn_progress <= 0.5:
+            # First half of turn: maintain 1500ft
+            current_altitude = max_altitude_meters
+        else:
+            # Second half of turn: descend from 1500ft to 750ft
+            descent_progress = (turn_progress - 0.5) * 2  # Scale 0.5-1 to 0-1
+            current_altitude = max_altitude_meters - (descent_progress * max_altitude_meters * 0.5)
         heading = (190 + (turn_progress * 180)) % 360  # Turn from 190° to 010°
         speed = flight_speed_kmh
     
@@ -324,7 +338,8 @@ def simulate_gps_data():
         
         current_lat = third_leg_start_lat + lat_offset
         current_lon = third_leg_start_lon + lon_offset
-        current_altitude = max_altitude_meters * (1 - progress)  # Descending back to ground
+        # Continue descending: start at 750ft (half altitude), reach ground level
+        current_altitude = (max_altitude_meters * 0.5) * (1 - progress)  # Descend from 750ft to 0ft
         heading = 10  # 010°
         speed = flight_speed_kmh
     
