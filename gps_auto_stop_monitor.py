@@ -4,6 +4,9 @@ GPS Auto-Stop Monitor - Monitors aircraft movement and automatically stops GPS t
 when the aircraft remains stationary for a configured duration.
 
 This script is designed to run as a systemd service and will be managed by systemctl.
+
+ENHANCED: Now uses shared motion_detection.py module for sophisticated directional
+motion detection before starting auto-stop monitoring.
 """
 import sys
 import os
@@ -18,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from utils import calculate_distance, load_settings
 from gps_client import get_gnss_location
+from motion_detection import wait_for_motion
 
 logger = logging.getLogger(__name__)
 
@@ -164,9 +168,20 @@ class AutoStopMonitor:
             logger.error(f"Error stopping GPS tracking: {e}")
             return False
     
+
+
     def run(self):
         """Main monitoring loop"""
         logger.info("GPS Auto-Stop Monitor starting...")
+        
+        # Wait for initial movement before starting monitoring
+        logger.info("Waiting for initial aircraft movement before starting auto-stop monitoring...")
+        if not wait_for_motion():
+            logger.info("Auto-stop monitor stopped before initial movement was detected")
+            return
+        
+        logger.info("Initial movement detected - starting auto-stop monitoring")
+        self.initial_movement_detected = True
         
         try:
             while self.running:
