@@ -43,12 +43,12 @@ def simulate_gps_data():
     
     Flight Pattern:
     1. Start at Oxford Airport (paused by default)
-    2. Fly 010° for 2km climbing to 1500ft
+    2. Fly 010° for 1km climbing to 1500ft
     3. Left turn 180° (radius 1km)
     4. Fly straight for 2km at 1500ft
-    5. Left turn 180° (radius 1km) descending to ground
-    6. Return to Oxford Airport
-    7. Pause after completing one full loop
+    5. Left turn 180° (radius 1km)
+    6. Fly 010° for 1km descending to the ground (this should bring you back to the starting point)
+    7. Pause after completing this loop
     
     Manual control via start_simulation(), stop_simulation(), reset_simulation()
     """
@@ -106,17 +106,21 @@ def simulate_gps_data():
     
     # Flight parameters
     max_altitude_meters = 457.2  # 1500 feet = 457.2 meters
-    straight_distance_km = 2.0   # 2km straight segments
+    first_leg_distance_km = 1.0  # 1km first segment
+    second_leg_distance_km = 2.0 # 2km middle segment  
+    third_leg_distance_km = 1.0  # 1km final segment back to start
     turn_radius_km = 1.0         # 1km turn radius
     flight_speed_kmh = 150.0     # 150 km/h flight speed
     
     # Calculate phase durations (in seconds)
-    straight_time = (straight_distance_km / flight_speed_kmh) * 3600  # Time for 2km straight
+    first_leg_time = (first_leg_distance_km / flight_speed_kmh) * 3600   # Time for 1km first leg
+    second_leg_time = (second_leg_distance_km / flight_speed_kmh) * 3600 # Time for 2km second leg
+    third_leg_time = (third_leg_distance_km / flight_speed_kmh) * 3600   # Time for 1km third leg
     turn_circumference = math.pi * turn_radius_km  # Half circle = π * radius
     turn_time = (turn_circumference / flight_speed_kmh) * 3600  # Time for 180° turn
     
-    # Total flight time: 2 straights + 2 turns
-    total_flight_time = (2 * straight_time) + (2 * turn_time)
+    # Total flight time: 3 straights + 2 turns
+    total_flight_time = first_leg_time + turn_time + second_leg_time + turn_time + third_leg_time
     
     # Calculate which cycle we're in and position within that cycle
     if total_flight_time > 0:
@@ -155,10 +159,10 @@ def simulate_gps_data():
     lat_deg_per_km = 1.0 / 111.0
     lon_deg_per_km = 1.0 / (111.0 * math.cos(math.radians(oxford_lat)))
     
-    # Phase 1: First straight segment (010° for 2km, climbing)
-    if flight_time <= straight_time:
-        progress = flight_time / straight_time
-        distance_flown = progress * straight_distance_km
+    # Phase 1: First straight segment (010° for 1km, climbing)
+    if flight_time <= first_leg_time:
+        progress = flight_time / first_leg_time
+        distance_flown = progress * first_leg_distance_km
         
         # Calculate position along 010° bearing (10° from north)
         bearing_rad = math.radians(10)
@@ -172,13 +176,13 @@ def simulate_gps_data():
         speed = flight_speed_kmh
     
     # Phase 2: First turn (left 180°, radius 1km)
-    elif flight_time <= straight_time + turn_time:
-        turn_progress = (flight_time - straight_time) / turn_time
+    elif flight_time <= first_leg_time + turn_time:
+        turn_progress = (flight_time - first_leg_time) / turn_time
         turn_angle = turn_progress * math.pi  # 180° = π radians
         
         # End of first straight segment
-        first_leg_end_lat = oxford_lat + (straight_distance_km * lat_deg_per_km * math.cos(math.radians(10)))
-        first_leg_end_lon = oxford_lon + (straight_distance_km * lon_deg_per_km * math.sin(math.radians(10)))
+        first_leg_end_lat = oxford_lat + (first_leg_distance_km * lat_deg_per_km * math.cos(math.radians(10)))
+        first_leg_end_lon = oxford_lon + (first_leg_distance_km * lon_deg_per_km * math.sin(math.radians(10)))
         
         # For a left turn, turn center is 90° left (perpendicular) of current heading
         # From 010° heading, 90° left is 280° (010° - 90° = -80° = 280°)
@@ -202,14 +206,14 @@ def simulate_gps_data():
         speed = flight_speed_kmh
     
     # Phase 3: Second straight segment (190° for 2km, at altitude)
-    elif flight_time <= 2 * straight_time + turn_time:
-        progress = (flight_time - straight_time - turn_time) / straight_time
-        distance_flown = progress * straight_distance_km
+    elif flight_time <= first_leg_time + turn_time + second_leg_time:
+        progress = (flight_time - first_leg_time - turn_time) / second_leg_time
+        distance_flown = progress * second_leg_distance_km
         
         # Calculate where the first turn ended (this is our starting point for second straight)
         # End of first straight segment
-        first_leg_end_lat = oxford_lat + (straight_distance_km * lat_deg_per_km * math.cos(math.radians(10)))
-        first_leg_end_lon = oxford_lon + (straight_distance_km * lon_deg_per_km * math.sin(math.radians(10)))
+        first_leg_end_lat = oxford_lat + (first_leg_distance_km * lat_deg_per_km * math.cos(math.radians(10)))
+        first_leg_end_lon = oxford_lon + (first_leg_distance_km * lon_deg_per_km * math.sin(math.radians(10)))
         
         # First turn center
         turn_center_bearing = math.radians(280)  # 90° left of 010°
@@ -232,15 +236,15 @@ def simulate_gps_data():
         heading = 190  # 190°
         speed = flight_speed_kmh
     
-    # Phase 4: Second turn (left 180°, radius 1km, descending)
-    else:
-        turn_progress = (flight_time - 2 * straight_time - turn_time) / turn_time
+    # Phase 4: Second turn (left 180°, radius 1km, maintain altitude)
+    elif flight_time <= first_leg_time + turn_time + second_leg_time + turn_time:
+        turn_progress = (flight_time - first_leg_time - turn_time - second_leg_time) / turn_time
         turn_angle = turn_progress * math.pi  # 180° = π radians
         
         # Calculate where the second straight segment ends (start of second turn)
         # First, find where second straight segment starts (end of first turn)
-        first_leg_end_lat = oxford_lat + (straight_distance_km * lat_deg_per_km * math.cos(math.radians(10)))
-        first_leg_end_lon = oxford_lon + (straight_distance_km * lon_deg_per_km * math.sin(math.radians(10)))
+        first_leg_end_lat = oxford_lat + (first_leg_distance_km * lat_deg_per_km * math.cos(math.radians(10)))
+        first_leg_end_lon = oxford_lon + (first_leg_distance_km * lon_deg_per_km * math.sin(math.radians(10)))
         
         # First turn center and end position
         first_turn_center_bearing = math.radians(280)  # 90° left of 010°
@@ -254,8 +258,8 @@ def simulate_gps_data():
         
         # End of second straight segment (start of second turn)
         bearing_190 = math.radians(190)
-        second_leg_end_lat = second_leg_start_lat + (straight_distance_km * lat_deg_per_km * math.cos(bearing_190))
-        second_leg_end_lon = second_leg_start_lon + (straight_distance_km * lon_deg_per_km * math.sin(bearing_190))
+        second_leg_end_lat = second_leg_start_lat + (second_leg_distance_km * lat_deg_per_km * math.cos(bearing_190))
+        second_leg_end_lon = second_leg_start_lon + (second_leg_distance_km * lon_deg_per_km * math.sin(bearing_190))
         
         # For a left turn from 190°, turn center is 90° left (perpendicular) of current heading
         # From 190° heading, 90° left is 100° (190° - 90° = 100°)
@@ -274,8 +278,54 @@ def simulate_gps_data():
         
         current_lat = turn_center_lat + lat_offset
         current_lon = turn_center_lon + lon_offset
-        current_altitude = max_altitude_meters * (1 - turn_progress)  # Descending during turn
+        current_altitude = max_altitude_meters  # Maintain altitude during turn
         heading = (190 + (turn_progress * 180)) % 360  # Turn from 190° to 010°
+        speed = flight_speed_kmh
+    
+    # Phase 5: Third straight segment (010° for 1km, descending back to ground)
+    else:
+        progress = (flight_time - first_leg_time - turn_time - second_leg_time - turn_time) / third_leg_time
+        distance_flown = progress * third_leg_distance_km
+        
+        # Calculate where the second turn ended (this is our starting point for third straight)
+        # We need to find the end position of the second turn
+        first_leg_end_lat = oxford_lat + (first_leg_distance_km * lat_deg_per_km * math.cos(math.radians(10)))
+        first_leg_end_lon = oxford_lon + (first_leg_distance_km * lon_deg_per_km * math.sin(math.radians(10)))
+        
+        # First turn center and end position
+        first_turn_center_bearing = math.radians(280)
+        first_turn_center_lat = first_leg_end_lat + (turn_radius_km * lat_deg_per_km * math.cos(first_turn_center_bearing))
+        first_turn_center_lon = first_leg_end_lon + (turn_radius_km * lon_deg_per_km * math.sin(first_turn_center_bearing))
+        
+        # End of first turn (start of second straight)
+        turn_end_radius_bearing = math.radians(280)
+        second_leg_start_lat = first_turn_center_lat + (turn_radius_km * lat_deg_per_km * math.cos(turn_end_radius_bearing))
+        second_leg_start_lon = first_turn_center_lon + (turn_radius_km * lon_deg_per_km * math.sin(turn_end_radius_bearing))
+        
+        # End of second straight segment
+        bearing_190 = math.radians(190)
+        second_leg_end_lat = second_leg_start_lat + (second_leg_distance_km * lat_deg_per_km * math.cos(bearing_190))
+        second_leg_end_lon = second_leg_start_lon + (second_leg_distance_km * lon_deg_per_km * math.sin(bearing_190))
+        
+        # Second turn center
+        second_turn_center_bearing = math.radians(100)
+        second_turn_center_lat = second_leg_end_lat + (turn_radius_km * lat_deg_per_km * math.cos(second_turn_center_bearing))
+        second_turn_center_lon = second_leg_end_lon + (turn_radius_km * lon_deg_per_km * math.sin(second_turn_center_bearing))
+        
+        # End of second turn (start of third straight) - after 180° left turn, radius vector points at 100°
+        third_leg_start_radius_bearing = math.radians(100)
+        third_leg_start_lat = second_turn_center_lat + (turn_radius_km * lat_deg_per_km * math.cos(third_leg_start_radius_bearing))
+        third_leg_start_lon = second_turn_center_lon + (turn_radius_km * lon_deg_per_km * math.sin(third_leg_start_radius_bearing))
+        
+        # Calculate position along 010° bearing from the end of the second turn
+        bearing_010 = math.radians(10)
+        lat_offset = distance_flown * lat_deg_per_km * math.cos(bearing_010)
+        lon_offset = distance_flown * lon_deg_per_km * math.sin(bearing_010)
+        
+        current_lat = third_leg_start_lat + lat_offset
+        current_lon = third_leg_start_lon + lon_offset
+        current_altitude = max_altitude_meters * (1 - progress)  # Descending back to ground
+        heading = 10  # 010°
         speed = flight_speed_kmh
     
     # Add realistic variation
