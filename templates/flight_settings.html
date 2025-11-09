@@ -67,13 +67,30 @@
 
                 <div id="simulation_settings" style="margin-top: 15px; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #28a745; border-radius: 4px; display: none;">
                     <strong>GPS Simulation Configuration</strong>
-                    <div style="margin-top: 10px;">
-                        <label for="gps_simulation_delay_seconds" style="font-weight: normal;">Delay Between Flight Loops (seconds):</label>
-                        <input type="number" id="gps_simulation_delay_seconds" name="gps_simulation_delay_seconds" value="{{ settings.gps_simulation_delay_seconds or 120 }}" min="0" max="3600" style="width: 120px; margin-left: 10px;">
-                        <small style="display: block; margin-top: 5px;">Time aircraft stays stationary at Oxford Airport between circular flight loops (0-3600 seconds)</small>
+                    
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #dee2e6;">
+                        <strong>Simulation Movement Control</strong>
+                        <div style="margin-top: 10px;">
+                            <button id="start-simulation-btn" class="btn btn-success btn-sm" style="margin-right: 10px;">
+                                <i class="fas fa-play"></i> Start Movement
+                            </button>
+                            <button id="stop-simulation-btn" class="btn btn-warning btn-sm" style="margin-right: 10px;">
+                                <i class="fas fa-pause"></i> Stop Movement
+                            </button>
+                            <button id="reset-simulation-btn" class="btn btn-secondary btn-sm">
+                                <i class="fas fa-refresh"></i> Reset to Start
+                            </button>
+                            <span id="simulation-status" style="margin-left: 15px; font-weight: bold; color: #6c757d;">
+                                Status: <span id="simulation-status-text">Unknown</span>
+                            </span>
+                        </div>
+                        <small style="display: block; margin-top: 5px; color: #6c757d;">
+                            Start/stop the aircraft movement during simulation. The aircraft will remain at Oxford Airport when stopped.
+                        </small>
                     </div>
+                    
                     <small style="color: #6c757d; margin-top: 10px; display: block;">
-                        <strong>Simulation Pattern:</strong> The simulation creates a circular flight pattern around Oxford Airport. After each 60-second flight loop, the aircraft lands and remains stationary for the specified delay period before starting the next loop.
+                        <strong>Simulation Pattern:</strong> The simulation creates a circular flight pattern around Oxford Airport. Use the movement controls above to start, stop, or reset the aircraft position manually.
                     </small>
                 </div>
 
@@ -309,14 +326,7 @@
                     xplaneAddress.required = false;
                 }
                 
-                // Make simulation fields required when simulation is selected
-                const simulationDelay = document.getElementById('gps_simulation_delay_seconds');
-                
-                if (isSimulation) {
-                    simulationDelay.required = true;
-                } else {
-                    simulationDelay.required = false;
-                }
+                // No additional validation needed for simulation mode
             }
             
             // Set initial states
@@ -328,6 +338,97 @@
             powerLossSelect.addEventListener('change', updateTimeoutFieldState);
             autoStopSelect.addEventListener('change', updateAutoStopTimeoutFieldState);
             gpsSourceSelect.addEventListener('change', updateGpsSourceSettings);
+            
+            // Simulation control functionality
+            const startSimBtn = document.getElementById('start-simulation-btn');
+            const stopSimBtn = document.getElementById('stop-simulation-btn');
+            const resetSimBtn = document.getElementById('reset-simulation-btn');
+            const statusText = document.getElementById('simulation-status-text');
+            
+            // Function to update simulation status
+            async function updateSimulationStatus() {
+                try {
+                    const response = await fetch('/gps-simulation-control', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({command: 'status'})
+                    });
+                    
+                    const result = await response.json();
+                    if (result.success && result.result) {
+                        const status = result.result.simulation_status;
+                        statusText.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+                        
+                        // Update button states based on status
+                        if (status === 'running') {
+                            startSimBtn.disabled = true;
+                            stopSimBtn.disabled = false;
+                            statusText.style.color = '#28a745';
+                        } else if (status === 'paused') {
+                            startSimBtn.disabled = false;
+                            stopSimBtn.disabled = true;
+                            statusText.style.color = '#ffc107';
+                        } else {
+                            startSimBtn.disabled = false;
+                            stopSimBtn.disabled = false;
+                            statusText.style.color = '#6c757d';
+                        }
+                    } else {
+                        statusText.textContent = 'Error';
+                        statusText.style.color = '#dc3545';
+                    }
+                } catch (error) {
+                    statusText.textContent = 'Offline';
+                    statusText.style.color = '#dc3545';
+                }
+            }
+            
+            // Function to send simulation command
+            async function sendSimulationCommand(command, buttonElement) {
+                const originalText = buttonElement.innerHTML;
+                buttonElement.disabled = true;
+                buttonElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+                
+                try {
+                    const response = await fetch('/gps-simulation-control', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({command: command})
+                    });
+                    
+                    const result = await response.json();
+                    if (result.success) {
+                        // Show success message briefly
+                        buttonElement.innerHTML = '<i class="fas fa-check"></i> Success!';
+                        setTimeout(() => {
+                            buttonElement.innerHTML = originalText;
+                            updateSimulationStatus(); // Refresh status
+                        }, 1000);
+                    } else {
+                        throw new Error(result.error || 'Unknown error');
+                    }
+                } catch (error) {
+                    buttonElement.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error';
+                    alert('Error: ' + error.message);
+                    setTimeout(() => {
+                        buttonElement.innerHTML = originalText;
+                        buttonElement.disabled = false;
+                    }, 2000);
+                }
+            }
+            
+            // Event listeners for simulation control buttons
+            startSimBtn.addEventListener('click', () => sendSimulationCommand('start', startSimBtn));
+            stopSimBtn.addEventListener('click', () => sendSimulationCommand('stop', stopSimBtn));
+            resetSimBtn.addEventListener('click', () => sendSimulationCommand('reset', resetSimBtn));
+            
+            // Update status on page load and periodically
+            updateSimulationStatus();
+            setInterval(updateSimulationStatus, 5000); // Update every 5 seconds
         });
     </script>
 </body>

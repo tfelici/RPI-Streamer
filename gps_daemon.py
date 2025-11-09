@@ -37,22 +37,20 @@ except ImportError:
             'xplane_bind_address': '0.0.0.0'
         }
 
-def simulate_gps_data(delay_seconds=0):
+def simulate_gps_data():
     """
     Simulate GPS coordinates for rectangular flight path from Oxford Airport UK
     
     Flight Pattern:
-    1. Start at Oxford Airport
-    2. Delay for delay_seconds 
-    3. Fly 010° for 2km climbing to 1500ft
-    4. Left turn 180° (radius 1km)
-    5. Fly straight for 2km at 1500ft
-    6. Left turn 180° (radius 1km) descending to ground
-    7. Return to Oxford Airport
-    8. Repeat
+    1. Start at Oxford Airport (paused by default)
+    2. Fly 010° for 2km climbing to 1500ft
+    3. Left turn 180° (radius 1km)
+    4. Fly straight for 2km at 1500ft
+    5. Left turn 180° (radius 1km) descending to ground
+    6. Return to Oxford Airport
+    7. Pause after completing one full loop
     
-    Args:
-        delay_seconds: Delay in seconds between each completed loop (aircraft stops at Oxford Airport)
+    Manual control via start_simulation(), stop_simulation(), reset_simulation()
     """
     
     # Oxford Airport (Kidlington) coordinates
@@ -62,9 +60,49 @@ def simulate_gps_data(delay_seconds=0):
     # Initialize simulation state if not exists
     if not hasattr(simulate_gps_data, 'start_time'):
         simulate_gps_data.start_time = time.time()
+        simulate_gps_data.is_paused = True  # Start paused by default
+        simulate_gps_data.pause_start_time = time.time()
+        simulate_gps_data.total_pause_time = 0.0
     
-    # Calculate elapsed time since simulation started
-    total_elapsed_time = time.time() - simulate_gps_data.start_time
+    # Handle pause/resume state
+    if hasattr(simulate_gps_data, 'is_paused') and simulate_gps_data.is_paused:
+        # When paused, return last known position but with zero speed
+        if hasattr(simulate_gps_data, 'paused_position') and simulate_gps_data.paused_position:
+            # Return the stored paused position with zero speed
+            paused_pos = simulate_gps_data.paused_position.copy()
+            paused_pos['speed'] = 0.0
+            paused_pos['simulation_status'] = 'paused'
+            # Ensure accuracy fields are present
+            if 'accuracy' not in paused_pos:
+                paused_pos['accuracy'] = 5.0
+            if 'altitudeAccuracy' not in paused_pos:
+                paused_pos['altitudeAccuracy'] = 8.0
+            return paused_pos
+        else:
+            # Fallback to Oxford Airport if no paused position stored
+            return {
+                'latitude': oxford_lat,
+                'longitude': oxford_lon,
+                'altitude': 0.0,
+                'accuracy': 5.0,
+                'altitudeAccuracy': 8.0,
+                'heading': 0,
+                'speed': 0.0,
+                'simulation_status': 'paused'
+            }
+    
+    # Calculate elapsed time since simulation started (excluding pause time)
+    total_pause_time = 0.0
+    if hasattr(simulate_gps_data, 'total_pause_time'):
+        total_pause_time = simulate_gps_data.total_pause_time
+    
+    # If currently paused, add the current pause duration to total pause time
+    current_pause_duration = 0.0
+    if hasattr(simulate_gps_data, 'is_paused') and simulate_gps_data.is_paused:
+        if hasattr(simulate_gps_data, 'pause_start_time'):
+            current_pause_duration = time.time() - simulate_gps_data.pause_start_time
+    
+    total_elapsed_time = time.time() - simulate_gps_data.start_time - total_pause_time - current_pause_duration
     
     # Flight parameters
     max_altitude_meters = 457.2  # 1500 feet = 457.2 meters
@@ -80,29 +118,34 @@ def simulate_gps_data(delay_seconds=0):
     # Total flight time: 2 straights + 2 turns
     total_flight_time = (2 * straight_time) + (2 * turn_time)
     
-    # Total cycle time = flight + delay
-    cycle_duration = total_flight_time + delay_seconds
-    
     # Calculate which cycle we're in and position within that cycle
-    if cycle_duration > 0:
-        current_cycle = int(total_elapsed_time / cycle_duration)
-        time_in_cycle = total_elapsed_time % cycle_duration
+    if total_flight_time > 0:
+        current_cycle = int(total_elapsed_time / total_flight_time)
+        time_in_cycle = total_elapsed_time % total_flight_time
     else:
         current_cycle = 0
         time_in_cycle = total_elapsed_time
     
-    # Check if we're in the delay period (stationary phase)
-    if time_in_cycle >= total_flight_time:
-        # Aircraft is stationary at Oxford Airport during delay
-        ground_accuracy = random.uniform(2, 5)
+    # Auto-pause after completing one full loop (cycle 1)
+    if current_cycle >= 1:
+        # Complete loop - auto-pause at Oxford Airport
+        if not hasattr(simulate_gps_data, 'is_paused') or not simulate_gps_data.is_paused:
+            simulate_gps_data.is_paused = True
+            simulate_gps_data.pause_start_time = time.time()
+            # Clear paused position to ensure return to Oxford Airport
+            if hasattr(simulate_gps_data, 'paused_position'):
+                delattr(simulate_gps_data, 'paused_position')
+        
+        # Return to Oxford Airport position (paused)
         return {
             'latitude': oxford_lat,
             'longitude': oxford_lon,
-            'altitude': 0,
-            'accuracy': ground_accuracy,
-            'altitudeAccuracy': ground_accuracy * 1.2,
-            'heading': 10,  # Pointing north (010°) ready for next takeoff
-            'speed': 0
+            'altitude': 0.0,
+            'accuracy': 5.0,
+            'altitudeAccuracy': 8.0,
+            'heading': 0,
+            'speed': 0.0,
+            'simulation_status': 'completed_loop'
         }
     
     # We're in the flight phase - determine which segment
@@ -247,8 +290,72 @@ def simulate_gps_data(delay_seconds=0):
         'accuracy': accuracy,
         'altitudeAccuracy': accuracy * 1.5,
         'heading': heading,
-        'speed': flight_speed_kmh * speed_variation
+        'speed': flight_speed_kmh * speed_variation,
+        'simulation_status': 'running'
     }
+
+
+def start_simulation():
+    """Start/resume GPS simulation movement"""
+    if hasattr(simulate_gps_data, 'is_paused') and simulate_gps_data.is_paused:
+        # Resume from pause
+        simulate_gps_data.is_paused = False
+        if hasattr(simulate_gps_data, 'pause_start_time'):
+            pause_duration = time.time() - simulate_gps_data.pause_start_time
+            if not hasattr(simulate_gps_data, 'total_pause_time'):
+                simulate_gps_data.total_pause_time = 0.0
+            simulate_gps_data.total_pause_time += pause_duration
+        
+        # Log simulation start
+        logging.info(f"GPS Simulation: Movement started/resumed")
+        
+        return {'status': 'resumed', 'message': 'GPS simulation resumed'}
+    else:
+        return {'status': 'already_running', 'message': 'GPS simulation already running'}
+
+
+def stop_simulation():
+    """Stop/pause GPS simulation movement at current position"""
+    if not hasattr(simulate_gps_data, 'is_paused') or not simulate_gps_data.is_paused:
+        # Get current position before pausing
+        current_pos = simulate_gps_data()
+        
+        # Store the current position for when paused
+        simulate_gps_data.paused_position = current_pos.copy()
+        
+        # Pause simulation
+        simulate_gps_data.is_paused = True
+        simulate_gps_data.pause_start_time = time.time()
+        
+        # Log simulation pause with position info
+        lat = current_pos.get('latitude', 0)
+        lon = current_pos.get('longitude', 0) 
+        alt = current_pos.get('altitude', 0)
+        logging.info(f"GPS Simulation: Paused at position {lat:.4f}, {lon:.4f}, {alt:.0f}m")
+        
+        return {'status': 'paused', 'message': 'GPS simulation paused at current position'}
+    else:
+        return {'status': 'already_stopped', 'message': 'GPS simulation already paused'}
+
+
+def reset_simulation():
+    """Reset GPS simulation to start position at Oxford Airport"""
+    if hasattr(simulate_gps_data, 'start_time'):
+        simulate_gps_data.start_time = time.time()
+        simulate_gps_data.is_paused = True
+        simulate_gps_data.pause_start_time = time.time()
+        simulate_gps_data.total_pause_time = 0.0
+        
+        # Clear any stored paused position to force return to Oxford Airport
+        if hasattr(simulate_gps_data, 'paused_position'):
+            delattr(simulate_gps_data, 'paused_position')
+        
+        # Log simulation reset
+        logging.info("GPS Simulation: Reset to Oxford Airport starting position")
+            
+        return {'status': 'reset', 'message': 'GPS simulation reset to Oxford Airport'}
+    else:
+        return {'status': 'not_initialized', 'message': 'GPS simulation not initialized'}
 
 class XPlaneUDPParser:
     """
@@ -414,7 +521,7 @@ class XPlaneUDPParser:
 
 class GPSDaemon:
     def __init__(self, socket_path='/tmp/gps_daemon.sock', baudrate=115200, daemon_mode=False, 
-                 gps_source='hardware', delay_seconds=30, xplane_udp_port=49003, 
+                 gps_source='hardware', xplane_udp_port=49003, 
                  xplane_bind_address='0.0.0.0'):
         """
         Initialize GPS daemon.
@@ -424,7 +531,6 @@ class GPSDaemon:
             baudrate: Serial communication baudrate
             daemon_mode: Whether running in daemon mode (affects logging)
             gps_source: GPS data source ('hardware', 'xplane', 'simulation')
-            delay_seconds: Delay in seconds before starting movement in simulation mode
             xplane_udp_port: UDP port to listen for X-Plane data
             xplane_bind_address: IP address to bind UDP listener
         """
@@ -435,8 +541,6 @@ class GPSDaemon:
         
         # GPS source configuration
         self.gps_source = gps_source if gps_source in ['hardware', 'xplane', 'simulation'] else 'hardware'
-        
-        self.delay_seconds = delay_seconds
         
         # X-Plane UDP configuration  
         self.xplane_udp_port = xplane_udp_port
@@ -822,15 +926,12 @@ class GPSDaemon:
         """Worker for GPS simulation mode"""
         self.location_data['daemon_status'] = 'simulation'
         
-        if self.delay_seconds > 0:
-            self.log(f"GPS simulation starting with {self.delay_seconds}s delay before movement")
-        else:
-            self.log("GPS simulation starting immediately")
+        self.log("GPS simulation starting with manual control")
         
         while self.running:
             try:
-                # Generate simulated GPS data with delay parameter
-                sim_data = simulate_gps_data(self.delay_seconds)
+                # Generate simulated GPS data
+                sim_data = simulate_gps_data()
                 
                 # Update location data with simulated values
                 self.location_data.update({
@@ -1135,6 +1236,44 @@ class GPSDaemon:
                         }
                     }
                     
+                elif request.get('command') == 'simulation_start':
+                    # Start GPS simulation movement (only works in simulation mode)
+                    if self.gps_source == 'simulation':
+                        response = start_simulation()
+                    else:
+                        response = {'error': 'Simulation control only available in simulation mode'}
+                        
+                elif request.get('command') == 'simulation_stop':
+                    # Stop GPS simulation movement (only works in simulation mode)
+                    if self.gps_source == 'simulation':
+                        response = stop_simulation()
+                    else:
+                        response = {'error': 'Simulation control only available in simulation mode'}
+                        
+                elif request.get('command') == 'simulation_reset':
+                    # Reset GPS simulation to start position (only works in simulation mode)
+                    if self.gps_source == 'simulation':
+                        response = reset_simulation()
+                    else:
+                        response = {'error': 'Simulation control only available in simulation mode'}
+                        
+                elif request.get('command') == 'get_simulation_status':
+                    # Get simulation status (only works in simulation mode)
+                    if self.gps_source == 'simulation':
+                        if hasattr(simulate_gps_data, 'is_paused'):
+                            status = 'paused' if simulate_gps_data.is_paused else 'running'
+                        else:
+                            status = 'not_initialized'
+                        response = {
+                            'simulation_status': status,
+                            'gps_source': self.gps_source
+                        }
+                    else:
+                        response = {
+                            'simulation_status': 'not_available',
+                            'gps_source': self.gps_source
+                        }
+                    
                 else:
                     response = {'error': 'Unknown command'}
                 
@@ -1263,8 +1402,6 @@ def main():
                         help='PID file path (default: /tmp/gps_daemon.pid)')
     parser.add_argument('--daemon', action='store_true', default=False,
                         help='Run in daemon mode (use syslog/journal for logging)')
-    parser.add_argument('--delay', type=int, default=120,
-                        help='Delay in seconds before starting movement in simulation mode (default: 0)')
     parser.add_argument('--gps-source', choices=['hardware', 'xplane', 'simulation'], 
                         help='GPS data source (overrides settings file)')
     parser.add_argument('--xplane-port', type=int, default=49003,
@@ -1344,14 +1481,11 @@ def main():
     xplane_port = getattr(args, 'xplane_port', None) or settings.get('xplane_udp_port', 49003)
     xplane_bind = getattr(args, 'xplane_bind', None) or settings.get('xplane_bind_address', '0.0.0.0')
     
-    # Get simulation delay setting (command line overrides settings file)
-    delay_seconds = getattr(args, 'delay', None) or settings.get('gps_simulation_delay_seconds', 120)
-    
     logging.info(f"GPS daemon starting with source: {gps_source}")
     if gps_source == 'xplane':
         logging.info(f"X-Plane UDP configuration: {xplane_bind}:{xplane_port}")
     elif gps_source == 'simulation':
-        logging.info(f"GPS simulation delay: {delay_seconds} seconds between flight loops")
+        logging.info("GPS simulation with manual control (start/stop via web interface)")
 
     # Create and start daemon
     global daemon
@@ -1360,7 +1494,6 @@ def main():
         baudrate=args.baudrate,
         daemon_mode=args.daemon,
         gps_source=gps_source,
-        delay_seconds=delay_seconds,
         xplane_udp_port=xplane_port,
         xplane_bind_address=xplane_bind
     )

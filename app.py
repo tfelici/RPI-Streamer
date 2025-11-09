@@ -329,17 +329,8 @@ def flight_settings_save():
             else:
                 settings['xplane_bind_address'] = DEFAULT_SETTINGS['xplane_bind_address']  # Default fallback
     
-    # Handle GPS simulation settings (only when simulation is selected)
-    if settings.get('gps_source') == 'simulation':
-        if 'gps_simulation_delay_seconds' in (data if request.is_json else request.form):
-            try:
-                delay_seconds = int(get_value('gps_simulation_delay_seconds', DEFAULT_SETTINGS['gps_simulation_delay_seconds']))
-                if 0 <= delay_seconds <= 3600:
-                    settings['gps_simulation_delay_seconds'] = delay_seconds
-                else:
-                    settings['gps_simulation_delay_seconds'] = DEFAULT_SETTINGS['gps_simulation_delay_seconds']  # Default fallback
-            except (ValueError, TypeError):
-                settings['gps_simulation_delay_seconds'] = DEFAULT_SETTINGS['gps_simulation_delay_seconds']  # Default fallback
+    # GPS simulation settings are now controlled via manual start/stop buttons
+    # No additional settings needed for simulation mode
     
     # Save settings
     save_settings(settings)
@@ -793,6 +784,57 @@ def gps_tracks():
             'tracks': [],
             'total_tracks': 0
         }), 500
+
+@app.route('/gps-simulation-control', methods=['POST'])
+def gps_simulation_control():
+    """Control GPS simulation (start/stop/reset)"""
+    try:
+        data = request.get_json()
+        if not data or 'command' not in data:
+            return jsonify({'error': 'Missing command parameter'}), 400
+            
+        command = data['command']
+        valid_commands = ['start', 'stop', 'reset', 'status']
+        
+        if command not in valid_commands:
+            return jsonify({'error': f'Invalid command. Valid commands: {valid_commands}'}), 400
+        
+        # Map web commands to daemon commands
+        command_mapping = {
+            'start': 'simulation_start',
+            'stop': 'simulation_stop', 
+            'reset': 'simulation_reset',
+            'status': 'get_simulation_status'
+        }
+        
+        daemon_command = command_mapping[command]
+        
+        # Send command to GPS daemon
+        try:
+            client_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            client_socket.connect('/tmp/gps_daemon.sock')
+            
+            request_data = {'command': daemon_command}
+            client_socket.send(json.dumps(request_data).encode('utf-8'))
+            
+            response_data = client_socket.recv(1024)
+            response = json.loads(response_data.decode('utf-8'))
+            
+            client_socket.close()
+            
+            return jsonify({
+                'success': True,
+                'command': command,
+                'result': response
+            })
+            
+        except FileNotFoundError:
+            return jsonify({'error': 'GPS daemon not running'}), 503
+        except Exception as daemon_error:
+            return jsonify({'error': f'Failed to communicate with GPS daemon: {str(daemon_error)}'}), 503
+            
+    except Exception as e:
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 @app.route('/download-track/<filename>')
 def download_track(filename):
