@@ -574,8 +574,12 @@ def start_flight():
     
     return True, 'started', 200
 
-def stop_flight():
-    """Helper function to stop GPS tracking. Returns (success, message, status_code)"""
+def stop_flight(source='manual'):
+    """Helper function to stop GPS tracking. Returns (success, message, status_code)
+    
+    Args:
+        source (str): Source of the stop request - 'manual' or 'auto-stop'
+    """
     settings = load_settings()
     
     if is_gps_tracking():
@@ -608,21 +612,24 @@ def stop_flight():
             else:
                 print(f"Warning: Failed to auto-stop video {'streaming' if gps_link_mode == 'stream' else 'recording'}: {message}")
         
-        # Stop the auto-stop monitor service if it's running
-        try:
-            # Check if the service is active before trying to stop it
-            check_result = subprocess.run(['sudo', 'systemctl', 'is-active', 'gps-auto-stop.service'], 
-                                        capture_output=True, text=True)
-            if check_result.returncode == 0:  # Service is active
-                print("Stopping GPS auto-stop monitor service...")
-                subprocess.run(['sudo', 'systemctl', 'stop', 'gps-auto-stop.service'], check=True)
-                print("GPS auto-stop monitor service stopped successfully.")
-            else:
-                print("GPS auto-stop monitor service was not running.")
-        except subprocess.CalledProcessError as e:
-            print(f"Warning: Could not stop GPS auto-stop monitor service: {e}")
-        except Exception as e:
-            print(f"Warning: Error stopping GPS auto-stop monitor service: {e}")
+        # Stop the auto-stop monitor service if it's running (but only for manual stops)
+        if source == 'manual':
+            try:
+                # Check if the service is active before trying to stop it
+                check_result = subprocess.run(['sudo', 'systemctl', 'is-active', 'gps-auto-stop.service'], 
+                                            capture_output=True, text=True)
+                if check_result.returncode == 0:  # Service is active
+                    print("Stopping GPS auto-stop monitor service...")
+                    subprocess.run(['sudo', 'systemctl', 'stop', 'gps-auto-stop.service'], check=True)
+                    print("GPS auto-stop monitor service stopped successfully.")
+                else:
+                    print("GPS auto-stop monitor service was not running.")
+            except subprocess.CalledProcessError as e:
+                print(f"Warning: Could not stop GPS auto-stop monitor service: {e}")
+            except Exception as e:
+                print(f"Warning: Error stopping GPS auto-stop monitor service: {e}")
+        else:
+            print(f"GPS stop initiated by {source} - not stopping auto-stop monitor service")
         
     else:
         print("No active GPS tracking to stop.")
@@ -667,7 +674,8 @@ def gps_control():
         else:
             return jsonify({'error': message}), status_code
     elif action == 'stop':
-        success, message, status_code = stop_flight()
+        source = data.get('source', 'manual')  # Default to 'manual' if not specified
+        success, message, status_code = stop_flight(source=source)
         return jsonify({'status': message})
     else:
         return jsonify({'error': 'Invalid action'}), 400

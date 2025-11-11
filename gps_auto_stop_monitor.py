@@ -142,7 +142,7 @@ class AutoStopMonitor:
             
             response = requests.post(
                 'http://localhost:80/gps-control',
-                json={'action': 'stop'},
+                json={'action': 'stop', 'source': 'auto-stop'},
                 timeout=30
             )
             
