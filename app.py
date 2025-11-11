@@ -624,22 +624,6 @@ def stop_flight():
         except Exception as e:
             print(f"Warning: Error stopping GPS auto-stop monitor service: {e}")
         
-        # Restart GPS startup daemon only for motion detection mode
-        # (Not for 'boot' mode as that would immediately restart the flight!)
-        gps_start_mode = settings.get('gps_start_mode', 'manual')
-        if gps_start_mode == 'motion':
-            try:
-                print(f"Restarting GPS startup daemon for '{gps_start_mode}' start mode...")
-                subprocess.run(['sudo', 'systemctl', 'restart', 'gps-startup.service'], check=True)
-                print("GPS startup daemon restarted successfully - monitoring for next aircraft movement.")
-            except subprocess.CalledProcessError as e:
-                print(f"Warning: Could not restart GPS startup daemon: {e}")
-            except Exception as e:
-                print(f"Warning: Error restarting GPS startup daemon: {e}")
-        elif gps_start_mode == 'boot':
-            print("GPS start mode is 'boot' - not restarting GPS startup daemon to avoid immediate restart loop.")
-        else:
-            print(f"GPS start mode is '{gps_start_mode}' - no automatic restart needed.")
     else:
         print("No active GPS tracking to stop.")
     

@@ -14,6 +14,7 @@ import time
 import signal
 import logging
 import requests
+import subprocess
 from datetime import datetime
 
 # Add the RPI Streamer directory to the path so we can import utils
@@ -148,6 +149,10 @@ class AutoStopMonitor:
             if response.status_code == 200:
                 result = response.json()
                 logger.info(f"Successfully stopped GPS tracking via auto-stop: {result.get('status', 'Unknown')}")
+                
+                # Re-enable GPS startup service if gps_start_mode is 'motion'
+                self.restart_gps_startup_service_if_needed()
+                
                 return True
             else:
                 try:
@@ -168,6 +173,27 @@ class AutoStopMonitor:
             logger.error(f"Error stopping GPS tracking: {e}")
             return False
     
+    def restart_gps_startup_service_if_needed(self):
+        """Restart GPS startup service if gps_start_mode is 'motion'"""
+        try:
+            settings = load_settings()
+            gps_start_mode = settings.get('gps_start_mode', 'manual')
+            
+            if gps_start_mode == 'motion':
+                logger.info("GPS start mode is 'motion' - restarting GPS startup service to monitor for next aircraft movement...")
+                
+                result = subprocess.run(['sudo', 'systemctl', 'restart', 'gps-startup.service'], 
+                                      capture_output=True, timeout=30, text=True)
+                
+                if result.returncode == 0:
+                    logger.info("GPS startup service restarted successfully - monitoring for next aircraft movement")
+                else:
+                    logger.error(f"Failed to restart GPS startup service: {result.stderr}")
+            else:
+                logger.info(f"GPS start mode is '{gps_start_mode}' - not restarting GPS startup service")
+                
+        except Exception as e:
+            logger.error(f"Error restarting GPS startup service: {e}")
 
 
     def run(self):
