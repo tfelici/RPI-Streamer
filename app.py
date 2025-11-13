@@ -6,6 +6,17 @@ except ImportError:
     print("Warning: gevent not installed. Install with 'pip install gevent' for better async performance.")
     pass
 
+import logging
+import sys
+
+# Configure logging to output to stdout (which systemd will capture)
+logging.basicConfig(
+    stream=sys.stdout,
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 from flask import Flask, render_template, Response, jsonify, request
 import psutil
 import threading
@@ -343,9 +354,9 @@ def flight_settings_save():
         try:
             # Always restart the service to pick up new settings
             subprocess.run(['sudo', 'systemctl', 'restart', 'gps-startup.service'], check=False)
-            print(f"GPS startup service restarted for mode: {new_gps_start_mode}, source: {new_gps_source}")
+            logger.info(f"GPS startup service restarted for mode: {new_gps_start_mode}, source: {new_gps_source}")
         except Exception as e:
-            print(f"Warning: Could not restart GPS startup service: {e}")
+            logger.warning(f"Could not restart GPS startup service: {e}")
     
     # Return JSON response for JSON requests, HTML template for form requests
     if request.is_json:
@@ -457,7 +468,7 @@ def start_streaming(mode="both"):
 def stop_streaming():
     """Helper function to stop streaming. Returns (success, message, status_code)"""
     if is_streaming() or is_recording():
-        print("Stopping stream and/or recording...")
+        logger.info("Stopping stream and/or recording...")
         
         # Initialize variables for tracking PIDs
         stream_pid = None
@@ -468,33 +479,33 @@ def stop_streaming():
             if os.path.exists(STREAM_PIDFILE):
                 with open(STREAM_PIDFILE, 'r') as f:
                     stream_pid = int(f.read().strip())
-                print(f"Found stream PID: {stream_pid}")
+                logger.info(f"Found stream PID: {stream_pid}")
         except Exception as e:
-            print(f"Error reading stream PID file: {e}")
+            logger.error(f"Error reading stream PID file: {e}")
         
         # Get recording PID (relay-ffmpeg-record.py) if it exists
         try:
             recording_pid, _ = get_active_recording_info()
             if recording_pid:
-                print(f"Found recording PID: {recording_pid}")
+                logger.info(f"Found recording PID: {recording_pid}")
         except Exception as e:
-            print(f"Error getting recording PID: {e}")
+            logger.error(f"Error getting recording PID: {e}")
         
         # Stop streaming process if running
         if stream_pid and is_pid_running(stream_pid):
-            print(f"Stopping stream with PID {stream_pid}")
+            logger.info(f"Stopping stream with PID {stream_pid}")
             try:
                 os.kill(stream_pid, 15)  # SIGTERM
             except Exception as e:
-                print(f"Error stopping stream process: {e}")
+                logger.error(f"Error stopping stream process: {e}")
         
         # Stop recording process if running
         if recording_pid and is_pid_running(recording_pid):
-            print(f"Stopping recording with PID {recording_pid}")
+            logger.info(f"Stopping recording with PID {recording_pid}")
             try:
                 os.kill(recording_pid, 15)  # SIGTERM
             except Exception as e:
-                print(f"Error stopping recording process: {e}")
+                logger.error(f"Error stopping recording process: {e}")
         
         # Wait for both processes to stop
         while ((stream_pid and is_pid_running(stream_pid)) or 
@@ -502,12 +513,12 @@ def stop_streaming():
             # Print status
             stream_status = is_pid_running(stream_pid) if stream_pid else False
             recording_status = is_pid_running(recording_pid) if recording_pid else False
-            print(f"Waiting for processes to stop... (stream: {stream_status}, recording: {recording_status})")
+            logger.info(f"Waiting for processes to stop... (stream: {stream_status}, recording: {recording_status})")
             time.sleep(0.5)  # Give it a moment to terminate
         
-        print("Stream and recording stopped successfully.")
+        logger.info("Stream and recording stopped successfully.")
     else:
-        print("No active stream or recording to stop.")
+        logger.info("No active stream or recording to stop.")
     
     return True, 'stopped', 200
 
@@ -539,7 +550,7 @@ def start_flight():
         subprocess.Popen(['python', '-u', 'gps_tracker.py', username, 
                          '--domain', domain], 
                         stdout=gps_log, stderr=subprocess.STDOUT)
-        print(f"Started GPS tracker process")
+        logger.info(f"Started GPS tracker process")
     except Exception as e:
         return False, f'Failed to start GPS tracker process: {e}', 500
     
@@ -547,14 +558,14 @@ def start_flight():
     gps_link_mode = settings.get('gps_stream_link', 'off')
     if gps_link_mode in ['stream', 'record']:
         if gps_link_mode == 'stream':
-            print("Auto-starting video streaming + recording with GPS tracking...")
+            logger.info("Auto-starting video streaming + recording with GPS tracking...")
             success, message, status_code = start_streaming(mode="both")
         else:  # gps_link_mode == 'record'
-            print("Auto-starting video recording only with GPS tracking...")
+            logger.info("Auto-starting video recording only with GPS tracking...")
             success, message, status_code = start_streaming(mode="record")
         
         if success:
-            print(f"Video {'streaming + recording' if gps_link_mode == 'stream' else 'recording only'} started automatically with GPS tracking.")
+            logger.info(f"Video {'streaming + recording' if gps_link_mode == 'stream' else 'recording only'} started automatically with GPS tracking.")
         else:
             return False, f'Failed to auto-start video {"streaming" if gps_link_mode == "stream" else "recording"}: {message}', status_code
     
@@ -562,14 +573,14 @@ def start_flight():
     auto_stop_enabled = settings.get('gps_auto_stop_enabled', False)
     if auto_stop_enabled:
         try:
-            print("Starting GPS auto-stop monitor service...")
+            logger.info("Starting GPS auto-stop monitor service...")
             subprocess.run(['sudo', 'systemctl', 'start', 'gps-auto-stop.service'], check=True)
-            print("GPS auto-stop monitor service started successfully")
+            logger.info("GPS auto-stop monitor service started successfully")
         except subprocess.CalledProcessError as e:
-            print(f"Warning: Failed to start GPS auto-stop monitor service: {e}")
+            logger.warning(f"Failed to start GPS auto-stop monitor service: {e}")
             # Don't fail the GPS start for this, just log the warning
         except Exception as e:
-            print(f"Warning: Error starting GPS auto-stop monitor service: {e}")
+            logger.warning(f"Error starting GPS auto-stop monitor service: {e}")
             # Don't fail the GPS start for this, just log the warning
     
     return True, 'started', 200
@@ -583,13 +594,13 @@ def stop_flight(source='manual'):
     settings = load_settings()
     
     if is_gps_tracking():
-        print("Stopping GPS tracking...")
+        logger.info("Stopping GPS tracking...")
         try:
             gps_status = get_gps_tracking_status()
             gps_pid = gps_status['pid']
             
             if gps_pid:
-                print(f"Stopping GPS tracking with PID {gps_pid}")
+                logger.info(f"Stopping GPS tracking with PID {gps_pid}")
                 if is_pid_running(gps_pid):
                     os.kill(gps_pid, 15)  # SIGTERM
                 # Wait for the process to stop
@@ -597,20 +608,20 @@ def stop_flight(source='manual'):
                     if not is_pid_running(gps_pid):
                         break
                     time.sleep(0.1)
-                print("GPS tracking stopped successfully.")
+                logger.info("GPS tracking stopped successfully.")
             
         except Exception as e:
-            print(f"Error stopping GPS tracking: {e}")
+            logger.error(f"Error stopping GPS tracking: {e}")
             
         # If gps_stream_link is enabled, also stop video recording
         gps_link_mode = settings.get('gps_stream_link', 'off')
         if gps_link_mode in ['stream', 'record']:
-            print(f"Auto-stopping video {'streaming + recording' if gps_link_mode == 'stream' else 'recording only'} with GPS tracking...")
+            logger.info(f"Auto-stopping video {'streaming + recording' if gps_link_mode == 'stream' else 'recording only'} with GPS tracking...")
             success, message, status_code = stop_streaming()
             if success:
-                print(f"Video {'streaming + recording' if gps_link_mode == 'stream' else 'recording only'} stopped automatically with GPS tracking.")
+                logger.info(f"Video {'streaming + recording' if gps_link_mode == 'stream' else 'recording only'} stopped automatically with GPS tracking.")
             else:
-                print(f"Warning: Failed to auto-stop video {'streaming' if gps_link_mode == 'stream' else 'recording'}: {message}")
+                logger.warning(f"Failed to auto-stop video {'streaming' if gps_link_mode == 'stream' else 'recording'}: {message}")
         
         # Stop the auto-stop monitor service if it's running (but only for manual stops)
         if source == 'manual':
@@ -619,20 +630,20 @@ def stop_flight(source='manual'):
                 check_result = subprocess.run(['sudo', 'systemctl', 'is-active', 'gps-auto-stop.service'], 
                                             capture_output=True, text=True)
                 if check_result.returncode == 0:  # Service is active
-                    print("Stopping GPS auto-stop monitor service...")
+                    logger.info("Stopping GPS auto-stop monitor service...")
                     subprocess.run(['sudo', 'systemctl', 'stop', 'gps-auto-stop.service'], check=True)
-                    print("GPS auto-stop monitor service stopped successfully.")
+                    logger.info("GPS auto-stop monitor service stopped successfully.")
                 else:
-                    print("GPS auto-stop monitor service was not running.")
+                    logger.info("GPS auto-stop monitor service was not running.")
             except subprocess.CalledProcessError as e:
-                print(f"Warning: Could not stop GPS auto-stop monitor service: {e}")
+                logger.warning(f"Could not stop GPS auto-stop monitor service: {e}")
             except Exception as e:
-                print(f"Warning: Error stopping GPS auto-stop monitor service: {e}")
+                logger.warning(f"Error stopping GPS auto-stop monitor service: {e}")
         else:
-            print(f"GPS stop initiated by {source} - not stopping auto-stop monitor service")
+            logger.info(f"GPS stop initiated by {source} - not stopping auto-stop monitor service")
         
     else:
-        print("No active GPS tracking to stop.")
+        logger.info("No active GPS tracking to stop.")
     
     return True, 'stopped', 200
 
@@ -694,10 +705,10 @@ def gps_tracks():
         usb_mount = find_usb_storage()
         
         if usb_mount:
-            print(f"Using USB storage at {usb_mount} for tracks")
+            logger.info(f"Using USB storage at {usb_mount} for tracks")
             tracks_dir = os.path.join(usb_mount, 'streamerData', 'tracks')
         else:
-            print(f"No USB storage found, using local disk for tracks")
+            logger.info(f"No USB storage found, using local disk for tracks")
             tracks_dir = os.path.join(STREAMER_DATA_DIR, 'tracks')
         
         tracks = []
@@ -758,7 +769,7 @@ def gps_tracks():
                         tracks.append(track_info)
                         
                     except Exception as e:
-                        print(f"Error processing track file {filename}: {e}")
+                        logger.error(f"Error processing track file {filename}: {e}")
                         continue
         
         # Sort by modified time (newest first)
@@ -1117,7 +1128,7 @@ def get_auth_creds():
                 auth = json.load(f)
             return auth.get('username', 'admin'), auth.get('password', '12345')
         except (json.JSONDecodeError, ValueError) as e:
-            print(f"Warning: Could not parse auth.json: {e}")
+            logger.warning(f"Could not parse auth.json: {e}")
             return 'admin', '12345'
     return '', ''
 
@@ -1183,7 +1194,7 @@ def get_auth_and_wifi():
             with open(auth_path) as f:
                 auth = json.load(f)
         except (json.JSONDecodeError, ValueError) as e:
-            print(f"Warning: Could not parse auth.json: {e}")
+            logger.warning(f"Could not parse auth.json: {e}")
             auth = {}
     
     # Load WiFi settings from separate file
@@ -1249,7 +1260,7 @@ def system_settings_power():
         return jsonify({'success': True, 'message': message})
         
     except Exception as e:
-        print(f"Error updating power settings: {e}")
+        logger.error(f"Error updating power settings: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/system-settings-wifi', methods=['POST'])
