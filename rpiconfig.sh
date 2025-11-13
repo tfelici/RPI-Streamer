@@ -547,11 +547,7 @@ show_menu() {
     echo "  2) Check Flask App Service Logs"
     echo "  3) Install/Update RPI Streamer (Latest Branch)"
     echo "  4) Toggle Auto-Updates on Boot"
-    echo "  5) Toggle GPS Mode (Simulation/Real)"
-    echo "  6) Restart GPS Startup Manager"
-    echo "  7) Restart Heartbeat Daemon"
-    echo "  8) Show System Status"
-    echo "  9) Enable/Disable Power Monitor Service"
+    echo "  5) Show System Status"
     echo "  r) Reboot Now"
     echo "  0) Exit"
     echo ""
@@ -563,7 +559,7 @@ main() {
     
     while true; do
         show_menu
-        read -p "Enter your choice (1-9, r, or 0): " choice
+        read -p "Enter your choice (1-5, r, or 0): " choice
         echo ""
         
         case $choice in
@@ -580,19 +576,7 @@ main() {
                 toggle_auto_updates
                 ;;
             5)
-                toggle_gps_mode
-                ;;
-            6)
-                restart_gps_startup_manager
-                ;;
-            7)
-                restart_heartbeat_daemon
-                ;;
-            8)
                 show_system_status
-                ;;
-            9)
-                toggle_power_monitor
                 ;;
             r|R)
                 reboot_system
@@ -602,7 +586,7 @@ main() {
                 exit 0
                 ;;
             *)
-                print_error "Invalid choice. Please enter 1-9, r, or 0."
+                print_error "Invalid choice. Please enter 1-5, r, or 0."
                 ;;
         esac
         
