@@ -161,8 +161,7 @@ def main():
         logger.info("Syncing flight parameters from server...")
         success, settings, response_data = get_streamer_settings(
             logger, 
-            poll_until_success=True, 
-            poll_interval=30
+            poll_until_success=False
         )
         
         if success:
