@@ -19,7 +19,7 @@ from datetime import datetime
 # Add the RPI Streamer directory to the path so we can import utils
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils import is_gps_tracking, calculate_distance, get_streamer_settings, load_settings
+from utils import is_gps_tracking, get_streamer_settings, load_settings
 from gps_client import get_gnss_location
 from motion_detection import wait_for_motion
 import math
