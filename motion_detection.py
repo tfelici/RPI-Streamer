@@ -70,9 +70,13 @@ class MotionDetector:
         self.bearing_history = []
         logger.debug("Motion detector state reset")
         
-    def detect_motion(self):
+    def detect_motion(self, speed_threshold=0):
         """
         Detect motion using GPS dongle by comparing current position with last known position
+        
+        Args:
+            speed_threshold (float): Minimum speed in m/s required to trigger motion (0 = no speed check)
+        
         Returns:
             True - significant directional movement detected (two consecutive movements within tolerance)
             False - no movement or inconsistent movement detected  
@@ -90,8 +94,15 @@ class MotionDetector:
 
             current_lat = location_data['latitude']
             current_lon = location_data['longitude']
+            current_speed = location_data.get('speed', 0)  # Speed in m/s
             gps_accuracy = location_data.get('accuracy', 5.0)  # Default to 5m if accuracy not available
             current_position = (current_lat, current_lon, current_time)
+            
+            # Check speed threshold first if specified
+            if speed_threshold > 0:
+                logger.debug(f"Current speed: {current_speed:.1f} m/s ({current_speed / 0.44704:.1f} mph), threshold: {speed_threshold:.1f} m/s ({speed_threshold / 0.44704:.1f} mph)")
+                if current_speed < speed_threshold:
+                    return False
 
             logger.debug(f"Motion detection GPS: lat={current_lat:.6f}, lon={current_lon:.6f}, accuracy={gps_accuracy:.1f}m")
 
@@ -162,7 +173,7 @@ class MotionDetector:
 
 def wait_for_motion(motion_threshold_count=3, stationary_timeout=60, 
                    movement_threshold=10.0, bearing_tolerance=30.0, 
-                   check_interval=2):
+                   check_interval=2, speed_threshold=0):
     """
     Wait for aircraft motion to be detected and return when motion is confirmed
     
@@ -172,11 +183,15 @@ def wait_for_motion(motion_threshold_count=3, stationary_timeout=60,
         movement_threshold (float): Minimum movement distance in meters
         bearing_tolerance (float): Maximum bearing difference for directional movement
         check_interval (float): Time between GPS checks in seconds
+        speed_threshold (float): Minimum speed in m/s to trigger motion (0 = no speed check)
     
     Returns:
         True when directional motion is detected, False if interrupted
     """
-    logger.info("Motion detection monitoring started...")
+    if speed_threshold > 0:
+        logger.info(f"Motion detection monitoring started with speed threshold: {speed_threshold:.1f} m/s ({speed_threshold / 0.44704:.1f} mph)")
+    else:
+        logger.info("Motion detection monitoring started...")
     
     detector = MotionDetector(movement_threshold, bearing_tolerance)
     motion_count = 0
@@ -184,7 +199,7 @@ def wait_for_motion(motion_threshold_count=3, stationary_timeout=60,
 
     while True:
         try:
-            motion_result = detector.detect_motion()
+            motion_result = detector.detect_motion(speed_threshold=speed_threshold)
             
             if motion_result is True:
                 # Motion detected

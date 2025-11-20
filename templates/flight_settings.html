@@ -118,6 +118,12 @@
                     <strong>Motion:</strong> GPS tracking starts automatically when aircraft movement is detected.
                 </small>
 
+                <label for="gps_motion_speed_threshold">Motion Speed Threshold (mph)</label>
+                <input type="number" id="gps_motion_speed_threshold" name="gps_motion_speed_threshold" 
+                       value="{{ settings.gps_motion_speed_threshold }}" 
+                       min="0" max="200" step="1" required>
+                <small>Minimum speed required to trigger GPS tracking in motion mode (0 = start on any movement, typical values: 15-30 mph for aircraft).</small>
+
                 <label for="gps_stop_on_power_loss">Stop GPS Tracking on UPS Power Loss</label>
                 <select id="gps_stop_on_power_loss" name="gps_stop_on_power_loss">
                     <option value="off" {% if not settings.gps_stop_on_power_loss %}selected{% endif %}>No - Continue GPS tracking during power loss</option>

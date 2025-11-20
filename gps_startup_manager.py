@@ -183,8 +183,16 @@ def main():
                 logger.error(f"Failed to start GPS tracking on boot: {message}")
 
         elif gps_start_mode == 'motion':
-            logger.info("Starting motion detection monitoring...")
-            motion_detected = wait_for_motion()
+            # Get speed threshold from settings (convert from mph to m/s)
+            speed_threshold_mph = settings.get('gps_motion_speed_threshold', 0)
+            speed_threshold_ms = speed_threshold_mph * 0.44704  # Convert mph to m/s
+            
+            if speed_threshold_mph > 0:
+                logger.info(f"Starting motion detection monitoring with speed threshold: {speed_threshold_mph:.1f} mph ({speed_threshold_ms:.1f} m/s)")
+            else:
+                logger.info("Starting motion detection monitoring...")
+            
+            motion_detected = wait_for_motion(speed_threshold=speed_threshold_ms)
             
             if motion_detected:
                 logger.info("Motion detected! Starting GPS tracking...")

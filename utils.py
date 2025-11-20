@@ -85,6 +85,7 @@ DEFAULT_SETTINGS = {
     "vehicle": "",
     "gps_stream_link": "off",
     "gps_start_mode": "manual",
+    "gps_motion_speed_threshold": 0,
     "gps_stop_on_power_loss": False,
     "gps_stop_power_loss_minutes": 1,
     "gps_auto_stop_enabled": False,
