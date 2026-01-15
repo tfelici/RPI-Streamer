@@ -282,6 +282,17 @@ def flight_settings_save():
     old_gps_start_mode = settings['gps_start_mode']
     if 'gps_start_mode' in (data if request.is_json else request.form):
         settings['gps_start_mode'] = get_value('gps_start_mode', 'manual')
+    
+    # Handle motion speed threshold with validation
+    if 'gps_motion_speed_threshold' in (data if request.is_json else request.form):
+        try:
+            motion_speed = int(get_value('gps_motion_speed_threshold', DEFAULT_SETTINGS['gps_motion_speed_threshold']))
+            if motion_speed < 0:
+                motion_speed = 0
+            settings['gps_motion_speed_threshold'] = motion_speed
+        except (ValueError, TypeError):
+            settings['gps_motion_speed_threshold'] = DEFAULT_SETTINGS['gps_motion_speed_threshold']  # Default fallback
+    
     if 'gps_stop_on_power_loss' in (data if request.is_json else request.form):
         settings['gps_stop_on_power_loss'] = is_checked('gps_stop_on_power_loss')
     

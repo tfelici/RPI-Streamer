@@ -96,8 +96,8 @@
 
                 <label for="gps_stream_link">Video Recording Control</label>
                 <select id="gps_stream_link" name="gps_stream_link">
-                    <option value="off" {% if not settings.gps_stream_link %}selected{% endif %}>Independent control (manual start/stop)</option>
-                    <option value="stream" {% if settings.gps_stream_link == 'stream' or (settings.gps_stream_link and settings.gps_stream_link != 'record') %}selected{% endif %}>Auto start/stop streaming + recording with GPS tracking</option>
+                    <option value="off" {% if settings.gps_stream_link == 'off' %}selected{% endif %}>Independent control (manual start/stop)</option>
+                    <option value="stream" {% if settings.gps_stream_link == 'stream' %}selected{% endif %}>Auto start/stop streaming + recording with GPS tracking</option>
                     <option value="record" {% if settings.gps_stream_link == 'record' %}selected{% endif %}>Auto start/stop recording only with GPS tracking</option>
                 </select>
                 <small>
@@ -281,6 +281,11 @@
             const xplaneSettings = document.getElementById('xplane_settings');
             const simulationSettings = document.getElementById('simulation_settings');
             
+            const gpsStartModeSelect = document.getElementById('gps_start_mode');
+            const motionSpeedInput = document.getElementById('gps_motion_speed_threshold');
+            const motionSpeedLabel = motionSpeedInput.previousElementSibling;
+            const motionSpeedHelp = motionSpeedInput.nextElementSibling;
+            
             function updateTimeoutFieldState() {
                 const isEnabled = powerLossSelect.value === 'on';
                 
@@ -313,6 +318,22 @@
                 }
             }
             
+            function updateMotionSpeedThresholdFieldState() {
+                const isMotionMode = gpsStartModeSelect.value === 'motion';
+                
+                motionSpeedInput.disabled = !isMotionMode;
+                motionSpeedInput.required = isMotionMode;
+                
+                // Add visual indication for disabled state
+                if (isMotionMode) {
+                    motionSpeedLabel.classList.remove('field-disabled');
+                    motionSpeedHelp.classList.remove('field-disabled');
+                } else {
+                    motionSpeedLabel.classList.add('field-disabled');
+                    motionSpeedHelp.classList.add('field-disabled');
+                }
+            }
+            
             function updateGpsSourceSettings() {
                 const isXPlane = gpsSourceSelect.value === 'xplane';
                 const isSimulation = gpsSourceSelect.value === 'simulation';
@@ -338,11 +359,13 @@
             // Set initial states
             updateTimeoutFieldState();
             updateAutoStopTimeoutFieldState();
+            updateMotionSpeedThresholdFieldState();
             updateGpsSourceSettings();
             
             // Listen for changes
             powerLossSelect.addEventListener('change', updateTimeoutFieldState);
             autoStopSelect.addEventListener('change', updateAutoStopTimeoutFieldState);
+            gpsStartModeSelect.addEventListener('change', updateMotionSpeedThresholdFieldState);
             gpsSourceSelect.addEventListener('change', updateGpsSourceSettings);
             
             // Simulation control functionality
