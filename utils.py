@@ -425,6 +425,13 @@ def is_gps_tracking():
     status = get_gps_tracking_status()
     return status['running']
 
+def get_track_id():
+    """Get the current GPS track ID if tracking is active, else None"""
+    status = get_gps_tracking_status()
+    if status['running']:
+        return status['track_id']
+    return None
+
 def load_settings():
     """
     Load settings from the settings.json file, merging with DEFAULT_SETTINGS.

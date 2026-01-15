@@ -64,7 +64,7 @@ def cleanup_gps_status():
 def initialize_flight_parameters(domain, track_id, session_start_time):
     """
     Sync flight parameters from hardware database to flight server and handle Gyropedia integration.
-    Sets the selectedcamera, aircraft_reg, and optionally starts a Gyropedia flight.
+    Sets the selected camera, vehicle, and optionally starts a Gyropedia flight.
     Makes a single attempt with 10 second timeout
     Returns (success, error_message)
     """
@@ -73,11 +73,15 @@ def initialize_flight_parameters(domain, track_id, session_start_time):
         
         hardwareid = get_hardwareid()
         
+        settings = load_settings()
         response = requests.post(
             f'https://{domain}/ajaxservices.php',
             data={
-                'command': 'init_streamer_flightpars',
-                'hardwareid': hardwareid
+                'command': 'init_flightpars',
+                'cameraid': hardwareid,
+                'trackid': track_id,
+                'username': settings.get('username', '').strip(),
+                'aircraft_reg': settings.get('vehicle', '').strip(),
             },
             timeout=10
         )
@@ -85,7 +89,6 @@ def initialize_flight_parameters(domain, track_id, session_start_time):
         if response.status_code == 200:
             try:
                 resp_json = response.json()
-                settings = load_settings()
                 if 'gyropedia_id' in resp_json:
                     settings['gyropedia_id'] = resp_json['gyropedia_id']
                     print(f"Updated gyropedia_id: {resp_json['gyropedia_id']}")
