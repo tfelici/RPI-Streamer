@@ -32,7 +32,7 @@ import fcntl
 from datetime import datetime
 from pathlib import Path
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR,HEARTBEAT_FILE, is_streaming, is_recording, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, get_hardwareid, get_app_version, get_active_recording_info, add_files_from_path, load_wifi_settings, save_wifi_settings, get_wifi_mode_status, reset_modem_at_command, load_cellular_settings, save_cellular_settings, get_cellular_status
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR,HEARTBEAT_FILE, is_streaming, is_recording, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, get_hardwareid, get_app_version, get_active_recording_info, add_files_from_path, load_wifi_settings, save_wifi_settings, get_wifi_mode_status, reset_modem_at_command, load_cellular_settings, save_cellular_settings, get_cellular_status, get_streamer_settings
 
 # Use pymediainfo for fast video duration extraction - now imported in utils.py
 #this is a test
@@ -664,6 +664,18 @@ def stream_control():
     action = data.get('action')
     
     if action == 'start':
+        # Retrieve streamer settings from server before starting
+        logger.info("Retrieving streamer settings from server before starting stream...")
+        success, updated_settings, response_data = get_streamer_settings(
+            logger=logger,
+            poll_until_success=False
+        )
+        
+        if success:
+            logger.info("Successfully retrieved and updated settings from server")
+        else:
+            logger.warning("Failed to retrieve settings from server, using local settings")
+        
         mode = data.get('mode', 'both')  # Default to 'both' if no mode specified
         success, message, status_code = start_streaming(mode=mode)
         
@@ -690,6 +702,18 @@ def gps_control():
     action = data.get('action')
     
     if action == 'start':
+        # Retrieve streamer settings from server before starting
+        logger.info("Retrieving streamer settings from server before starting GPS tracking...")
+        success, updated_settings, response_data = get_streamer_settings(
+            logger=logger,
+            poll_until_success=False
+        )
+        
+        if success:
+            logger.info("Successfully retrieved and updated settings from server")
+        else:
+            logger.warning("Failed to retrieve settings from server, using local settings")
+        
         success, message, status_code = start_flight()
         if success:
             return jsonify({'status': message})
