@@ -629,7 +629,7 @@ class GPSTracker:
         if self.sync_active or not self.coordinates_to_sync:
             return False
         
-        # Initialize flight parameters before first sync
+        # Attempt flight initialization if not yet successful (retries until succeeds)
         if not self.flight_initialized:
             print("Initializing flight parameters before first sync...")
             success, error_msg = initialize_flight_parameters(self.domain, self.track_id, self.session_start_time)
