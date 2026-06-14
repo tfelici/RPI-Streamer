@@ -866,6 +866,8 @@ Type=simple
 User=root
 WorkingDirectory=$HOME/flask_app
 Environment="OWNER=$USER:$USER"
+# Always clear Python bytecode cache on startup to prevent "bad marshal data" crashes
+ExecStartPre=/bin/bash -c 'find /usr/lib/python3* -name "*.pyc" -delete'
 #ExecStart=/usr/bin/python3 app.py
 ExecStart=/usr/bin/gunicorn -w 4 -k gevent --graceful-timeout 1 -b 0.0.0.0:80 app:app
 Restart=always
