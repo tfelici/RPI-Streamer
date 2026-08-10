@@ -100,12 +100,12 @@ def main():
                     break
                 time.sleep(0.1)
         
-        # Post-process the current recording file if it exists
-        if current_recording_file:
-            print(f"Post-processing interrupted recording...")
-            postprocess_recording(current_recording_file)
+        # Post-processing disabled: fragmented mp4 (empty_moov+frag_keyframe) is already playable as-is
+        # if current_recording_file:
+        #     print(f"Post-processing interrupted recording...")
+        #     postprocess_recording(current_recording_file)
         
-        cleanup_pidfile(ACTIVE_PIDFILE, sync_usb=True)
+        cleanup_pidfile(ACTIVE_PIDFILE, sync_usb=True, sync_path=record_dir)
         print("Exiting gracefully...")
         sys.exit(0)
 
@@ -184,10 +184,11 @@ def main():
         except Exception as e:
             print(f"Warning: Could not write active PID file: {e}")
         proc.wait()
-        cleanup_pidfile(ACTIVE_PIDFILE, sync_usb=True)
+        # Sync so the just-finished segment is safe if the USB is pulled now, but skip the extra padding delay every segment
+        cleanup_pidfile(ACTIVE_PIDFILE, sync_usb=True, extra_delay=False, sync_path=record_dir)
         
-        # Post-process the recording to ensure proper MP4 structure with faststart
-        postprocess_recording(recording_file)
+        # Post-processing disabled: fragmented mp4 (empty_moov+frag_keyframe) is already playable as-is
+        # postprocess_recording(recording_file)
         
         print("ffmpeg exited, restarting in 1 second...")
         time.sleep(1)

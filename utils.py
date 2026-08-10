@@ -758,7 +758,7 @@ def mount_usb_device(device_path, fstype):
     return None
 
 
-def cleanup_pidfile(pidfile_path: str, cleanup_callback=None, sync_usb: bool = True, logger=None):
+def cleanup_pidfile(pidfile_path: str, cleanup_callback=None, sync_usb: bool = True, logger=None, extra_delay: bool = True, sync_path: Optional[str] = None):
     """
     Generic PID file cleanup function with optional USB sync and custom cleanup
     
@@ -767,6 +767,10 @@ def cleanup_pidfile(pidfile_path: str, cleanup_callback=None, sync_usb: bool = T
         cleanup_callback: Optional function to call before removing PID file
         sync_usb: Whether to perform USB sync (default: True)
         logger: Optional logger for messages (uses print if None)
+        extra_delay: Add padding after sync() for flaky exFAT/USB write caches; only needed
+            right before a drive might be physically removed, not for frequent (e.g. per-segment) calls
+        sync_path: If given, only flush the filesystem containing this path (syncfs via `sync -d`)
+            instead of every mounted filesystem on the system; falls back to a full sync if unsupported
     """
     def log_message(msg: str, level: str = "info"):
         if logger:
@@ -781,11 +785,18 @@ def cleanup_pidfile(pidfile_path: str, cleanup_callback=None, sync_usb: bool = T
     
     # Perform USB sync if requested
     if sync_usb:
-        log_message("Syncing all data to disk (including USB drives)...")
+        log_message("Syncing data to disk...")
         try:
             import subprocess
-            subprocess.run(['sync'], check=True)
-            time.sleep(2)  # Give extra time for exFAT/USB
+            synced = False
+            if sync_path:
+                # syncfs() via util-linux `sync -d` - only flushes the filesystem containing sync_path
+                result = subprocess.run(['sync', '-d', sync_path], capture_output=True, text=True)
+                synced = result.returncode == 0
+            if not synced:
+                subprocess.run(['sync'], check=True)
+            if extra_delay:
+                time.sleep(2)  # Give extra time for exFAT/USB
             log_message("Sync completed. It is now safe to remove the USB drive.")
         except Exception as e:
             log_message(f"Warning: Final sync failed: {e}", "warning")
