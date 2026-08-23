@@ -544,6 +544,10 @@
                         <span class="stat-value" id="power">--</span>
                         <div class="stat-label">Power Draw</div>
                     </div>
+                    <div class="stat-item">
+                        <span class="stat-value connection-status" id="battery">--</span>
+                        <div class="stat-label">Battery</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1852,6 +1856,7 @@
         const temp = document.getElementById('temp');
         const fanRpm = document.getElementById('fan-rpm');
         const power = document.getElementById('power');
+        const battery = document.getElementById('battery');
         const ethernet = document.getElementById('ethernet');
         const wifi = document.getElementById('wifi');
         const dongle4g = document.getElementById('4g');
@@ -1913,6 +1918,38 @@
             gpsConstellationSummary.style.color = '';
         }
 
+        // Update the battery indicator in the System Statistics panel using
+        // whichever battery source (UPS or INA219) is reporting valid data.
+        function updateBatteryStat(diagnostics) {
+            if (!battery) return;
+            diagnostics = diagnostics || {};
+
+            let capacity = null;
+            let charging = null;
+
+            const upsAvailable = diagnostics.ups_battery_status &&
+                diagnostics.ups_battery_status !== 'UPS Not Available' &&
+                !String(diagnostics.ups_battery_status).startsWith('Error') &&
+                diagnostics.ups_capacity != null;
+
+            if (upsAvailable) {
+                capacity = diagnostics.ups_capacity;
+                charging = diagnostics.ups_ac_power;
+            } else if (diagnostics.ina219_battery_percent && diagnostics.ina219_battery_percent.endsWith('%')) {
+                capacity = parseFloat(diagnostics.ina219_battery_percent);
+                charging = diagnostics.ina219_power_source === 'Plugged In';
+            }
+
+            if (capacity === null || isNaN(capacity)) {
+                battery.textContent = '--';
+                return;
+            }
+
+            const icon = capacity > 80 ? '🟢' : capacity > 50 ? '🟡' : capacity > 20 ? '🟠' : '🔴';
+            const chargeIndicator = charging ? ' ⚡' : '';
+            battery.textContent = `${icon} ${capacity.toFixed(0)}%${chargeIndicator}`;
+        }
+
         // Global polling management
         let statsPollingInterval = null;
         
@@ -1945,6 +1982,7 @@
             temp.textContent = data.temp;
             fanRpm.textContent = data.fan_rpm || '--';
             power.textContent = data.power;
+            updateBatteryStat(data.diagnostics);
 
             // Handle connection information
             if (data.connection) {
