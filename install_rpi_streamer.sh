@@ -543,21 +543,9 @@ if [[ "$@" != *"--daemon"* ]]; then
     # Ensure WiFi radio is enabled for NetworkManager (modern Pi OS default)
     sudo nmcli radio wifi on 2>/dev/null || echo "Note: WiFi radio already enabled or not available"
 
-    # Disconnect any existing WiFi connections to ensure clean state, but NOT if we're
-    # currently SSH'd in over wlan0 ourselves - that would kill this very install session
-    ssh_client_ip=""
-    if [ -n "$SSH_CONNECTION" ]; then
-        # SSH_CONNECTION format: "<client_ip> <client_port> <server_ip> <server_port>"
-        ssh_client_ip=$(echo "$SSH_CONNECTION" | awk '{print $3}')
-    fi
-    # "|| true" prevents `set -e` from aborting the whole script when wlan0 has no IP (grep finds no match)
-    wlan0_ip=$(ip -4 addr show wlan0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' || true)
-
-    if [ -n "$ssh_client_ip" ] && [ -n "$wlan0_ip" ] && [ "$ssh_client_ip" = "$wlan0_ip" ]; then
-        echo "⚠️  Detected active SSH session over WiFi (wlan0) - skipping WiFi disconnect to avoid dropping this connection"
-    else
-        sudo nmcli device disconnect wlan0 2>/dev/null || true
-    fi
+    # Note: wlan0 is intentionally left connected here - app.py's configure_wifi_hotspot()
+    # already disconnects it itself right before creating the hotspot connection, and doing
+    # it here too risks dropping an active SSH-over-WiFi session for no benefit.
 
     echo "✅ WiFi interface prepared for hotspot mode via NetworkManager"
     echo "📶 WiFi hotspot configuration available via web interface:"
