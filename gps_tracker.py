@@ -61,65 +61,64 @@ def cleanup_gps_status():
         pass
 
 
-def initialize_flight_parameters(domain, track_id, session_start_time):
+def initialize_gyropedia_integration(domain, track_id, session_start_time):
     """
-    Sync flight parameters from hardware database to flight server and handle Gyropedia integration.
-    Sets the selected camera, vehicle, and optionally starts a Gyropedia flight.
-    Makes a single attempt with 10 second timeout
+    Look up the user's gyropedia_id via getuserfield if not already configured locally, and start
+    a Gyropedia flight if configured. Does NOT touch usertrackinfo - that's now written via the
+    addpoints/initpars mechanism instead (see GPSTracker._sync_coordinates_to_server()).
+    Makes a single attempt with 10 second timeout.
     Returns (success, error_message)
     """
     try:
-        print("Initializing flight parameters...")
-        
-        hardwareid = get_hardwareid()
+        print("Initializing Gyropedia integration...")
         
         settings = load_settings()
-        response = requests.post(
-            f'https://{domain}/ajaxservices.php',
-            data={
-                'command': 'init_flightpars',
-                'cameraid': hardwareid,
-                'trackid': track_id,
-                'username': settings.get('username', '').strip(),
-                'aircraft_reg': settings.get('vehicle', '').strip(),
-            },
-            timeout=10
-        )
+        username = settings.get('username', '').strip()
+        gyropedia_id = settings.get('gyropedia_id', '').strip()
         
-        if response.status_code == 200:
-            try:
-                resp_json = response.json()
-                if 'gyropedia_id' in resp_json:
-                    settings['gyropedia_id'] = resp_json['gyropedia_id']
-                    print(f"Updated gyropedia_id: {resp_json['gyropedia_id']}")
-                    # Save updated settings
-                    save_settings(settings)
-                print("Successfully initialized flight parameters")
-                
-                # Handle Gyropedia integration automatically if configured
-                flight_id = None
-                gyropedia_id = settings.get('gyropedia_id', '').strip()
-                if gyropedia_id:
-                    vehicle = settings.get('vehicle', '').strip()
-                    # Use session start time for accurate flight start time
-                    success, flight_id = update_gyropedia_flight(gyropedia_id, 'start', settings, track_id, vehicle, start_time=session_start_time)
-                    # Store the flight_id for use when stopping the flight
-                    if success and flight_id:
-                        save_gyropedia_flight_id(flight_id)
-                        print(f"Gyropedia flight initialized: {flight_id}")
-                    else:
-                        print("Could not get flight_id from Gyropedia, flight ending may not work properly")
-                else:
-                    print("Gyropedia integration not configured (no gyropedia_id found in settings)")
-                
-                return True, None
-                
-            except json.JSONDecodeError as e:
-                print(f"Invalid JSON response from server: {e}")
-                return False, f"Invalid JSON response: {e}"
+        if not gyropedia_id:
+            response = requests.get(
+                f'https://{domain}/ajaxservices.php',
+                params={
+                    'command': 'getuserfield',
+                    'username': username,
+                    'field': 'gyropediaID',
+                },
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                try:
+                    resp_json = response.json()
+                    gyropedia_id = (resp_json.get('gyropediaID') or '').strip()
+                    if gyropedia_id:
+                        settings['gyropedia_id'] = gyropedia_id
+                        print(f"Updated gyropedia_id: {gyropedia_id}")
+                        # Save updated settings
+                        save_settings(settings)
+                except json.JSONDecodeError as e:
+                    print(f"Invalid JSON response from server: {e}")
+                    return False, f"Invalid JSON response: {e}"
+            else:
+                print(f'Failed to look up gyropedia_id - HTTP {response.status_code}')
+                return False, f'HTTP {response.status_code}'
+        
+        # Handle Gyropedia integration automatically if configured
+        flight_id = None
+        if gyropedia_id:
+            vehicle = settings.get('vehicle', '').strip()
+            # Use session start time for accurate flight start time
+            success, flight_id = update_gyropedia_flight(gyropedia_id, 'start', settings, track_id, vehicle, start_time=session_start_time)
+            # Store the flight_id for use when stopping the flight
+            if success and flight_id:
+                save_gyropedia_flight_id(flight_id)
+                print(f"Gyropedia flight initialized: {flight_id}")
+            else:
+                print("Could not get flight_id from Gyropedia, flight ending may not work properly")
         else:
-            print(f'Failed to initialize flight parameters - HTTP {response.status_code}')
-            return False, f'HTTP {response.status_code}'
+            print("Gyropedia integration not configured (no gyropedia_id found in settings)")
+        
+        return True, None
             
     except requests.exceptions.ConnectionError as e:
         print(f'No internet connection available: {e}')
@@ -128,10 +127,10 @@ def initialize_flight_parameters(domain, track_id, session_start_time):
         print(f'Request timeout: {e}')
         return False, f'Request timeout: {e}'
     except requests.RequestException as e:
-        print(f'Network error initializing flight parameters: {e}')
+        print(f'Network error initializing Gyropedia integration: {e}')
         return False, f'Network error: {e}'
     except Exception as e:
-        print(f'Unexpected error initializing flight parameters: {e}')
+        print(f'Unexpected error initializing Gyropedia integration: {e}')
         return False, f'Unexpected error: {e}'
 
 
@@ -330,8 +329,12 @@ class GPSTracker:
         # Platform identifier
         self.platform = "RPI-Streamer-Python/1.0"
         
-        # Flight initialization state
+        # Flight initialization state (Gyropedia integration only - see _init_gyropedia_integration)
         self.flight_initialized = False
+        
+        # Flight-init metadata (aircraft_reg/cameraid) pending piggyback on the first real
+        # addpoints sync - see start_tracking()/_sync_coordinates_to_server()
+        self.pending_init_pars: Optional[Dict] = None
         
         # Store the start time of this tracking session
         self.session_start_time = datetime.now()
@@ -434,13 +437,37 @@ class GPSTracker:
         self.last_recorded_time = None
         self.is_stationary = False
         
+        # Flight-init metadata (aircraft_reg/cameraid) - piggybacks on the first real addpoints
+        # sync that actually has coordinates instead of a separate blocking call, so the server
+        # only ever creates usertrackinfo once real track data exists (mirrors the mobile app's
+        # GeolocationManager.setPendingInitPars design).
+        settings = load_settings()
+        self.pending_init_pars = {
+            'aircraft_reg': settings.get('vehicle', '').strip(),
+            'cameraid': get_hardwareid(),
+        }
+        
         print(f"Started tracking session with ID: {self.track_id}")
+        
+        # Gyropedia integration is a separate external API, independent of GPS point syncing - runs
+        # once in the background so it can never block/delay tracking if the server is unreachable.
+        threading.Thread(target=self._init_gyropedia_integration, daemon=True).start()
         
         # Start the sync worker thread
         self.sync_thread = threading.Thread(target=self._sync_worker, daemon=True)
         self.sync_thread.start()
         
         return True
+
+    def _init_gyropedia_integration(self):
+        """Best-effort, one-shot Gyropedia flight-start integration - kept fully decoupled from GPS
+        point syncing (see initialize_gyropedia_integration) so it can never block/delay it."""
+        success, error_msg = initialize_gyropedia_integration(self.domain, self.track_id, self.session_start_time)
+        if success:
+            self.flight_initialized = True
+            print("Gyropedia integration initialized")
+        else:
+            print(f"Gyropedia integration failed (will retry on stop): {error_msg}")
 
     def stop_tracking(self) -> bool:
         """Stop the current tracking session"""
@@ -450,10 +477,10 @@ class GPSTracker:
             
         print(f"Stopping tracking session: {self.track_id}")
         
-        # Sync any remaining coordinates before stopping
-        if self.coordinates_to_sync:
-            print("Syncing remaining coordinates before stop...")
-            self._sync_coordinates_to_server()
+        # Send whatever's left queued plus endpars in a single addpoints call (replaces the old
+        # separate addpoints-then-trackingended sequence, guaranteeing the "ended" cleanup always
+        # sees this flight's last points - mirrors the mobile app's sendFinalFlush).
+        self._send_final_flush()
         
         # Final sync to disk if using USB
         if self.usb_mount:
@@ -466,15 +493,13 @@ class GPSTracker:
             except Exception as e:
                 print(f"Final track sync failed: {e}")
         
-        # Send tracking ended signal
-        self._send_tracking_ended()
-        
         # GPS hardware continues running via daemon
         print("GPS continues running via daemon")
         
         self.tracking_active = False
         self.track_id = None
         self.coordinates_to_sync = []
+        self.pending_init_pars = None
         self.track_file_path = None
         self.usb_mount = None
         
@@ -629,18 +654,6 @@ class GPSTracker:
         if self.sync_active or not self.coordinates_to_sync:
             return False
         
-        # Attempt flight initialization if not yet successful (retries until succeeds)
-        if not self.flight_initialized:
-            print("Initializing flight parameters before first sync...")
-            success, error_msg = initialize_flight_parameters(self.domain, self.track_id, self.session_start_time)
-            if success:
-                self.flight_initialized = True
-                print("Flight initialization successful, proceeding with sync")
-            else:
-                print(f"Flight initialization failed: {error_msg}")
-                print("Skipping coordinate sync until initialization succeeds")
-                return False
-            
         self.sync_active = True
         
         try:
@@ -654,6 +667,9 @@ class GPSTracker:
                 'trackid': self.track_id,
                 'coordinates': json.dumps(self.coordinates_to_sync)
             }
+            # Piggyback still-pending flight-init metadata on this real batch (see start_tracking)
+            if self.pending_init_pars is not None:
+                data['initpars'] = json.dumps(self.pending_init_pars)
             
             # Make the request
             response = self.session.post(
@@ -680,6 +696,10 @@ class GPSTracker:
                             coord for coord in self.coordinates_to_sync 
                             if coord['timestamp'] not in synced_timestamps
                         ]
+                    
+                    # Only clear on a confirmed successful attempt - an errored response above
+                    # leaves it pending for the next sync to retry.
+                    self.pending_init_pars = None
                         
                     print(f"Sync successful. {len(self.coordinates_to_sync)} coordinates remaining")
                     return True
@@ -704,14 +724,23 @@ class GPSTracker:
         finally:
             self.sync_active = False
 
-    def _send_tracking_ended(self):
-        """Send tracking ended signal to server"""
+    def _send_final_flush(self):
+        """Send the final addpoints batch (whatever's left queued) plus endpars, in one request -
+        unlike the regular per-sync path, there's no future GPS fix left to retry a failed attempt
+        once tracking has stopped, so this is a single best-effort attempt."""
         try:
             data = {
-                'command': 'trackingended',
                 'username': self.username,
-                'trackid': self.track_id
+                'command': 'addpoints',
+                'platform': self.platform,
+                'trackid': self.track_id,
+                'coordinates': json.dumps(self.coordinates_to_sync),
+                'endpars': json.dumps({})
             }
+            # Only attach a still-pending initpars alongside REAL data - never lets it ride along
+            # on an empty-coordinates request, which would create usertrackinfo for a zero-point flight.
+            if self.pending_init_pars is not None and self.coordinates_to_sync:
+                data['initpars'] = json.dumps(self.pending_init_pars)
             
             response = self.session.post(
                 f'{self.base_url}/trackflight.php',
@@ -720,12 +749,13 @@ class GPSTracker:
             )
             
             if response.status_code == 200:
-                print("Successfully sent tracking ended signal")
+                print("Successfully sent final flush (points + tracking ended)")
+                self.coordinates_to_sync = []
             else:
-                print(f"Failed to send tracking ended signal: HTTP {response.status_code}")
+                print(f"Failed to send final flush: HTTP {response.status_code}")
                 
         except Exception as e:
-            print(f"Error sending tracking ended signal: {e}")
+            print(f"Error sending final flush: {e}")
 
     def get_status(self) -> Dict:
         """Get current tracker status"""
@@ -846,7 +876,7 @@ def main():
             # Attempt flight initialization if it wasn't done during tracking
             if not tracker.flight_initialized:
                 print("Flight was not initialized during tracking, attempting initialization now...")
-                success, error_msg = initialize_flight_parameters(args.domain, track_id, tracker.session_start_time)
+                success, error_msg = initialize_gyropedia_integration(args.domain, track_id, tracker.session_start_time)
                 if success:
                     tracker.flight_initialized = True
                     print("Flight initialization successful")
