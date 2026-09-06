@@ -853,13 +853,17 @@ else
 fi
 #mv mediamtx.yml flask_app
 
-# flask_app.service runs as root, but drops down to the owning user via "sudo -u $OWNER"
-# to check/apply updates (see /system-check-update and /system-do-update routes). Without
-# this, sudo prompts for root's password (no TTY available), which fails silently and
-# breaks update checks with "No valid JSON found in install script output".
-printf "Granting root passwordless sudo (needed for 'sudo -u \$OWNER' update checks)...\n"
+# flask_app.service runs as root and drops down to the owning user via "sudo -u $OWNER"
+# to check/apply updates (see /system-check-update and /system-do-update routes). That
+# script then itself runs "sudo git fetch/reset/clean" etc as $OWNER. Without NOPASSWD
+# for both root (the outer switch) and $OWNER (the inner calls), sudo blocks waiting for
+# a password with no TTY available, which fails silently and breaks update checks with
+# "No valid JSON found in install script output".
+printf "Granting passwordless sudo to root and %s (needed for update checks)...\n" "$USER"
 echo "root ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/010_root-nopasswd >/dev/null
 sudo chmod 440 /etc/sudoers.d/010_root-nopasswd
+echo "$USER ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/010_owner-nopasswd >/dev/null
+sudo chmod 440 /etc/sudoers.d/010_owner-nopasswd
 
 # Create systemd service for flask app - this must run after the install_rpi_streamer.service
 printf "Creating systemd service for Flask app...\n"
