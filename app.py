@@ -32,7 +32,7 @@ import fcntl
 from datetime import datetime
 from pathlib import Path
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR,HEARTBEAT_FILE, is_streaming, is_recording, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, get_hardwareid, get_app_version, get_active_recording_info, add_files_from_path, load_wifi_settings, save_wifi_settings, get_wifi_mode_status, reset_modem_at_command, load_cellular_settings, save_cellular_settings, get_cellular_status, get_streamer_settings
+from utils import list_audio_inputs, list_video_inputs, find_usb_storage, move_file_to_usb, copy_executables_to_usb, DEFAULT_SETTINGS, SETTINGS_FILE, STREAMER_DATA_DIR,HEARTBEAT_FILE, is_streaming, is_recording, is_pid_running, STREAM_PIDFILE, is_gps_tracking, get_gps_tracking_status, load_settings, save_settings, get_hardwareid, get_app_version, get_active_recording_info, add_files_from_path, load_wifi_settings, save_wifi_settings, get_wifi_mode_status, reset_modem_at_command, load_cellular_settings, save_cellular_settings, get_cellular_status, get_streamer_settings, get_video_duration_mediainfo
 
 # Use pymediainfo for fast video duration extraction - now imported in utils.py
 #this is a test
@@ -81,6 +81,29 @@ def read_stats_file_with_lock(stats_file):
     except (IOError, json.JSONDecodeError) as e:
         raise e
 
+def gather_recording_files(compute_duration=True):
+    """Collect recording files info from local and USB storage."""
+    recording_files = []
+    local_recording_path = os.path.join(STREAMER_DATA_DIR, 'recordings', 'webcam')
+    add_files_from_path(recording_files, local_recording_path, "", "Local", compute_duration=compute_duration)
+    # Add files from USB storage if available
+    usb_mount_point = find_usb_storage()
+    if usb_mount_point:
+        usb_recording_path = os.path.join(usb_mount_point, 'streamerData', 'recordings', 'webcam')
+        add_files_from_path(recording_files, usb_recording_path, "[USB] ", "USB", compute_duration=compute_duration)
+    return recording_files
+
+
+def _is_allowed_recording_path(file_path):
+    """Restrict on-demand duration lookups to files under the known recordings directories."""
+    abs_path = os.path.abspath(file_path)
+    allowed_roots = [os.path.abspath(os.path.join(STREAMER_DATA_DIR, 'recordings', 'webcam'))]
+    usb_mount_point = find_usb_storage()
+    if usb_mount_point:
+        allowed_roots.append(os.path.abspath(os.path.join(usb_mount_point, 'streamerData', 'recordings', 'webcam')))
+    return any(abs_path == root or abs_path.startswith(root + os.sep) for root in allowed_roots)
+
+
 @app.route('/')
 def home():
     streaming = is_streaming()
@@ -88,16 +111,8 @@ def home():
     gps_tracking = is_gps_tracking()
     gps_status = get_gps_tracking_status()
     settings = load_settings()
-
-    # Gather recording files info
-    recording_files = []
-    local_recording_path = os.path.join(STREAMER_DATA_DIR, 'recordings', 'webcam')
-    add_files_from_path(recording_files, local_recording_path, "", "Local")
-    # Add files from USB storage if available
-    usb_mount_point = find_usb_storage()
-    if usb_mount_point:
-        usb_recording_path = os.path.join(usb_mount_point, 'streamerData', 'recordings', 'webcam')
-        add_files_from_path(recording_files, usb_recording_path, "[USB] ", "USB")
+    # Duration isn't shown here, just the count, so skip the slow per-file MediaInfo probe
+    recording_files = gather_recording_files(compute_duration=False)
 
     return render_template(
         'index.html', 
@@ -110,6 +125,27 @@ def home():
         app_version=get_app_version(),
         settings=settings
     )
+
+
+@app.route('/upload-recordings')
+def upload_recordings():
+    # Render immediately with no duration; the page fetches each file's duration asynchronously
+    recording_files = gather_recording_files(compute_duration=False)
+    return render_template(
+        'upload_recordings.html',
+        active_tab='recordings',
+        recording_files=recording_files,
+        app_version=get_app_version(),
+    )
+
+
+@app.route('/recording-duration')
+def recording_duration():
+    """Lazily compute a single recording's duration (slow MediaInfo probe) on demand."""
+    file_path = request.args.get('path', '')
+    if not file_path or not os.path.isfile(file_path) or not _is_allowed_recording_path(file_path):
+        return jsonify({'error': 'Invalid file path'}), 400
+    return jsonify({'duration': get_video_duration_mediainfo(file_path)})
 
 @app.route('/stats')
 def stats():

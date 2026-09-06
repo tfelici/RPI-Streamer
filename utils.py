@@ -937,7 +937,7 @@ def get_video_duration_mediainfo(path):
     return None
 
 
-def add_files_from_path(recording_files, path, source_label="", location="Local", active_only=False):
+def add_files_from_path(recording_files, path, source_label="", location="Local", active_only=False, compute_duration=True):
     """
     Helper function to add files from a given path. Appends to the passed-in recording_files list.
     Now handles hierarchical directory structure: <domain>/<rtmpkey>/<timestamp>.mp4
@@ -948,6 +948,7 @@ def add_files_from_path(recording_files, path, source_label="", location="Local"
         source_label: Label prefix for file display names
         location: Location identifier (e.g., "Local", "USB")
         active_only: If True, only include files that are currently being recorded
+        compute_duration: If False, skip the (slow) MediaInfo duration probe; caller can fetch it later
     """
     active_pid, active_file = get_active_recording_info()
     
@@ -984,7 +985,7 @@ def add_files_from_path(recording_files, path, source_label="", location="Local"
                     continue
                     
                 # Add duration if file is not active
-                if is_active:
+                if is_active or not compute_duration:
                     duration = None
                 else:
                     duration = get_video_duration_mediainfo(file_path)
