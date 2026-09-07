@@ -36,6 +36,18 @@
                 <input type="text" id="vehicle" name="vehicle" value="{{ settings.vehicle }}" placeholder="e.g., N123AB, G-ABCD, D-EFGH">
                 <small>Enter your vehicle's registration number.</small>
 
+                <label for="gps_flight_visibility">Flight Visibility (Privacy Mode)</label>
+                <select id="gps_flight_visibility" name="gps_flight_visibility">
+                    <option value="public" {% if not settings.gps_flight_visibility or settings.gps_flight_visibility == 'public' %}selected{% endif %}>Public - visible on flight radar, notifications sent to followers</option>
+                    <option value="invisible" {% if settings.gps_flight_visibility == 'invisible' %}selected{% endif %}>Invisible - not on radar, viewable only via direct link</option>
+                    <option value="private" {% if settings.gps_flight_visibility == 'private' %}selected{% endif %}>Private - not on radar, viewable only by you</option>
+                </select>
+                <small>
+                    <strong>Public:</strong> Visible on flight radar, email notifications sent to your friends and members following you.<br>
+                    <strong>Invisible:</strong> Not on radar, email notifications only to your friends, viewable only via direct link.<br>
+                    <strong>Private:</strong> Not on radar, no email notifications, viewable only by you.
+                </small>
+
                 <label for="gps_source">GPS Data Source</label>
                 <select id="gps_source" name="gps_source">
                     <option value="hardware" {% if settings.gps_source == 'hardware' %}selected{% endif %}>SIM7600G-H Hardware GPS (Default)</option>

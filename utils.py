@@ -83,6 +83,7 @@ DEFAULT_SETTINGS = {
     "domain": "",
     "username": "",
     "vehicle": "",
+    "gps_flight_visibility": "public",
     "gps_stream_link": "off",
     "gps_start_mode": "manual",
     "gps_motion_speed_threshold": 0,

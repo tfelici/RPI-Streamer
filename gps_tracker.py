@@ -36,6 +36,10 @@ print("GPS functionality available via GPS daemon client")
 # Status file for tracking GPS hardware state
 GPS_STATUS_FILE = "/tmp/gps-tracker-status.json"
 
+# Flight visibility codes expected by the server's initpars/usertrackinfo protocol -
+# mirrors the native mobile apps' privacy selection ('' public, 'I' invisible, 'H' private/hidden).
+FLIGHT_VISIBILITY_CODES = {'public': '', 'invisible': 'I', 'private': 'H'}
+
 def write_gps_status(hardware_status, status_message, last_gps_data=None):
     """Write GPS tracking status to status file for web interface"""
     try:
@@ -445,6 +449,7 @@ class GPSTracker:
         self.pending_init_pars = {
             'aircraft_reg': settings.get('vehicle', '').strip(),
             'cameraid': get_hardwareid(),
+            'flight_visibility': FLIGHT_VISIBILITY_CODES.get(settings.get('gps_flight_visibility', 'public'), ''),
         }
         
         print(f"Started tracking session with ID: {self.track_id}")

@@ -307,6 +307,12 @@ def flight_settings_save():
         settings['vehicle'] = get_value('vehicle').strip()
     if 'domain' in (data if request.is_json else request.form):
         settings['domain'] = get_value('domain').strip()
+    if 'gps_flight_visibility' in (data if request.is_json else request.form):
+        flight_visibility = get_value('gps_flight_visibility', 'public')
+        if flight_visibility in ['public', 'invisible', 'private']:
+            settings['gps_flight_visibility'] = flight_visibility
+        else:
+            settings['gps_flight_visibility'] = 'public'  # Default fallback
     if 'gps_stream_link' in (data if request.is_json else request.form):
         gps_stream_value = get_value('gps_stream_link', 'off')
         # Handle backward compatibility: convert old boolean values
