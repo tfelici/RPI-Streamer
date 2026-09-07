@@ -38,13 +38,13 @@
 
                 <label for="gps_flight_visibility">Flight Visibility (Privacy Mode)</label>
                 <select id="gps_flight_visibility" name="gps_flight_visibility">
-                    <option value="public" {% if not settings.gps_flight_visibility or settings.gps_flight_visibility == 'public' %}selected{% endif %}>Public - visible on flight radar, notifications sent to followers</option>
-                    <option value="invisible" {% if settings.gps_flight_visibility == 'invisible' %}selected{% endif %}>Invisible - not on radar, viewable only via direct link</option>
-                    <option value="private" {% if settings.gps_flight_visibility == 'private' %}selected{% endif %}>Private - not on radar, viewable only by you</option>
+                    <option value="public" {% if not settings.gps_flight_visibility or settings.gps_flight_visibility == 'public' %}selected{% endif %}>Public</option>
+                    <option value="invisible" {% if settings.gps_flight_visibility == 'invisible' %}selected{% endif %}>Invisible</option>
+                    <option value="private" {% if settings.gps_flight_visibility == 'private' %}selected{% endif %}>Private</option>
                 </select>
                 <small>
                     <strong>Public:</strong> Visible on flight radar, email notifications sent to your friends and members following you.<br>
-                    <strong>Invisible:</strong> Not on radar, email notifications only to your friends, viewable only via direct link.<br>
+                    <strong>Invisible:</strong> Not on radar, email notifications only to your friends only, viewable only via direct link.<br>
                     <strong>Private:</strong> Not on radar, no email notifications, viewable only by you.
                 </small>
 
