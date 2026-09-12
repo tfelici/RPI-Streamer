@@ -528,15 +528,28 @@ echo "✅ journald set to volatile storage, capped at 20M RAM (logs kept in RAM 
 
 # Ensure /tmp is RAM-backed tmpfs (not guaranteed by default on Raspberry Pi OS) - this app
 # writes frequently-updated PID/status/heartbeat files and now some log files to /tmp, and
-# they must never land on the SD card. Enabling systemd's tmp.mount unit is the standard way
-# to make this guaranteed rather than assumed; takes effect on next reboot. Capped at 64M
-# (default would be 50% of RAM) since this app only ever needs a few small rotated log/state
-# files there, not a large chunk of memory.
+# they must never land on the SD card. Some minimal images don't ship systemd's stock
+# tmp.mount template unit at all (systemctl enable would fail with "Unit file tmp.mount
+# does not exist"), so define it ourselves rather than relying on one that may be missing.
+# Capped at 64M (default would be 50% of RAM) since this app only ever needs a few small
+# rotated log/state files there, not a large chunk of memory. Takes effect on next reboot.
 echo "🧠 Ensuring /tmp is RAM-backed tmpfs, capped at 64M (takes effect on next reboot)..."
-sudo systemctl unmask tmp.mount 2>/dev/null || true
-sudo mkdir -p /etc/systemd/system/tmp.mount.d
-sudo tee /etc/systemd/system/tmp.mount.d/99-size-cap.conf >/dev/null << 'EOFTMPMOUNT'
+# Clean up the old drop-in-only approach from an earlier version of this script, if present
+sudo rm -rf /etc/systemd/system/tmp.mount.d
+sudo tee /etc/systemd/system/tmp.mount >/dev/null << 'EOFTMPMOUNT'
+[Unit]
+Description=Temporary Directory (/tmp)
+Documentation=man:hier(7)
+ConditionPathIsSymbolicLink=!/tmp
+DefaultDependencies=no
+Conflicts=umount.target
+Before=local-fs.target umount.target
+After=swap.target
+
 [Mount]
+What=tmpfs
+Where=/tmp
+Type=tmpfs
 Options=mode=1777,strictatime,nosuid,nodev,size=64M
 EOFTMPMOUNT
 sudo systemctl daemon-reload
