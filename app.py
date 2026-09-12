@@ -7,6 +7,7 @@ except ImportError:
     pass
 
 import logging
+import logging.handlers
 import sys
 
 # Configure logging to output to stdout (which systemd will capture)
@@ -50,6 +51,43 @@ def add_no_cache_headers(response):
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+
+_process_log_handlers = {}
+
+def _get_process_logger(name, log_path, max_bytes=1 * 1024 * 1024, backup_count=3):
+    """Logger backed by a size-capped RotatingFileHandler, so subprocess output can't grow /tmp unbounded."""
+    proc_logger = logging.getLogger(f'proclog.{name}')
+    if name not in _process_log_handlers:
+        handler = logging.handlers.RotatingFileHandler(log_path, maxBytes=max_bytes, backupCount=backup_count)
+        handler.setFormatter(logging.Formatter('%(message)s'))
+        proc_logger.addHandler(handler)
+        proc_logger.setLevel(logging.INFO)
+        proc_logger.propagate = False
+        _process_log_handlers[name] = handler
+    return proc_logger
+
+def _pump_subprocess_output(process, proc_logger):
+    """Drain a subprocess's combined stdout/stderr into the rotating log until it exits."""
+    try:
+        for line in iter(process.stdout.readline, ''):
+            if not line:
+                break
+            proc_logger.info(line.rstrip())
+    except Exception:
+        pass
+    finally:
+        try:
+            process.stdout.close()
+        except Exception:
+            pass
+
+def start_logged_subprocess(cmd, log_path, name):
+    """Start a subprocess whose stdout/stderr is piped into a size-capped rotating log file."""
+    proc_logger = _get_process_logger(name, log_path)
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, bufsize=1)
+    threading.Thread(target=_pump_subprocess_output, args=(process, proc_logger), daemon=True).start()
+    return process
 
 def read_stats_file_with_lock(stats_file):
     """
@@ -486,15 +524,13 @@ def start_streaming(mode="both"):
     # Start streaming if needed
     if need_streaming:
         # Start relay-ffmpeg.py asynchronously with log output (unbuffered)
-        relay_log = open('/tmp/relay-ffmpeg.log', 'w')
-        subprocess.Popen(['python', '-u', 'relay-ffmpeg.py', 'webcam'], 
-                        stdout=relay_log, stderr=subprocess.STDOUT)
+        start_logged_subprocess(['python', '-u', 'relay-ffmpeg.py', 'webcam'],
+                                 '/tmp/relay-ffmpeg.log', 'relay-ffmpeg')
     
     # Start recording if needed
     if need_recording:
-        record_log = open('/tmp/relay-ffmpeg-record.log', 'w')
-        subprocess.Popen(['python', '-u', 'relay-ffmpeg-record.py', 'webcam'], 
-                        stdout=record_log, stderr=subprocess.STDOUT)
+        start_logged_subprocess(['python', '-u', 'relay-ffmpeg-record.py', 'webcam'],
+                                 '/tmp/relay-ffmpeg-record.log', 'relay-ffmpeg-record')
     
     # Return appropriate success message based on what was actually started
     started_components = []
@@ -599,10 +635,8 @@ def start_flight():
     
     # Start GPS tracker with log output (unbuffered)
     try:
-        gps_log = open('/tmp/gps_tracker.log', 'w')
-        subprocess.Popen(['python', '-u', 'gps_tracker.py', username, 
-                         '--domain', domain], 
-                        stdout=gps_log, stderr=subprocess.STDOUT)
+        start_logged_subprocess(['python', '-u', 'gps_tracker.py', username, '--domain', domain],
+                                 '/tmp/gps_tracker.log', 'gps_tracker')
         logger.info(f"Started GPS tracker process")
     except Exception as e:
         return False, f'Failed to start GPS tracker process: {e}', 500
