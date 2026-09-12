@@ -551,6 +551,9 @@ What=tmpfs
 Where=/tmp
 Type=tmpfs
 Options=mode=1777,strictatime,nosuid,nodev,size=64M
+
+[Install]
+WantedBy=local-fs.target
 EOFTMPMOUNT
 sudo systemctl daemon-reload
 sudo systemctl enable tmp.mount
