@@ -521,18 +521,27 @@ sudo mkdir -p /etc/systemd/journald.conf.d
 sudo tee /etc/systemd/journald.conf.d/99-volatile.conf >/dev/null << 'EOFJOURNALD'
 [Journal]
 Storage=volatile
+RuntimeMaxUse=20M
 EOFJOURNALD
 sudo systemctl restart systemd-journald
-echo "✅ journald set to volatile storage (logs kept in RAM only, cleared on reboot)"
+echo "✅ journald set to volatile storage, capped at 20M RAM (logs kept in RAM only, cleared on reboot)"
 
 # Ensure /tmp is RAM-backed tmpfs (not guaranteed by default on Raspberry Pi OS) - this app
 # writes frequently-updated PID/status/heartbeat files and now some log files to /tmp, and
 # they must never land on the SD card. Enabling systemd's tmp.mount unit is the standard way
-# to make this guaranteed rather than assumed; takes effect on next reboot.
-echo "🧠 Ensuring /tmp is RAM-backed tmpfs (takes effect on next reboot)..."
+# to make this guaranteed rather than assumed; takes effect on next reboot. Capped at 64M
+# (default would be 50% of RAM) since this app only ever needs a few small rotated log/state
+# files there, not a large chunk of memory.
+echo "🧠 Ensuring /tmp is RAM-backed tmpfs, capped at 64M (takes effect on next reboot)..."
 sudo systemctl unmask tmp.mount 2>/dev/null || true
+sudo mkdir -p /etc/systemd/system/tmp.mount.d
+sudo tee /etc/systemd/system/tmp.mount.d/99-size-cap.conf >/dev/null << 'EOFTMPMOUNT'
+[Mount]
+Options=mode=1777,strictatime,nosuid,nodev,size=64M
+EOFTMPMOUNT
+sudo systemctl daemon-reload
 sudo systemctl enable tmp.mount
-echo "✅ /tmp will be mounted as tmpfs after the next reboot"
+echo "✅ /tmp will be mounted as tmpfs (64M cap) after the next reboot"
 
 # Update and install dependencies
 sudo apt-get update -y
