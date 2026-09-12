@@ -1316,6 +1316,7 @@ def system_settings_power():
     try:
         data = request.get_json()
         sleep_time = data.get('power_monitor_sleep_time')
+        low_battery_percent = data.get('power_monitor_low_battery_percent')
         
         if sleep_time is None:
             return jsonify({'success': False, 'error': 'Power monitor sleep time is required.'})
@@ -1324,9 +1325,16 @@ def system_settings_power():
         if not isinstance(sleep_time, int) or sleep_time < 0 or sleep_time > 3600:
             return jsonify({'success': False, 'error': 'Sleep time must be between 0 and 3600 seconds.'})
         
+        # Validate the low battery shutdown threshold (0 disables the safety net)
+        if low_battery_percent is None:
+            low_battery_percent = DEFAULT_SETTINGS['power_monitor_low_battery_percent']
+        if not isinstance(low_battery_percent, int) or low_battery_percent < 0 or low_battery_percent > 100:
+            return jsonify({'success': False, 'error': 'Low battery shutdown threshold must be between 0 and 100 percent.'})
+        
         # Load current settings, update power setting, and save
         settings = load_settings()
         settings['power_monitor_sleep_time'] = sleep_time
+        settings['power_monitor_low_battery_percent'] = low_battery_percent
         save_settings(settings)
         
         if sleep_time == 0:
@@ -2451,7 +2459,7 @@ def active_recordings():
 @app.route('/ups-monitor-log')
 def ups_monitor_log():
     """Serve the UPS monitor log file for viewing."""
-    log_file_path = '/var/log/ups-monitor.log'
+    log_file_path = '/tmp/ups-monitor.log'
     
     try:
         # Check if log file exists

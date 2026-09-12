@@ -215,6 +215,13 @@
                     <p class="help-text" style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: var(--text-secondary);">
                         Time to wait before shutting down when power is lost (0 = disable power monitoring). Shutdown is disabled while streaming,recording or GPS tracking is active.
                     </p>
+                    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem;">
+                        <label for="power-low-battery-percent" style="margin: 0; font-weight: bold;">Low Battery Shutdown (%):</label>
+                        <input type="number" id="power-low-battery-percent" name="power_monitor_low_battery_percent" min="0" max="100" step="1" required style="width: 100px;">
+                    </div>
+                    <p class="help-text" style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: var(--text-secondary);">
+                        Forces a graceful shutdown at this battery level even while streaming, recording, or GPS tracking is active, so a prolonged outage always ends in a clean shutdown instead of the battery running out completely (0 = disable this safety net).
+                    </p>
                     <div id="power-settings-result" class="status-message" style="display: none;"></div>
                 </form>
             </div>
@@ -310,6 +317,7 @@
             }
             if (data.settings) {
                 document.getElementById('power-sleep-time').value = data.settings.power_monitor_sleep_time || '';
+                document.getElementById('power-low-battery-percent').value = data.settings.power_monitor_low_battery_percent ?? 15;
             }
             if (data.cellular) {
                 document.getElementById('cellular-apn').value = data.cellular.cellular_apn || 'internet';
@@ -840,11 +848,19 @@
             const resultDiv = document.getElementById('power-settings-result');
             const submitBtn = e.target.querySelector('button[type="submit"]');
             const sleepTimeInput = document.getElementById('power-sleep-time');
+            const lowBatteryInput = document.getElementById('power-low-battery-percent');
             
             // Validate input
             const sleepTime = parseInt(sleepTimeInput.value);
             if (isNaN(sleepTime) || sleepTime < 0 || sleepTime > 3600) {
                 resultDiv.textContent = 'Grace period must be between 0 and 3600 seconds';
+                resultDiv.className = 'status-message status-error';
+                resultDiv.style.display = 'block';
+                return;
+            }
+            const lowBatteryPercent = parseInt(lowBatteryInput.value);
+            if (isNaN(lowBatteryPercent) || lowBatteryPercent < 0 || lowBatteryPercent > 100) {
+                resultDiv.textContent = 'Low battery shutdown threshold must be between 0 and 100 percent';
                 resultDiv.className = 'status-message status-error';
                 resultDiv.style.display = 'block';
                 return;
@@ -860,7 +876,8 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    power_monitor_sleep_time: sleepTime
+                    power_monitor_sleep_time: sleepTime,
+                    power_monitor_low_battery_percent: lowBatteryPercent
                 })
             }).then(r => r.json()).then(data => {
                 let message;

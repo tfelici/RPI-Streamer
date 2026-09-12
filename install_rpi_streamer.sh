@@ -463,26 +463,26 @@ case "$ACTION" in
     up)
         if [[ "$INTERFACE" == "eth0" ]]; then
             # Ethernet is up - ensure it has the default route
-            echo "$(date): Ethernet interface $INTERFACE is up - setting as primary route" >> /var/log/network-priority.log
+            echo "$(date): Ethernet interface $INTERFACE is up - setting as primary route" >> /tmp/network-priority.log
             # Remove any default route from cellular interfaces
             ip route del default dev $(ip route | grep 'default.*wwan' | awk '{print $5}') 2>/dev/null || true
             # Ensure ethernet default route exists with lower metric
             ip route add default via $(ip route | grep "^default.*$INTERFACE" | awk '{print $3}') dev $INTERFACE metric 100 2>/dev/null || true
         elif [[ "$INTERFACE" =~ wwan[0-9]+ ]]; then
             # Cellular interface is up
-            echo "$(date): Cellular interface $INTERFACE is up" >> /var/log/network-priority.log
+            echo "$(date): Cellular interface $INTERFACE is up" >> /tmp/network-priority.log
             # Only add cellular default route if no ethernet route exists
             if ! ip route | grep -q "default.*eth0"; then
-                echo "$(date): No ethernet route found - allowing cellular default route" >> /var/log/network-priority.log
+                echo "$(date): No ethernet route found - allowing cellular default route" >> /tmp/network-priority.log
             else
-                echo "$(date): Ethernet route exists - cellular will be backup only" >> /var/log/network-priority.log
+                echo "$(date): Ethernet route exists - cellular will be backup only" >> /tmp/network-priority.log
             fi
         fi
         ;;
     down)
         if [[ "$INTERFACE" == "eth0" ]]; then
             # Ethernet is down - allow cellular to take over
-            echo "$(date): Ethernet interface $INTERFACE is down - allowing cellular takeover" >> /var/log/network-priority.log
+            echo "$(date): Ethernet interface $INTERFACE is down - allowing cellular takeover" >> /tmp/network-priority.log
         fi
         ;;
 esac
@@ -491,9 +491,9 @@ EOFDISPATCHER
 # Make dispatcher script executable
 sudo chmod +x /etc/NetworkManager/dispatcher.d/99-interface-priority
 
-# Create log file for network priority events
-sudo touch /var/log/network-priority.log
-sudo chmod 644 /var/log/network-priority.log
+# Create log file for network priority events (tmpfs, not persisted to SD card)
+sudo touch /tmp/network-priority.log
+sudo chmod 644 /tmp/network-priority.log
 
 # Note: NetworkManager will automatically pick up new connection files
 # We avoid reloading NetworkManager during installation to prevent network disruption
@@ -512,8 +512,27 @@ echo "   • Only WiFi client connected: Traffic routes via WiFi client (route m
 echo "   • WiFi Hotspot active: Provides local access without interfering with internet routing"
 echo "   • Multiple connections: Automatic priority-based routing (ethernet > cellular > wifi client > hotspot)"
 echo "   • Interface failover: Automatic failover to next priority when primary disconnects"
-echo "💾 Network priority events logged to: /var/log/network-priority.log"
+echo "💾 Network priority events logged to: /tmp/network-priority.log"
 echo ""
+
+# Make systemd-journald RAM-only (volatile) so no service logs persist to the SD card
+echo "🧠 Configuring systemd-journald for volatile (RAM-only) log storage..."
+sudo mkdir -p /etc/systemd/journald.conf.d
+sudo tee /etc/systemd/journald.conf.d/99-volatile.conf >/dev/null << 'EOFJOURNALD'
+[Journal]
+Storage=volatile
+EOFJOURNALD
+sudo systemctl restart systemd-journald
+echo "✅ journald set to volatile storage (logs kept in RAM only, cleared on reboot)"
+
+# Ensure /tmp is RAM-backed tmpfs (not guaranteed by default on Raspberry Pi OS) - this app
+# writes frequently-updated PID/status/heartbeat files and now some log files to /tmp, and
+# they must never land on the SD card. Enabling systemd's tmp.mount unit is the standard way
+# to make this guaranteed rather than assumed; takes effect on next reboot.
+echo "🧠 Ensuring /tmp is RAM-backed tmpfs (takes effect on next reboot)..."
+sudo systemctl unmask tmp.mount 2>/dev/null || true
+sudo systemctl enable tmp.mount
+echo "✅ /tmp will be mounted as tmpfs after the next reboot"
 
 # Update and install dependencies
 sudo apt-get update -y
@@ -1560,7 +1579,7 @@ echo ""
 echo "🌐 Network Priority Configuration:"
 echo "   🥇 Ethernet (eth0): Primary connection with highest priority"
 echo "   🥈 Cellular (wwan*): Backup connection with automatic failover"
-echo "   📊 Priority logs: tail -f /var/log/network-priority.log"
+echo "   📊 Priority logs: tail -f /tmp/network-priority.log"
 echo "   🔧 Network status: nmcli connection show"
 echo ""
 echo "🚀 Services installed and running:"
@@ -1597,7 +1616,7 @@ echo "   nmcli connection show                              # Show all connectio
 echo "   ip route show                                      # Show routing table"
 echo "   ping -I eth0 8.8.8.8                             # Test ethernet connectivity"
 echo "   ping -I wwan0 8.8.8.8                            # Test cellular connectivity"
-echo "   tail -f /var/log/network-priority.log             # Monitor network priority events"
+echo "   tail -f /tmp/network-priority.log             # Monitor network priority events"
 echo ""
 echo "🛰️ GPS Testing Commands:"
 echo "   python3 $HOME/flask_app/gps_client.py --status    # Check daemon status"

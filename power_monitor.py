@@ -7,6 +7,13 @@ The grace period before shutdown is configurable through settings.json:
 - power_monitor_sleep_time: Grace period in seconds
 - Set to 0 or remove to disable power monitoring entirely
 
+While streaming/recording/GPS tracking is active, shutdown is normally skipped so the
+activity isn't interrupted - but power_monitor_low_battery_percent (default 15) forces an
+immediate graceful shutdown once the battery drops to/below that level regardless of
+activity, so a prolonged outage always ends in a clean shutdown rather than the battery
+running out completely (an uncontrolled hard power-off that risks SD card corruption).
+Set power_monitor_low_battery_percent to 0 to disable this safety net.
+
 When power monitoring is disabled, the script will still log UPS status
 but will not perform any shutdown actions on power loss.
 """
@@ -32,13 +39,13 @@ args = parser.parse_args()
 
 # Configure logging based on mode
 if args.daemon:
-    # Daemon mode: log to both console and file
+    # Daemon mode: log to both console and file (tmpfs, not persisted to SD card)
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(),
-            RotatingFileHandler('/var/log/ups-monitor.log', maxBytes=1024*1024, backupCount=3)
+            RotatingFileHandler('/tmp/ups-monitor.log', maxBytes=1024*1024, backupCount=3)
         ]
     )
 else:
@@ -136,10 +143,17 @@ try:
                 gps_active = is_gps_tracking()
                 is_active = streaming_active or recording_active or gps_active
                 
-                if is_active:                    
+                if is_active:
+                    # Safety net: never let the battery run all the way down while we're skipping
+                    # shutdown for an active activity - a full battery drain is an uncontrolled hard
+                    # power-off (SD card corruption risk), which is worse than ending early cleanly.
+                    low_battery_percent = settings.get('power_monitor_low_battery_percent')
+                    if low_battery_percent and capacity is not None and capacity <= low_battery_percent:
+                        logging.critical(f"Battery at {capacity:.1f}% (<= {low_battery_percent}% threshold) while streaming/recording/GPS tracking is active. Forcing shutdown now to avoid an uncontrolled power loss.")
+                        call("sudo nohup shutdown -h now", shell=True)
                     # Check if GPS tracking should be stopped after timeout
                     #only do this if power was not already lost at startup
-                    if (gps_active and 
+                    elif (gps_active and 
                         settings['gps_stop_on_power_loss'] and
                         not power_unplugged_at_startup):
                         

@@ -1481,7 +1481,7 @@ def main():
     
     # Configure logging with rotation to keep logs under 1MB
     log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    log_file = '/var/log/gps_daemon.log' if args.daemon else 'gps_daemon.log'
+    log_file = '/tmp/gps_daemon.log' if args.daemon else 'gps_daemon.log'
     
     # Create rotating file handler
     file_handler = RotatingFileHandler(
