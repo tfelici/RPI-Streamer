@@ -495,7 +495,7 @@ toggle_power_monitor() {
     # Check if service exists
     if ! systemctl list-unit-files | grep -q ups-monitor.service; then
         print_error "UPS Monitor service not found!"
-        print_info "Install UPS management first using install_ups_management.sh"
+        print_info "Install UPS management first: run install_rpi_streamer.sh --ups"
         return 1
     fi
     

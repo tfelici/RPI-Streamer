@@ -8,6 +8,7 @@
 #   --daemon          Run in daemon mode (no interactive prompts)
 #   --check-updates   Check for updates and return JSON with changed files (no installation)
 #   --no-restart      Skip restarting flask_app service (for internal updates)
+#   --ups             Install/update UPS power management (Geekworm-style HAT) non-interactively
 #
 # Examples:
 #   bash install_rpi_streamer.sh                     # Basic installation with main branch
@@ -15,6 +16,7 @@
 #   bash install_rpi_streamer.sh --daemon           # Silent installation without prompts
 #   bash install_rpi_streamer.sh --check-updates    # Return JSON with files that need updating
 #   bash install_rpi_streamer.sh --no-restart       # Update without restarting flask_app
+#   bash install_rpi_streamer.sh --ups              # Install/update UPS power management
 
 # This script installs the RPI Streamer Flask app and MediaMTX on a Raspberry Pi running Raspberry Pi OS Lite.
 # It also sets up a systemd service for the Flask app and MediaMTX, with optional remote access configuration.
@@ -1586,6 +1588,148 @@ setup_remote_access_menu() {
     esac
 }
 
+# Installs/updates UPS power monitoring support (Geekworm-style HAT via power_monitor.py) -
+# merged from the former standalone install_ups_management.sh so one installer handles
+# everything. Idempotent, so safe to re-run (e.g. from --daemon mode to keep an
+# already-installed UPS setup in sync with the rest of the codebase).
+install_ups_management() {
+    echo ""
+    echo "🔋 Installing UPS power monitoring support..."
+
+    echo "📦 Installing UPS monitoring dependencies..."
+    sudo apt-get install -y python3-pip i2c-tools rpi-eeprom python3-libgpiod
+
+    echo "⚙️ Updating EEPROM config (POWER_OFF_ON_HALT / PSU_MAX_CURRENT)..."
+    local UPS_TMPDIR
+    UPS_TMPDIR=$(mktemp -d)
+    (
+        cd "$UPS_TMPDIR"
+
+        # Dump current EEPROM config
+        sudo rpi-eeprom-config > bootconf.txt
+
+        if grep -q "^POWER_OFF_ON_HALT=" bootconf.txt; then
+            sed -i 's/^POWER_OFF_ON_HALT=.*/POWER_OFF_ON_HALT=1/' bootconf.txt
+        else
+            echo "POWER_OFF_ON_HALT=1" >> bootconf.txt
+        fi
+
+        if grep -q "^PSU_MAX_CURRENT=" bootconf.txt; then
+            sed -i 's/^PSU_MAX_CURRENT=.*/PSU_MAX_CURRENT=5000/' bootconf.txt
+        else
+            echo "PSU_MAX_CURRENT=5000" >> bootconf.txt
+        fi
+
+        echo "🔍 Finding EEPROM image..."
+        EEPROM_IMAGE=""
+        if ls /lib/firmware/raspberrypi/bootloader/stable/pieeprom-*.bin 1> /dev/null 2>&1; then
+            EEPROM_IMAGE="$(ls -1 /lib/firmware/raspberrypi/bootloader/stable/pieeprom-*.bin | sort | tail -n 1)"
+            echo "Found stable EEPROM image: $EEPROM_IMAGE"
+        elif ls /lib/firmware/raspberrypi/bootloader/latest/pieeprom-*.bin 1> /dev/null 2>&1; then
+            EEPROM_IMAGE="$(ls -1 /lib/firmware/raspberrypi/bootloader/latest/pieeprom-*.bin | sort | tail -n 1)"
+            echo "Found latest EEPROM image: $EEPROM_IMAGE"
+        elif [ -f /lib/firmware/raspberrypi/bootloader/latest/pieeprom.bin ]; then
+            EEPROM_IMAGE="/lib/firmware/raspberrypi/bootloader/latest/pieeprom.bin"
+            echo "Found pieeprom.bin: $EEPROM_IMAGE"
+        else
+            echo "No EEPROM image found, using rpi-eeprom-config direct method..."
+            if sudo rpi-eeprom-config --config bootconf.txt --out pieeprom.upd; then
+                if [ -f pieeprom.upd ]; then
+                    echo "⚡ Flashing EEPROM..."
+                    sudo cp pieeprom.upd /boot/firmware/pieeprom.upd 2>/dev/null || sudo cp pieeprom.upd /boot/pieeprom.upd
+                    sudo rpi-eeprom-update -d -f pieeprom.upd
+                else
+                    echo "Error: pieeprom.upd was not created successfully. Trying alternative method..."
+                fi
+            else
+                echo "Error: rpi-eeprom-config failed. Trying alternative method..."
+            fi
+
+            if [ ! -f pieeprom.upd ]; then
+                echo "Creating temporary config script..."
+                cat > update_eeprom.sh << 'EOFUPSEEPROM'
+#!/bin/bash
+TMPCONF=$(mktemp)
+sudo rpi-eeprom-config > "$TMPCONF"
+if ! grep -q "^POWER_OFF_ON_HALT=" "$TMPCONF"; then
+    echo "POWER_OFF_ON_HALT=1" >> "$TMPCONF"
+else
+    sed -i 's/^POWER_OFF_ON_HALT=.*/POWER_OFF_ON_HALT=1/' "$TMPCONF"
+fi
+if ! grep -q "^PSU_MAX_CURRENT=" "$TMPCONF"; then
+    echo "PSU_MAX_CURRENT=5000" >> "$TMPCONF"
+else
+    sed -i 's/^PSU_MAX_CURRENT=.*/PSU_MAX_CURRENT=5000/' "$TMPCONF"
+fi
+sudo rpi-eeprom-config --apply "$TMPCONF"
+rm -f "$TMPCONF"
+EOFUPSEEPROM
+                chmod +x update_eeprom.sh
+                if ./update_eeprom.sh; then
+                    echo "EEPROM updated using alternative method."
+                else
+                    echo "Warning: Could not update EEPROM. You may need to manually run: sudo rpi-eeprom-config --edit"
+                fi
+                rm -f update_eeprom.sh
+            fi
+            EEPROM_IMAGE="SKIP"
+        fi
+
+        if [ "$EEPROM_IMAGE" != "SKIP" ] && [ -n "$EEPROM_IMAGE" ]; then
+            sudo rpi-eeprom-config --out pieeprom.upd --config bootconf.txt "$EEPROM_IMAGE"
+            echo "⚡ Flashing EEPROM..."
+            sudo rpi-eeprom-update -d -f pieeprom.upd
+        fi
+    )
+    rm -rf "$UPS_TMPDIR"
+
+    # Enable I2C in /boot/firmware/config.txt
+    local CONFIG_FILE="/boot/firmware/config.txt"
+    echo "🔧 Enabling I2C in config.txt..."
+    if ! grep -q "^dtparam=i2c_arm=on" "$CONFIG_FILE"; then
+        echo "dtparam=i2c_arm=on" | sudo tee -a "$CONFIG_FILE" > /dev/null
+    fi
+
+    # Ensure i2c-dev module loads at boot
+    local MODULES_FILE="/etc/modules"
+    echo "🔧 Ensuring i2c-dev is in /etc/modules..."
+    if ! grep -q "^i2c-dev" "$MODULES_FILE"; then
+        echo "i2c-dev" | sudo tee -a "$MODULES_FILE" > /dev/null
+    fi
+
+    echo "⚙️ Creating systemd service for UPS monitoring..."
+    sudo tee /etc/systemd/system/ups-monitor.service > /dev/null << EOF
+[Unit]
+Description=UPS Power Monitor
+Documentation=man:power_monitor.py
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$HOME/flask_app
+ExecStart=/usr/bin/python3 $HOME/flask_app/power_monitor.py --daemon
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+KillMode=process
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable ups-monitor.service
+
+    echo "✅ UPS monitor service installed and enabled."
+    echo "🔄 EEPROM changes (if any) require a reboot to take effect."
+    echo "▶️ To start it now, run: sudo systemctl start ups-monitor.service"
+    echo "📊 To check status, run: sudo systemctl status ups-monitor.service"
+}
+
 # Print completion message
 echo ""
 echo "🎉 RPI STREAMER INSTALLATION COMPLETED!"
@@ -1649,9 +1793,9 @@ echo "   python3 $HOME/flask_app/gps_client.py --location  # Get current locatio
 echo "   sudo journalctl -u gps-daemon -f                  # View daemon logs"
 echo ""
 echo "🔋 Optional UPS Management:"
-echo "   Install UPS monitoring for battery backup systems:"
-echo "   curl -H \"Cache-Control: no-cache\" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/$BRANCH_NAME/install_ups_management.sh"
-echo "   bash install_ups_management.sh"
+echo "   Configure EEPROM power settings and install battery monitoring for a UPS HAT"
+echo "   (e.g. Geekworm X1200) - you'll be prompted below, or run non-interactively with:"
+echo "   bash install_rpi_streamer.sh --ups"
 
 # Generate unique hardware identifier and register hardware
 echo ""
@@ -1674,6 +1818,46 @@ if [[ "$@" == *"--daemon"* ]]; then
     echo "🤖 Running in daemon mode - skipping remote access setup"
 else
     setup_remote_access_menu
+fi
+
+# UPS Power Management Setup - --ups forces it non-interactively; in --daemon mode it only
+# reruns (to stay in sync with the codebase) if it was already installed on a previous run.
+echo ""
+echo "=========================================="
+echo "🔋 UPS POWER MANAGEMENT"
+echo "=========================================="
+echo ""
+
+if [[ "$@" == *"--ups"* ]]; then
+    echo "🔌 --ups flag provided - installing UPS power management..."
+    install_ups_management
+elif [[ "$@" == *"--daemon"* ]]; then
+    if systemctl list-unit-files 2>/dev/null | grep -q ups-monitor.service; then
+        echo "🤖 Running in daemon mode - UPS management already installed, keeping it up to date"
+        install_ups_management
+    else
+        echo "🤖 Running in daemon mode - UPS management not previously installed, skipping"
+    fi
+else
+    echo "Does this device have a UPS HAT attached (e.g. Geekworm X1200)?"
+    echo "This configures EEPROM power settings and installs a battery monitoring service."
+    echo ""
+    echo "Options:"
+    echo "  1) No - Skip UPS management setup (default)"
+    echo "  2) Yes - Install UPS power management now"
+    echo ""
+    read -p "Enter your choice (1-2) [1]: " ups_choice
+    ups_choice=${ups_choice:-1}
+
+    case $ups_choice in
+        2)
+            install_ups_management
+            ;;
+        *)
+            echo "Skipping UPS management setup"
+            echo "   You can install it later by running: bash install_rpi_streamer.sh --ups"
+            ;;
+    esac
 fi
 
 # WiFi Hotspot Setup Option

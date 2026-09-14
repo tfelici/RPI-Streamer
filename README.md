@@ -315,18 +315,12 @@ The RPI Streamer includes optional UPS (Uninterruptible Power Supply) monitoring
 
 ### Installation
 
-Install UPS management **before** the main RPI Streamer installation:
+UPS management is now built into the main installer (`install_rpi_streamer.sh`) rather than a
+separate script. It's offered interactively during installation, or can be installed/updated
+non-interactively at any time with:
 
-#### Latest Development Version
 ```sh
-curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/develop/install_ups_management.sh?$(date +%s)
-bash install_ups_management.sh
-```
-
-#### Stable Version
-```sh
-curl -H "Cache-Control: no-cache" -O https://raw.githubusercontent.com/tfelici/RPI-Streamer/main/install_ups_management.sh?$(date +%s)
-bash install_ups_management.sh
+bash install_rpi_streamer.sh --ups
 ```
 
 ### Supported Hardware
