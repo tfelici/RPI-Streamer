@@ -1596,6 +1596,14 @@ install_ups_management() {
     echo ""
     echo "🔋 Installing UPS power monitoring support..."
 
+    # rpi-eeprom only exists in Raspberry Pi OS's apt repos - if it's missing (e.g. running in a
+    # VM/non-Pi OS rather than on real Raspberry Pi hardware), there's no EEPROM to configure and
+    # no point installing the rest, so bail out gracefully instead of letting apt-get fail under set -e.
+    if ! apt-cache show rpi-eeprom >/dev/null 2>&1; then
+        echo "⚠️  rpi-eeprom package not found (not running on Raspberry Pi OS/hardware) - skipping UPS management setup."
+        return 0
+    fi
+
     echo "📦 Installing UPS monitoring dependencies..."
     sudo apt-get install -y python3-pip i2c-tools rpi-eeprom python3-libgpiod
 
