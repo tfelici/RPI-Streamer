@@ -420,7 +420,6 @@ The simulation mode creates a realistic circular flight path:
 The tracker communicates with the configured flight server domain (gyropilots.org or gapilots.org) at `/trackflight.php` using:
 
 - `command: 'addpoints'` - Sync GPS coordinates
-- `command: 'trackingended'` - Signal end of tracking session
 
 Data format matches exactly what the mobile app sends.
 
