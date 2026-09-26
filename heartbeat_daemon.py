@@ -1046,8 +1046,26 @@ def handle_settings_update_command(action, command_data=None):
             if settings_updated:
                 # Save updated settings
                 try:
+                    # Load the original settings before saving the new ones
+                    orig_settings = load_settings()
+                    old_gps_start_mode = orig_settings.get('gps_start_mode', 'manual')
+                    old_gps_source = orig_settings.get('gps_source', 'hardware')
+                    # now save the updated settings
                     save_settings(current_settings)
                     logger.info(f"Settings updated successfully. Changed: {', '.join(updated_keys)}")
+
+                    # Restart GPS startup service if the start mode or GPS source changed
+                    # Service is always enabled but will check settings to determine behavior
+                    new_gps_start_mode = current_settings['gps_start_mode']
+                    new_gps_source = current_settings.get('gps_source', 'hardware')
+                    if old_gps_start_mode != new_gps_start_mode or old_gps_source != new_gps_source:
+                        try:
+                            # Always restart the service to pick up new settings
+                            subprocess.run(['sudo', 'systemctl', 'restart', 'gps-startup.service'], check=False)
+                            logger.info(f"GPS startup service restarted for mode: {new_gps_start_mode}, source: {new_gps_source}")
+                        except Exception as e:
+                            logger.warning(f"Could not restart GPS startup service: {e}")
+
                 except Exception as save_error:
                     logger.error(f"Failed to save updated settings: {save_error}")
             else:

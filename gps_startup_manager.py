@@ -19,7 +19,7 @@ from datetime import datetime
 # Add the RPI Streamer directory to the path so we can import utils
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils import is_gps_tracking, get_streamer_settings, load_settings
+from utils import is_gps_tracking, load_settings
 from gps_client import get_gnss_location
 from motion_detection import wait_for_motion
 import math
@@ -157,18 +157,7 @@ def main():
         return
 
     try:
-        # Sync flight parameters from server and load/update settings
-        logger.info("Syncing flight parameters from server...")
-        success, settings, response_data = get_streamer_settings(
-            logger, 
-            poll_until_success=False
-        )
-        
-        if success:
-            logger.info("Flight parameters synced successfully from server")
-        else:
-            logger.warning("Failed to sync flight parameters from server, using local settings")
-
+        settings = load_settings()
         gps_start_mode = settings.get('gps_start_mode', 'manual')
 
         logger.info(f"GPS start mode: {gps_start_mode}")
