@@ -1023,6 +1023,8 @@ def handle_settings_update_command(action, command_data=None):
             
             # Load current settings
             current_settings = load_settings()
+            # Keep a copy of the original settings for comparison
+            orig_settings = current_settings.copy()
             
             # Update settings with new values
             settings_updated = False
@@ -1046,8 +1048,7 @@ def handle_settings_update_command(action, command_data=None):
             if settings_updated:
                 # Save updated settings
                 try:
-                    # Load the original settings before saving the new ones
-                    orig_settings = load_settings()
+
                     old_gps_start_mode = orig_settings.get('gps_start_mode', 'manual')
                     old_gps_source = orig_settings.get('gps_source', 'hardware')
                     # now save the updated settings
